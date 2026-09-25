@@ -274,5 +274,14 @@ def install(p: Prefix, installer: Path, reporter=None) -> int:
     cp = p.run(argv, timeout=7200, capture=False)
     (r.ok if cp.returncode == 0 else r.fail)(f"exit {cp.returncode}")
     for prog in installed(p):                      # quirks for whatever just appeared
-        if prog.install_dir: quirks.apply(p, prog.name, prog.install_dir, r)
+        if not prog.install_dir: continue
+        done = quirks.apply(p, prog.name, prog.install_dir, r)
+        # Installers offer "run it now" and start the program before this point:
+        # that instance has neither the bundle edits nor the launch arguments
+        # (IK Product Manager's first run then fails every request). Replace it.
+        if prog.exe and (done or quirks.launch_args(p, prog.name, prog.install_dir)):
+            exe = prog.exe.rsplit("\\", 1)[-1]
+            if p.is_running(exe):
+                r.log(f"{prog.name}: the installer started it without its fixes; restarting it with them")
+                p.kill_exe(exe); run(p, prog, r)
     return cp.returncode

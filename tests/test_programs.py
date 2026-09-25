@@ -111,3 +111,31 @@ class UninstallArgvTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InstallerAutoLaunchTest(unittest.TestCase):
+    """An installer's "run it now" starts the program before its quirks are
+    applied; that instance must be replaced by one started with the fixes."""
+    def _install(self, running):
+        import subprocess, tempfile
+        from unittest import mock
+        from vstenv import quirks
+        from vstenv.wine import Prefix, WineBuild
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Prefix(Path(tmp) / "prefix", WineBuild(Path(tmp) / "wine"))
+            inst = Path(tmp) / "setup.exe"; inst.write_bytes(b"MZ")
+            prog = programs.Program(name="IK Product Manager", exe=r"C:\Program Files\IK\IK Product Manager.exe", install_dir=r"C:\Program Files\IK")
+            with mock.patch.object(p, "run", return_value=subprocess.CompletedProcess([], 0)), \
+                 mock.patch.object(programs, "installed", return_value=[prog]), \
+                 mock.patch.object(quirks, "apply", return_value=["os-info patched"]), \
+                 mock.patch.object(quirks, "launch_args", return_value=["--disable-gpu"]), \
+                 mock.patch.object(p, "is_running", return_value=running), \
+                 mock.patch.object(p, "kill_exe") as kill, mock.patch.object(programs, "run") as run:
+                programs.install(p, inst)
+                return kill, run
+    def test_auto_started_instance_is_replaced(self):
+        kill, run = self._install(running=True)
+        kill.assert_called_once_with("IK Product Manager.exe"); self.assertEqual(run.call_count, 1)
+    def test_nothing_started_means_nothing_restarted(self):
+        kill, run = self._install(running=False)
+        kill.assert_not_called(); run.assert_not_called()
