@@ -3,12 +3,19 @@
 The Steinberg Download Assistant (SDA) is a JavaFX application with its own
 Java runtime. Two things break under Wine (found with SDA 1.40.1, 2026-09-25):
 
-- Text renders as blobs. JavaFX rasterises glyphs through DirectWrite into a
-  Direct2D render target; Wine's Direct2D draws through D3D11, and with DXVK
-  serving D3D11 every glyph fails (DWGlyph.createRenderingTarget throws a
-  NullPointerException, 300 times per screen). Giving this one executable
-  Wine's built-in D3D11, DXGI, D3D10 and D3D9 through a per-application
-  DllOverrides key makes the text render; DXVK stays in place for the plugins.
+- Text renders as blobs, then as heavy jagged glyphs. Two layers:
+  (1) JavaFX rasterises some glyphs through Direct2D; Wine's Direct2D draws
+  through D3D11, and with DXVK serving D3D11 every such glyph fails
+  (DWGlyph.createRenderingTarget NullPointerException, 300 per screen).
+  A per-application DllOverrides key giving this one exe Wine's built-in
+  D3D11/DXGI/D3D10/D3D9 fixes that; DXVK stays in place for the plugins.
+  (2) Most glyphs go through JavaFX's ClearType path: it asks DirectWrite for
+  the three-subpixel texture and composites it as LCD text. Wine fills that
+  texture by copying one grey coverage value into all three subpixels, and
+  JavaFX's LCD blending turns it into bold, aliased text. `-Dprism.lcdtext=false`
+  makes JavaFX use grey masks and the text is clean. It must go into the
+  launcher's [JVMOptions]: [JVMUserOptions] is only read into the user's Java
+  preferences on the first run and ignored afterwards.
 - Sign-in never comes back (SDA and the Activation Manager alike). SDA opens the Steinberg ID login in the system
   browser; the flow page ends by opening a net-steinberg-sda:// link, which
   starts a second SDA instance that hands the URL to the running one over its
@@ -47,19 +54,53 @@ SCHEME = "net-steinberg-sda"
 SAM_SCHEME = "net-steinberg-activation-manager"
 SAM_EXE = r"C:\Program Files\Steinberg\Activation Manager\SteinbergActivationManager.exe"
 
-def text_fix_applied(p: Prefix) -> bool:
-    cur = p.reg_query(OVERRIDES_KEY)
-    return all(cur.get(d) == "builtin" for d in OVERRIDES)
+JVM_OPTIONS = ("-Dprism.lcdtext=false",)     # grey text masks: see the module docstring
+CFG_MARK = "# vstenv: grey text masks (Wine fills ClearType textures with grey; JavaFX's LCD blending makes them bold and jagged)"
 
-def apply_text_fix(p: Prefix, reporter=None) -> bool:
+def launcher_cfg(p: Prefix, exe: str | None = None) -> Path:
+    """javapackager's `<app dir>/app/<App>.cfg` next to the exe."""
+    e = p.to_host(exe or DEFAULT_EXE)
+    return e.parent / "app" / (e.stem + ".cfg")
+
+def cfg_fixed(cfg: Path) -> bool:
+    try: text = cfg.read_text(encoding="utf-8", errors="replace")
+    except OSError: return False
+    sect = text.split("[JVMOptions]", 1)[1].split("\n[", 1)[0] if "[JVMOptions]" in text else ""
+    return all(o in sect for o in JVM_OPTIONS)
+
+def fix_cfg(cfg: Path) -> bool:
+    """Put JVM_OPTIONS into the launcher's [JVMOptions]. Returns True if changed.
+    The Download Assistant replaces this file when it updates itself, so this
+    runs again before every launch."""
+    if cfg_fixed(cfg): return False
+    text = cfg.read_text(encoding="utf-8", errors="replace")
+    if "[JVMOptions]" not in text: raise LookupError(f"{cfg.name} has no [JVMOptions] section")
+    head, rest = text.split("[JVMOptions]\n", 1)
+    sect, _, tail = rest.partition("\n[")
+    lines = [l for l in sect.splitlines() if l not in JVM_OPTIONS and l != CFG_MARK]
+    sect = "\n".join([CFG_MARK, *JVM_OPTIONS, *lines]).rstrip("\n") + "\n"
+    cfg.write_text(head + "[JVMOptions]\n" + sect + ("\n[" + tail if tail else ""), encoding="utf-8")
+    return True
+
+def text_fix_applied(p: Prefix, exe: str | None = None) -> bool:
+    cur = p.reg_query(OVERRIDES_KEY)
+    return all(cur.get(d) == "builtin" for d in OVERRIDES) and cfg_fixed(launcher_cfg(p, exe))
+
+def apply_text_fix(p: Prefix, reporter=None, exe: str | None = None) -> bool:
     """Returns True if something was changed."""
-    r = null_reporter(reporter)
-    r.step(f"{MANAGER}: text rendering (built-in Direct3D for this app, DXVK elsewhere)")
+    r = null_reporter(reporter); changed = []
+    r.step(f"{MANAGER}: text rendering (built-in Direct3D for this app, grey text masks)")
     cur = p.reg_query(OVERRIDES_KEY)
     missing = [d for d in OVERRIDES if cur.get(d) != "builtin"]
-    if not missing: r.skip("already"); return False
     for d in missing: p.reg_add(OVERRIDES_KEY, d, "builtin")
-    r.ok(", ".join(missing) + " = builtin"); return True
+    if missing: changed.append(", ".join(missing) + " = builtin")
+    cfg = launcher_cfg(p, exe)
+    if cfg.exists():
+        try:
+            if fix_cfg(cfg): changed.append(" ".join(JVM_OPTIONS))
+        except (OSError, LookupError) as e: r.fail(str(e)[:100]); return bool(changed)
+    if not changed: r.skip("already"); return False
+    r.ok("; ".join(changed)); return True
 
 class Steinberg(Vendor):
     id = "steinberg"
@@ -89,13 +130,13 @@ class Steinberg(Vendor):
         self.fixes(p, r)
     def repair_manager(self, p, r=None): self.fixes(p, r)
     def fixes(self, p, r=None):
-        apply_text_fix(p, r)
+        apply_text_fix(p, r, self._exe(p))
         mono.install(p, r)                         # the Install Assistant it drives is .NET
     def launch_manager(self, p, r=None, args=()):
         from ... import programs
         m = self._manager(p)
         if m is None: raise RuntimeError(f"{MANAGER} is not installed yet — get it from {self.download_page} and install it from the Install tab")
-        apply_text_fix(p, r)
+        apply_text_fix(p, r, m.exe or None)      # SDA's self-update rewrites the launcher config
         return programs.run(p, m, r)
     def is_manager_program(self, prog): return "download assistant" in prog.name.lower()
 
@@ -131,8 +172,8 @@ class Steinberg(Vendor):
         c.append(Check(f"{MANAGER} installed", m is not None, (m.version if m else "") or "",
                        fix=f"get it from {self.download_page}, then: vstenv manager steinberg install <file>"))
         if m is not None:
-            ok = text_fix_applied(p)
-            c.append(Check(f"{MANAGER} text renders (built-in Direct3D)", ok, "" if ok else "its text draws as blobs under DXVK's D3D11",
+            ok = text_fix_applied(p, m.exe or None)
+            c.append(Check(f"{MANAGER} text renders (built-in Direct3D, grey masks)", ok, "" if ok else "its text draws as blobs or bold jagged glyphs",
                            fix="vstenv manager steinberg repair"))
             has = mono.installed(p)
             c.append(Check("Wine Mono (.NET) for the Steinberg Install Assistant", has, "" if has else "runtime components and products fail to install without it",
@@ -142,6 +183,6 @@ class Steinberg(Vendor):
         return c
     def status(self, p) -> dict:
         m = self._manager(p)
-        return {"installed": m is not None, "version": m.version if m else None, "text_fix": text_fix_applied(p) if m else False, "mono": mono.installed(p)}
+        return {"installed": m is not None, "version": m.version if m else None, "text_fix": text_fix_applied(p, m.exe or None) if m else False, "mono": mono.installed(p)}
 
 VENDOR = Steinberg()
