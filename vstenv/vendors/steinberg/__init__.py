@@ -15,8 +15,14 @@ Java runtime. Two things break under Wine (found with SDA 1.40.1, 2026-09-25):
   IPC. The host browser needs a handler for that scheme (urlschemes.py); the
   page's "Try Again" then completes the login.
 
-SDA installs the Steinberg Activation Manager and the Library Manager itself;
-they show up as ordinary programs afterwards.
+SDA installs its runtime components (Activation Manager, Library Manager,
+built-in ASIO driver, MediaBay) and every product through the Steinberg
+Install Assistant and its Install Helper, which are .NET executables: with
+mscoree disabled they die with STATUS_DLL_NOT_FOUND and SDA reports "failed
+to update Steinberg Library Manager". Under Wine Mono (mono.py) they run and
+the components install; MediaBay's installer still exits 231. Their installer
+packages are RAR self-extractors (7-Zip 24+ opens them) holding a .NET
+SetupBootstrapper and an MSI; the MSI installs fine with msiexec directly.
 """
 from __future__ import annotations
 
@@ -25,6 +31,7 @@ from pathlib import Path
 
 from .. import Vendor, Product, Check, UrlScheme
 from ...progress import null_reporter
+from ... import mono
 from ...wine import Prefix
 
 MANAGER = "Steinberg Download Assistant"
@@ -73,8 +80,11 @@ class Steinberg(Vendor):
     def install_manager(self, p, installer, r=None):
         from ... import programs
         programs.install(p, installer, r)          # its own window
+        self.fixes(p, r)
+    def repair_manager(self, p, r=None): self.fixes(p, r)
+    def fixes(self, p, r=None):
         apply_text_fix(p, r)
-    def repair_manager(self, p, r=None): apply_text_fix(p, r)
+        mono.install(p, r)                         # the Install Assistant it drives is .NET
     def launch_manager(self, p, r=None, args=()):
         from ... import programs
         m = self._manager(p)
@@ -106,9 +116,12 @@ class Steinberg(Vendor):
             ok = text_fix_applied(p)
             c.append(Check(f"{MANAGER} text renders (built-in Direct3D)", ok, "" if ok else "its text draws as blobs under DXVK's D3D11",
                            fix="vstenv manager steinberg repair"))
+            has = mono.installed(p)
+            c.append(Check("Wine Mono (.NET) for the Steinberg Install Assistant", has, "" if has else "runtime components and products fail to install without it",
+                           fix="vstenv manager steinberg repair"))
         return c
     def status(self, p) -> dict:
         m = self._manager(p)
-        return {"installed": m is not None, "version": m.version if m else None, "text_fix": text_fix_applied(p) if m else False}
+        return {"installed": m is not None, "version": m.version if m else None, "text_fix": text_fix_applied(p) if m else False, "mono": mono.installed(p)}
 
 VENDOR = Steinberg()

@@ -91,13 +91,20 @@ class Prefix:
         if cur == want: r.skip("recorded"); return False
         self.wineloader_file.write_text(want); r.ok(str(self.build.wine)); return True
 
+    def dll_overrides(self, mono: bool | None = None) -> str:
+        """No .desktop spam, no Gecko (nothing the supported vendors ship needs IE).
+        mscoree stays disabled, which also keeps wineboot from asking about Wine
+        Mono, until Mono is installed in the prefix (mono.py): Steinberg's
+        installer tooling is .NET and runs under it."""
+        if mono is None: mono = (self.drive_c / "windows/mono").is_dir()
+        return "winemenubuilder.exe=d;mshtml=d" + ("" if mono else ";mscoree=d")
+
     def wine_env(self, extra: dict | None = None, debug="-all") -> dict:
         """Only the variables Wine needs: these are added to the *host* session
         environment when the sandbox runs Wine through flatpak-spawn (see host.py)."""
         e = {
             "WINEPREFIX": str(self.path), "WINEFSYNC": "1", "WINEDEBUG": debug,
-            # no .desktop spam; no Wine Mono / Gecko install prompts (nothing the supported vendors ship needs .NET or IE)
-            "WINEDLLOVERRIDES": "winemenubuilder.exe=d;mscoree=d;mshtml=d",
+            "WINEDLLOVERRIDES": self.dll_overrides(),
             "WINEARCH": "win64",
         }
         if extra: e.update(extra)
