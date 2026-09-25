@@ -22,6 +22,13 @@ Java runtime. Two things break under Wine (found with SDA 1.40.1, 2026-09-25):
   IPC. The host browser needs a handler for that scheme (urlschemes.py); the
   page's "Try Again" then completes the login.
 
+Steinberg's products (HALion Sonic and the rest) draw their GUIs with VSTGUI
+through Direct2D, which is the same Wine-on-DXVK failure as (1) above; the
+standalone dies at start with a fatal-exit abort (c0000409). So every
+Steinberg program gets the same per-application built-in D3D override
+(after_install / repair). Their VST3 GUIs run inside a DAW's yabridge host,
+which this override does not reach; that is still open.
+
 SDA installs its runtime components (Activation Manager, Library Manager,
 built-in ASIO driver, MediaBay) and every product through the Steinberg
 Install Assistant and its Install Helper, which are .NET executables: with
@@ -47,6 +54,24 @@ EXE = "Steinberg Download Assistant.exe"
 DEFAULT_EXE = r"C:\Program Files (x86)\Steinberg\Download Assistant\Steinberg Download Assistant.exe"
 OVERRIDES = ("d3d9", "d3d10core", "d3d11", "dxgi")
 OVERRIDES_KEY = rf"HKCU\Software\Wine\AppDefaults\{EXE}\DllOverrides"
+PRODUCT_OVERRIDES = ("d3d10core", "d3d11", "dxgi")                 # VSTGUI/Direct2D: built-in D3D11 for Steinberg programs
+
+def overrides_key(exe_name: str) -> str: return rf"HKCU\Software\Wine\AppDefaults\{exe_name}\DllOverrides"
+
+def program_fix_applied(p: Prefix, exe_name: str) -> bool:
+    cur = p.reg_query(overrides_key(exe_name))
+    return all(cur.get(d) == "builtin" for d in PRODUCT_OVERRIDES)
+
+def apply_program_fixes(p: Prefix, exe_names: list[str], reporter=None) -> list[str]:
+    """Built-in D3D11 for each Steinberg program exe (VSTGUI draws through Direct2D). Returns what changed."""
+    r = null_reporter(reporter); changed = []
+    for name in exe_names:
+        if program_fix_applied(p, name): continue
+        for d in PRODUCT_OVERRIDES: p.reg_add(overrides_key(name), d, "builtin")
+        changed.append(name)
+    if changed:
+        r.step("Steinberg programs: built-in Direct3D 11 (their GUIs draw through Direct2D)"); r.ok(", ".join(changed))
+    return changed
 SCHEME = "net-steinberg-sda"
 # The Activation Manager (Qt) signs in the same way: system browser, then the flow
 # page opens net-steinberg-activation-manager://…, which the prefix registers as
@@ -131,6 +156,7 @@ class Steinberg(Vendor):
     def repair_manager(self, p, r=None): self.fixes(p, r)
     def fixes(self, p, r=None):
         apply_text_fix(p, r, self._exe(p))
+        apply_program_fixes(p, self.program_exes(p), r)
         mono.install(p, r)                         # the Install Assistant it drives is .NET
     def launch_manager(self, p, r=None, args=()):
         from ... import programs
@@ -150,6 +176,12 @@ class Steinberg(Vendor):
         return [UrlScheme(SCHEME, f"{MANAGER} login callback", lambda p: [str(p.build.wine), str(p.to_host(self._exe(p)))]),
                 UrlScheme(SAM_SCHEME, "Steinberg Activation Manager login callback",
                           lambda p: [str(p.build.wine), str(p.to_host(SAM_EXE)), "--redirect"])]
+    def program_exes(self, p) -> list[str]:
+        """Exe names of Steinberg-published programs other than the Download Assistant."""
+        from ... import programs
+        return sorted({x.exe.rsplit("\\", 1)[-1] for x in programs.installed(p)
+                       if x.exe and self.publisher.search(x.publisher or "") and not self.is_manager_program(x)})
+    def after_install(self, p, r=None): apply_program_fixes(p, self.program_exes(p), r)
     def logs(self, p):
         d = p.user_dir / "AppData/Local/Steinberg Download Assistant/logs"
         latest = max(d.glob("*.log"), key=lambda f: f.stat().st_mtime, default=None) if d.is_dir() else None
@@ -178,6 +210,8 @@ class Steinberg(Vendor):
             has = mono.installed(p)
             c.append(Check("Wine Mono (.NET) for the Steinberg Install Assistant", has, "" if has else "runtime components and products fail to install without it",
                            fix="vstenv manager steinberg repair"))
+            missing = [e for e in self.program_exes(p) if not program_fix_applied(p, e)]
+            c.append(Check("Steinberg programs run (built-in Direct3D 11)", not missing, ", ".join(missing), fix="vstenv manager steinberg repair"))
             left = pkg.staged(p)
             c.append(Check("no Steinberg installs left unfinished", not left, ", ".join(x.name for x in left), fix="vstenv finish-installs"))
         return c

@@ -139,3 +139,38 @@ class InstallerAutoLaunchTest(unittest.TestCase):
     def test_nothing_started_means_nothing_restarted(self):
         kill, run = self._install(running=False)
         kill.assert_not_called(); run.assert_not_called()
+
+
+class ShortcutFilterTest(unittest.TestCase):
+    """Uninstall and setup shortcuts are not launchers, and MSI-written shortcuts
+    carry Wine's 8.3 short names that only Wine can resolve."""
+    def _prefix(self, tmp):
+        p = Prefix(Path(tmp) / "prefix", WineBuild(Path(tmp) / "wine")); (p.drive_c / "users/me").mkdir(parents=True)
+        self.menu = p.user_dir / "AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Steinberg"; self.menu.mkdir(parents=True)
+        return p
+    def _lnk(self, target, args="", workdir=""):
+        from unittest import mock
+        return mock.patch.object(programs, "parse_lnk", side_effect=lambda b: {"target": b.decode().split("|")[0], "args": b.decode().split("|")[1], "workdir": b.decode().split("|")[2], "name": ""})
+    def test_uninstall_and_setup_shortcuts_are_skipped_and_short_paths_resolved(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._prefix(tmp)
+            (self.menu / "HALion Sonic.lnk").write_bytes(b"C:\\PROG~FBU\\STEI~PSS\\HALI~04O\\HALI~SYJ.EXE||C:\\Program Files\\Steinberg\\HALion Sonic\\")
+            (self.menu / "Uninstall HALionSonic.lnk").write_bytes(b"C:\\windows\\syswow64\\msiexec.exe|/x {69043884-EB60-4C9A-9C41-3303C319E1A8}|")
+            (self.menu / "Steinberg built-in ASIO Driver Setup (x64).lnk").write_bytes(b"C:\\PROG~FBU\\STEI~PSS\\Asio\\ASIO~L1I.EXE||")
+            (self.menu / "Remove Something.lnk").write_bytes(b"C:\\Program Files\\X\\x.exe|--uninstall|")
+            def run(argv, **kw):
+                import subprocess
+                self.assertEqual(argv[:2], ["winepath", "-l"]); self.assertEqual(argv[2:], ["C:\\PROG~FBU\\STEI~PSS\\HALI~04O\\HALI~SYJ.EXE"])
+                return subprocess.CompletedProcess(argv, 0, stdout="C:\\Program Files\\Steinberg\\HALion Sonic\\HALion Sonic.exe\n", stderr="")
+            with self._lnk(None), mock.patch.object(p, "run", side_effect=run):
+                progs = programs.shortcut_programs(p)
+            self.assertEqual([(x.name, x.exe) for x in progs], [("HALion Sonic", "C:\\Program Files\\Steinberg\\HALion Sonic\\HALion Sonic.exe")])
+            self.assertEqual(progs[0].install_dir, "C:\\Program Files\\Steinberg\\HALion Sonic")
+    def test_no_short_paths_means_no_winepath_call(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._prefix(tmp)
+            (self.menu / "Thing.lnk").write_bytes(b"C:\\Program Files\\Thing\\thing.exe||")
+            with self._lnk(None), mock.patch.object(p, "run") as run:
+                self.assertEqual(len(programs.shortcut_programs(p)), 1); run.assert_not_called()

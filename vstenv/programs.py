@@ -20,7 +20,7 @@ needs one. Vendor modules contribute extra program sources (Vendor.programs).
 """
 import re, shlex, struct, time
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from .progress import null_reporter
 from .wine import Prefix
 from . import quirks
@@ -127,11 +127,26 @@ def parse_lnk(data: bytes) -> dict:
     except (struct.error, IndexError): pass
     return res
 
+NOT_A_LAUNCHER_NAME = re.compile(r"(unins|uninstall|setup|update)", re.I)   # shortcut names ("Uninstall", "… Setup (x64)")
+UNINSTALL_ARGS = re.compile(r"(^|\s)(/x|/uninstall|--uninstall)(\s|$)", re.I)  # msiexec /x {guid}, and friends
+
+def long_paths(p: Prefix, paths_: list[str]) -> dict[str, str]:
+    """Wine's 8.3 short names (C:\\PROG~FBU\\…) resolved to long paths, in one
+    winepath call; a path that cannot be resolved maps to itself. MSI-installed
+    shortcuts carry such targets, which nothing outside Wine can open."""
+    short = [x for x in dict.fromkeys(paths_) if "~" in x]
+    if not short: return {}
+    try:
+        cp = p.run(["winepath", "-l", *short], timeout=120)
+        out = cp.stdout.splitlines()
+    except Exception: return {}
+    return {s: (l.strip() or s) for s, l in zip(short, out)} if len(out) >= len(short) else {}
+
 def shortcut_programs(p: Prefix) -> list[Program]:
     roots = [p.drive_c / "ProgramData/Microsoft/Windows/Start Menu/Programs",
              p.user_dir / "AppData/Roaming/Microsoft/Windows/Start Menu/Programs",
              p.drive_c / "users/Public/Desktop", p.user_dir / "Desktop"]
-    out, seen = [], set()
+    found = []
     for root in roots:
         if not root.is_dir(): continue
         for lnk in sorted(root.rglob("*.lnk")):
@@ -139,12 +154,22 @@ def shortcut_programs(p: Prefix) -> list[Program]:
             except OSError: continue
             target = info["target"]
             if not target.lower().endswith(".exe"): continue
-            low = target.lower()
-            if re.search(r"(unins|uninstall|setup|update)", Path(target).name.lower()) or low in seen: continue
-            seen.add(low)
-            out.append(Program(name=lnk.stem, exe=target, args=info["args"], workdir=info["workdir"] or str(Path(target).parent).replace("/", "\\"),
-                               install_dir=str(Path(target).parent).replace("/", "\\"), sources=["shortcut"]))
+            if NOT_A_LAUNCHER_NAME.search(lnk.stem) or NOT_A_LAUNCHER.search(Path(target).name) or UNINSTALL_ARGS.search(info["args"] or ""): continue
+            found.append((lnk, info))
+    resolved = long_paths(p, [info["target"] for _, info in found] + [info["workdir"] for _, info in found if info["workdir"]])
+    out, seen = [], set()
+    for lnk, info in found:
+        target = resolved.get(info["target"], info["target"]); workdir = resolved.get(info["workdir"], info["workdir"])
+        low = target.lower()
+        if low in seen: continue
+        seen.add(low)
+        parent = _win_parent(target)
+        out.append(Program(name=lnk.stem, exe=target, args=info["args"], workdir=workdir or parent, install_dir=parent, sources=["shortcut"]))
     return out
+
+def _win_parent(win_path: str) -> str:
+    """Directory of a Windows path (pathlib on Linux would treat backslashes as part of the name)."""
+    return str(PureWindowsPath(win_path).parent)
 
 # --- merge -----------------------------------------------------------------------------------
 def _norm(s: str) -> str: return re.sub(r"[^a-z0-9]", "", s.lower())
@@ -195,7 +220,7 @@ def installed(p: Prefix) -> list[Program]:
         else: by_name[_norm(l.name)] = l
     for prog in by_name.values():
         if not prog.exe: prog.exe = find_exe(p, prog.install_dir)
-        if prog.exe and not prog.workdir: prog.workdir = str(Path(prog.exe).parent).replace("/", "\\")
+        if prog.exe and not prog.workdir: prog.workdir = _win_parent(prog.exe)
         if prog.exe and not prog.install_dir: prog.install_dir = prog.exe.rsplit("\\", 1)[0]   # registry records without InstallLocation
     return sorted(by_name.values(), key=lambda x: x.name.lower())
 
