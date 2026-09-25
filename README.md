@@ -8,8 +8,9 @@ ordinary VST2 / VST3 / CLAP plugins through [yabridge](https://github.com/robber
 desktop's application menu like any other app.
 
 Vendor support lives in **modules**. Native Instruments (Native Access, Kontakt,
-the NTK daemon, library registration) and IK Multimedia (IK Product Manager) are
-built in; a separate package can add another vendor without touching the core.
+the NTK daemon, library registration), IK Multimedia (IK Product Manager) and
+Steinberg (Download Assistant) are built in; a separate package can add another
+vendor without touching the core.
 vstenv is the vendor-modular successor to [nilinux](https://github.com/dguedry/nilinux).
 
 Not affiliated with or endorsed by Native Instruments GmbH or IK Multimedia Production srl.

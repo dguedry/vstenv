@@ -18,6 +18,7 @@ vstenv-gui = "vstenv.gui:main"
 [project.entry-points."vstenv.vendors"]
 ni = "vstenv.vendors.ni:VENDOR"
 ik = "vstenv.vendors.ik:VENDOR"
+steinberg = "vstenv.vendors.steinberg:VENDOR"
 
 [tool.setuptools]
-packages = ["vstenv", "vstenv.vendors", "vstenv.vendors.ni", "vstenv.vendors.ik", "vstenv.installers"]
+packages = ["vstenv", "vstenv.vendors", "vstenv.vendors.ni", "vstenv.vendors.ik", "vstenv.vendors.steinberg", "vstenv.installers"]

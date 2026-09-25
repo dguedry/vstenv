@@ -21,6 +21,7 @@ class VendorRegistryTest(unittest.TestCase):
         self.assertEqual(vendors.for_manager_installer(Path("~/Downloads/Native-Access-latest.exe")).id, "ni")
         self.assertEqual(vendors.for_manager_installer(Path("Native Access 3.26.0 Setup.exe")).id, "ni")
         self.assertEqual(vendors.for_manager_installer(Path("IK_Product_Manager_Installer.exe")).id, "ik")
+        self.assertEqual(vendors.for_manager_installer(Path("Steinberg_Download_Assistant_1.40.1_Installer_win.exe")).id, "steinberg")
         self.assertIsNone(vendors.for_manager_installer(Path("Kontakt 8 Setup PC.exe")))
 
     def test_product_installers(self):
@@ -46,3 +47,23 @@ class VendorRegistryTest(unittest.TestCase):
         self.assertEqual(vendors.get("ni").daemon_ports, (7865, 5563, 5146))
 
 if __name__ == "__main__": unittest.main()
+
+
+class SteinbergTest(unittest.TestCase):
+    def _prefix(self, existing):
+        from unittest import mock
+        p = mock.Mock(); p.reg_query.return_value = existing; return p
+    def test_text_fix_sets_builtin_d3d_for_the_app_only(self):
+        from vstenv.vendors import steinberg as sb
+        p = self._prefix({})
+        self.assertTrue(sb.apply_text_fix(p))
+        keys = {c.args[0] for c in p.reg_add.call_args_list}; dlls = {c.args[1] for c in p.reg_add.call_args_list}
+        self.assertEqual(keys, {sb.OVERRIDES_KEY}); self.assertEqual(dlls, set(sb.OVERRIDES))
+        self.assertIn("AppDefaults\\Steinberg Download Assistant.exe", sb.OVERRIDES_KEY)
+    def test_text_fix_is_idempotent(self):
+        from vstenv.vendors import steinberg as sb
+        p = self._prefix({d: "builtin" for d in sb.OVERRIDES})
+        self.assertFalse(sb.apply_text_fix(p)); p.reg_add.assert_not_called(); self.assertTrue(sb.text_fix_applied(p))
+    def test_declares_the_login_callback_scheme(self):
+        v = vendors.get("steinberg")
+        self.assertEqual([s.scheme for s in v.url_schemes(None)], ["net-steinberg-sda"])

@@ -117,7 +117,7 @@ class Vendor:
     def __repr__(self): return f"<Vendor {self.id}>"
 
 # --- registry --------------------------------------------------------------------------
-BUILTIN = ("vstenv.vendors.ni", "vstenv.vendors.ik")
+BUILTIN = ("vstenv.vendors.ni", "vstenv.vendors.ik", "vstenv.vendors.steinberg")
 ENTRY_POINT_GROUP = "vstenv.vendors"
 _cache: list[Vendor] | None = None
 
