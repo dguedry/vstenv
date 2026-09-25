@@ -24,8 +24,12 @@ class GuiReporter(Reporter):
         def go():
             row = self.rows.get(id(s))
             if row is None:
-                row = Adw.ActionRow(title=GLib.markup_escape_text(s.name)); img = Gtk.Image(); row.add_suffix(img); row.img = img
+                row = Adw.ActionRow(title=GLib.markup_escape_text(s.name)); img = Gtk.Image(); spin = Gtk.Spinner()
+                row.add_suffix(spin); row.add_suffix(img); row.img, row.spin = img, spin
                 self.group.add(row); self.rows[id(s)] = row
+            # A running step spins (a long step must visibly be alive); a finished one shows its outcome.
+            running = s.status == RUN
+            row.spin.set_visible(running); row.spin.set_spinning(running); row.img.set_visible(not running)
             row.img.set_from_icon_name(self.ICON[s.status]); row.set_subtitle(GLib.markup_escape_text(s.detail or ""))
             if s.status == FAIL: row.add_css_class("error")
             # Only downloads report bytes; pulse otherwise and name the running step.
@@ -56,6 +60,14 @@ class TaskPage(Gtk.Box):
         self.details = Gtk.Expander(label="Details", child=sw, visible=False); self.append(self.details)
         self.reporter = GuiReporter(self.group, self.logbuf, self.bar)
         self.reporter.on_log_line = lambda: self.details.set_visible(True)
+        self._pulse = None
+    def start(self):
+        """Keep the bar moving for as long as the task runs: steps can take minutes
+        without an event, and a still bar reads as a hang."""
+        if self._pulse is None:
+            self._pulse = GLib.timeout_add(150, lambda: (not self.reporter._downloading and self.bar.pulse(), True)[1])
+    def stop(self):
+        if self._pulse is not None: GLib.source_remove(self._pulse); self._pulse = None
     def reset(self, title=None):
         for r in list(self.reporter.rows.values()): self.group.remove(r)
         self.reporter.rows.clear(); self.reporter.steps.clear(); self.bar.set_fraction(0); self.bar.set_text("")
@@ -77,6 +89,14 @@ class Window(Adw.ApplicationWindow):
         header = Adw.HeaderBar(); switcher = Adw.ViewSwitcherTitle(stack=self.stack, title=TITLE); header.set_title_widget(switcher)
         m = Gio.Menu(); m.append("Re-run setup / repair", "app.setup"); m.append("Update the app menu", "app.menu"); m.append("About", "app.about")
         header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=m))
+        # Activity indicator: visible on every page while a task runs or a vendor
+        # manager is open, so nothing the app does looks like a hang. Click → Progress.
+        self._activity = {"task": None, "manager": None}
+        abox = Gtk.Box(spacing=6); self._activity_spin = Gtk.Spinner(); self._activity_label = Gtk.Label()
+        abox.append(self._activity_spin); abox.append(self._activity_label)
+        self._activity_btn = Gtk.Button(child=abox, has_frame=False, visible=False, tooltip_text="Show progress")
+        self._activity_btn.connect("clicked", lambda *_: self.stack.set_visible_child_name("task" if self._activity["task"] else "install"))
+        header.pack_start(self._activity_btn)
         tv.add_top_bar(header); tv.set_content(self.stack)
         self.stack.add_titled_with_icon(self.build_plugins(), "plugins", "Plugins", "audio-x-generic-symbolic")
         self.stack.add_titled_with_icon(self.build_programs(), "programs", "Programs", "application-x-executable-symbolic")
@@ -95,10 +115,19 @@ class Window(Adw.ApplicationWindow):
     # ---- state ------------------------------------------------------------------
     def is_ready(self): return self.prefix is not None and self.prefix.exists and runtime.status(self.prefix)["prepared"]
     def toast(self, text): ui(lambda: self.toasts.add_toast(Adw.Toast(title=text, timeout=4)))
+    def activity(self, kind, text):
+        """Set (or clear with None) what the header indicator says for 'task' or 'manager'."""
+        def go():
+            self._activity[kind] = text
+            cur = self._activity["task"] or self._activity["manager"]
+            self._activity_btn.set_visible(bool(cur)); self._activity_spin.set_spinning(bool(cur))
+            if cur: self._activity_label.set_text(cur)
+        ui(go)
     def run_bg(self, title, fn, done=None):
         """Run fn(reporter) in a thread on the Progress page."""
         if self.busy: self.toast("Another task is still running"); return
         self.busy = True; self.task.reset(title); self.task_page.set_visible(True); self.stack.set_visible_child_name("task")
+        self.task.start(); self.activity("task", f"Working… {title}")
         def worker():
             err = None
             try: result = fn(self.task.reporter)
@@ -106,7 +135,7 @@ class Window(Adw.ApplicationWindow):
                 err = e; result = None
                 for line in traceback.format_exc().rstrip().splitlines(): self.task.reporter.log(line)
             def finish():
-                self.busy = False
+                self.busy = False; self.task.stop(); self.activity("task", None)
                 if err: self.task.reporter.step(f"Error: {err}"); self.task.reporter.fail()
                 if done: done(result, err)
                 self.refresh_all()
@@ -260,12 +289,14 @@ class Window(Adw.ApplicationWindow):
             # While the manager runs: rescue an install it drives that stopped making
             # progress, and bridge plugins as they appear (people install a product and
             # leave the manager open, then wonder why the DAW cannot see it).
-            w = None
+            w = None; self.activity("manager", f"{v.manager_name} is open")
             try: seen = yabridge.plugin_signature(self.prefix)
             except Exception: seen = None
             while proc.poll() is None:
                 try:
                     w, stalled, pids = v.watch_installs(self.prefix, w)
+                    self.activity("manager", f"{v.manager_name} is installing… (watched, {w.quiet_for():.0f}s without progress)" if pids and w.quiet_for() >= 30
+                                  else f"{v.manager_name} is installing…" if pids else f"{v.manager_name} is open")
                     if stalled and pids:
                         w = None
                         ui(lambda: self.run_bg("An installer stopped responding — finishing it",
@@ -279,7 +310,7 @@ class Window(Adw.ApplicationWindow):
                             if added: ui(lambda n=added: self.after_change(f"Bridging {n} newly installed plugin{'s' if n != 1 else ''}"))
                 except Exception: pass
                 time.sleep(15)
-            proc.wait()
+            proc.wait(); self.activity("manager", None)
             if time.time() - t0 < 15: self.toast(f"{v.manager_name} is already open"); return
             ui(lambda: self.run_bg(f"Finishing up after {v.manager_name}", lambda r: (v.finish_installs(self.prefix, r), setup.after_change(self.prefix, r))))
         threading.Thread(target=watch, daemon=True).start()
