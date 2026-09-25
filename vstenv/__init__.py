@@ -8,6 +8,6 @@ only Wine, the prefix, yabridge and generic Windows programs. The CLI
 (vstenv.cli) and the GUI (vstenv.gui) are thin: every operation is a package
 function that reports through a vstenv.progress.Reporter and returns plain data.
 """
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 APP_NAME = "vstenv"
 APP_ID = "io.github.dguedry.vstenv"

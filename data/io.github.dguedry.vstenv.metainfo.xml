@@ -34,6 +34,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.1" date="2026-09-25">
+      <description>
+        <p>vstenv: a vendor-modular environment for Windows audio plugins on Linux</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-09-25">
       <description>
         <p>First release: the vendor-modular successor to nilinux, with Native Instruments and IK Multimedia modules and desktop menu entries for installed programs</p>
