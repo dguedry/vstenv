@@ -1,11 +1,13 @@
 """Other vstenv prefixes on this machine, and who owns a vendor daemon's ports.
 
-A machine can end up with several vstenv prefixes: a source install
-(~/.local/share/vstenv) and the Flatpak (~/.var/app/<id>/data/vstenv). Each has
-its own wineserver, registry and vendor daemons; a daemon that binds fixed
-localhost ports (NI's NTK daemon) can only be owned by one. A plugin bridged
-from prefix A while prefix B's daemon holds the ports talks to the wrong daemon
-and hangs in every DAW. The rules that keep this consistent:
+The Flatpak and a native install share one environment (~/.local/share/vstenv,
+see paths.py), but a machine can still end up with several vstenv prefixes:
+builds before that change kept theirs under ~/.var/app/<id>/data/vstenv, and
+XDG_DATA_HOME can point a native install elsewhere. Each has its own
+wineserver, registry and vendor daemons; a daemon that binds fixed localhost
+ports (NI's NTK daemon) can only be owned by one. A plugin bridged from prefix
+A while prefix B's daemon holds the ports talks to the wrong daemon and hangs
+in every DAW. The rules that keep this consistent:
 
 - the vstenv that runs owns the bridges: sync() removes other vstenv
   prefixes' directories from yabridgectl (third-party prefixes are left alone)
