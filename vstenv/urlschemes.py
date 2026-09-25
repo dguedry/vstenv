@@ -13,7 +13,7 @@ from __future__ import annotations
 import shlex, shutil, subprocess
 from pathlib import Path
 
-from . import APP_ID
+from . import APP_ID, paths
 from .progress import null_reporter
 from .vendors import UrlScheme
 from .wine import Prefix
@@ -30,13 +30,19 @@ def script_content(p: Prefix, s: UrlScheme) -> str:
     """The handler runs on the host (the .desktop file is a host file), so it calls
     this prefix's wine directly rather than going back through the app."""
     cmd = " ".join(shlex.quote(a) for a in s.argv(p))
+    log = paths.LOGS / f"url-{s.scheme}.log"
+    # The desktop starts the handler with whatever stdio it has: under systemd
+    # activation that is a journal socket, and an Electron app that writes to
+    # stderr while booting then dies with "open EBADF" (Wine cannot hand a Unix
+    # socket to a Windows process as a std handle). Give it a file instead.
     return f'''#!/bin/sh
 {MARK}
 # {s.title}: the desktop hands {s.scheme}:// links to the program inside this prefix.
 [ -n "$1" ] || exit 0
 WINEPREFIX={shlex.quote(str(p.path))}
 export WINEPREFIX
-exec {cmd} "$1"
+mkdir -p {shlex.quote(str(log.parent))}
+exec {cmd} "$1" </dev/null >>{shlex.quote(str(log))} 2>&1
 '''
 
 def desktop_content(s: UrlScheme) -> str:

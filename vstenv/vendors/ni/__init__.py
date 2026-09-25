@@ -64,8 +64,10 @@ class NativeInstruments(Vendor):
     def plugin_dirs(self): return ["Program Files/Native Instruments/VSTPlugins 64 bit"]
     def content_dirs(self, p): return [v["ContentDir"] for v in prod.hive_keys(p).values() if v.get("ContentDir")]
     def url_schemes(self, p):
+        # Same flags as launch(): the callback instance normally just hands the
+        # URL to the running NA, but if none is running it becomes the app.
         return [UrlScheme("native-access", "Native Access login callback",
-                          lambda p: [str(p.build.wine), str(na.na_exe(p))])]
+                          lambda p: [str(p.build.wine), str(na.na_exe(p)), "--disable-gpu", "--no-sandbox"])]
     def logs(self, p): return {"native-access.log": na.na_log(p)}
 
     # -- installs ------------------------------------------------------------------------------
