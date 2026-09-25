@@ -1,0 +1,206 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+jobs:
+  # On a push to main, cut the next patch release in this same run: bump the
+  # version + add a metainfo entry (from the commit subject), commit and push it
+  # to main, tag it, and hand the version to the release job below. The build
+  # jobs then check out that bump commit and the release job publishes the bundle.
+  #
+  # Everything is one workflow run — pushing the tag with the default GITHUB_TOKEN
+  # does NOT start a second run (GitHub's loop-prevention), so we do not rely on
+  # the tag re-triggering CI; the release job keys off this job's output instead.
+  #
+  # Opt out of a release by ending the commit SUBJECT with [no-release]. The skip
+  # is decided inside the step from the subject line only (git log -1 --pretty=%s),
+  # not the whole message — so a commit that merely mentions the marker in its body
+  # (like this file's own history) still releases. The bot's bump commit puts the
+  # marker in its subject, so it self-skips: no release-of-a-release loop.
+  auto-tag:
+    name: Auto-tag next patch (push to main)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.cut.outputs.version }}
+      sha: ${{ steps.cut.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - id: cut
+        run: |
+          set -euo pipefail
+          SUBJECT="$(git log -1 --pretty=%s)"
+          case "$SUBJECT" in
+            *"[no-release]")  echo "subject ends with [no-release]; not releasing"; exit 0 ;;
+          esac
+
+          git config user.name  'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          VERSION="$(python3 scripts/bump.py --next-patch)"
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
+            echo "tag v$VERSION already exists; skipping"; exit 0
+          fi
+
+          NOTE="$SUBJECT"     # changelog = the push's commit subject
+          python3 scripts/bump.py "$VERSION" "$NOTE"
+
+          git add vstenv/__init__.py pyproject.toml data/io.github.dguedry.vstenv.metainfo.xml
+          # subject ENDS with [no-release] so this bump commit self-skips on its own push
+          printf '%s\n\n%s\n' "Release $VERSION [no-release]" "$NOTE" | git commit -F -
+          git tag -a "v$VERSION" -m "vstenv $VERSION"
+          git push origin HEAD:main
+          git push origin "v$VERSION"
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "released v$VERSION"
+
+  # The build/test jobs always run (push, PR, tag). On the auto-tag path they wait
+  # for auto-tag and check out its bump commit so the built bundle carries the new
+  # version; otherwise they build whatever ref triggered them.
+  # Advisory only: the app is distributed as a GitHub release bundle, not on
+  # Flathub, so the linter's permission rules do not gate releases.
+  lint:
+    name: Flathub linter (manifest, metainfo; advisory)
+    needs: [auto-tag]
+    continue-on-error: true
+    if: always() && (needs.auto-tag.result == 'success' || needs.auto-tag.result == 'skipped')
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub/flatpak-builder-lint:latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.auto-tag.outputs.sha || github.sha }}
+      - name: Lint manifest
+        # --exceptions + our appid-keyed file waive only finish-args-host-tmp-access
+        # (the shared /tmp wineserver socket; see flatpak/lint-exceptions.json and the
+        # manifest comment). Every other finding still fails the job. This waiver must
+        # also be requested when submitting to Flathub.
+        run: >-
+          flatpak-builder-lint --exceptions
+          --user-exceptions flatpak/lint-exceptions.json
+          manifest flatpak/io.github.dguedry.vstenv.yml
+      - name: Lint metainfo
+        run: flatpak-builder-lint appstream data/io.github.dguedry.vstenv.metainfo.xml
+
+  python:
+    name: Python syntax and imports
+    needs: [auto-tag]
+    if: always() && (needs.auto-tag.result == 'success' || needs.auto-tag.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.auto-tag.outputs.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install olefile
+      - run: python -m compileall -q vstenv
+      - name: Import every non-GUI module
+        run: python -c "import vstenv, vstenv.cli, vstenv.doctor, vstenv.setup, vstenv.menu, vstenv.vendors, vstenv.vendors.ni, vstenv.vendors.ik, vstenv.installers.installaware, vstenv.yabridge, vstenv.wine, vstenv.msi, vstenv.download, vstenv.progress, vstenv.paths; assert {v.id for v in vstenv.vendors.all()} >= {'ni', 'ik'}"
+      - run: python -m vstenv --help
+      - run: python -m unittest discover -s tests -v
+
+  flatpak:
+    name: Flatpak build (working tree)
+    needs: [auto-tag]
+    if: always() && (needs.auto-tag.result == 'success' || needs.auto-tag.result == 'skipped')
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.auto-tag.outputs.sha || github.sha }}
+      - name: Generate working-tree manifest
+        run: python3 flatpak/dev-manifest.py
+      - uses: flathub-infra/flatpak-github-actions/flatpak-builder@933e9e8ca36e85046ebca8e211f0785c6becac40
+        with:
+          manifest-path: flatpak/io.github.dguedry.vstenv.dev.yml
+          bundle: vstenv.flatpak
+          cache-key: flatpak-builder-${{ hashFiles('flatpak/io.github.dguedry.vstenv.yml') }}
+          upload-artifact: false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vstenv-flatpak
+          path: vstenv.flatpak
+          if-no-files-found: error
+
+  # yabridge's last release predates Wine 9.22's window changes (mouse clicks in
+  # plugin GUIs land in the wrong place). Build yabridge master against the app's
+  # pinned Wine and ship it with the release; the app prefers this build.
+  yabridge:
+    name: Build yabridge for the pinned Wine
+    needs: [auto-tag]
+    if: always() && (needs.auto-tag.result == 'success' || needs.auto-tag.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.auto-tag.outputs.sha || github.sha }}
+      - run: sudo apt-get update -q && sudo apt-get install -y -q meson ninja-build libxcb1-dev libdbus-1-dev pkg-config
+      - name: Download the pinned Wine build
+        run: |
+          set -euo pipefail
+          url="$(python3 -c 'from vstenv.wine import WINE_BUILD; print(WINE_BUILD["url"])')"
+          sha="$(python3 -c 'from vstenv.wine import WINE_BUILD; print(WINE_BUILD["sha256"])')"
+          curl -sSL -o wine.tar.xz "$url"; echo "$sha  wine.tar.xz" | sha256sum -c
+          mkdir wine && tar -xJf wine.tar.xz -C wine --strip-components=1
+      - run: scripts/build-yabridge.sh "$PWD/wine" "$PWD/out"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yabridge-build
+          path: out/yabridge-*.tar.gz
+          if-no-files-found: error
+
+  # Publish the bundle to a GitHub release when either: (a) a v* tag was pushed
+  # directly (manual scripts/release.sh path), or (b) the auto-tag job cut a new
+  # version in this run.
+  release:
+    name: Publish bundle to the GitHub release
+    needs: [auto-tag, python, flatpak, yabridge]
+    if: >-
+      always()
+      && needs.python.result == 'success'
+      && needs.flatpak.result == 'success'
+      && needs.yabridge.result == 'success'
+      && (startsWith(github.ref, 'refs/tags/v') || needs.auto-tag.outputs.version != '')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: vstenv-flatpak
+      - uses: actions/download-artifact@v4
+        with:
+          name: yabridge-build
+      - name: Create or update the release and attach the bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ -n "${{ needs.auto-tag.outputs.version }}" ]; then
+            TAG="v${{ needs.auto-tag.outputs.version }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "vstenv $TAG" --generate-notes
+          gh release upload "$TAG" vstenv.flatpak yabridge-*.tar.gz --repo "$GITHUB_REPOSITORY" --clobber
+          echo "published $TAG"

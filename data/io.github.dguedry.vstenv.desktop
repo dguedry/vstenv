@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=VST Environment
+Comment=Windows audio plugins on Linux: vendor managers, their products, and VST bridging
+Exec=vstenv-gui
+Icon=io.github.dguedry.vstenv
+Terminal=false
+Categories=AudioVideo;Audio;
+Keywords=VST;VST3;CLAP;yabridge;Wine;Native Instruments;IK Multimedia;Kontakt;
+StartupNotify=true

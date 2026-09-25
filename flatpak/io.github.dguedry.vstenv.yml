@@ -1,0 +1,111 @@
+# Flatpak manifest for vstenv (VST Environment for Linux).
+# Build:  flatpak/build.sh            (flatpak-builder --user --install)
+# Run:    flatpak run io.github.dguedry.vstenv
+#
+# Wine is NOT bundled: the app downloads a pinned portable wine build into its
+# data dir on first run (same as it does outside the sandbox). That same wine
+# binary is host-visible, so yabridge on the host can run plugins with it.
+app-id: io.github.dguedry.vstenv
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+command: vstenv-gui
+finish-args:
+  - --share=network                 # vendor feeds and CDNs, GitHub (wine, yabridge)
+  - --share=ipc
+  - --socket=x11                    # Wine's display driver is X11 (XWayland on Wayland sessions); GTK follows
+  - --socket=pulseaudio             # standalone Windows programs
+  - --device=dri
+  - --allow=devel                   # wine: ptrace/exception handling
+  # Wine runs ON THE HOST (flatpak-spawn --host), with the app's own pinned Wine
+  # build from the app's data directory. wineserver addresses its clients by pid;
+  # each `flatpak run` is its own pid namespace and DAWs load NI plugins on the
+  # host, so the wineserver and every Wine client must share the host namespace
+  # or Electron managers crash and plugins hang (see README, "One prefix, many DAWs").
+  - --talk-name=org.freedesktop.Flatpak
+  - --allow=multiarch               # 32-bit programs: vendors' InstallAware setup exes are 32-bit; Wine's WoW64 needs the modify_ldt syscall Flatpak otherwise filters
+  # yabridge: bridged plugins and its own files must be where host DAWs look
+  - --filesystem=~/.vst:create
+  - --filesystem=~/.vst3:create
+  - --filesystem=~/.clap:create
+  - --filesystem=~/.local/share/yabridge:create
+  - --filesystem=~/.local/bin:create
+  - --filesystem=~/.config/yabridgectl:create
+  # The prefix's wineserver is shared with host DAWs (below), and wineserver opens
+  # every file on behalf of every client. So whatever a plugin can reach through
+  # the prefix must be visible from inside this sandbox too: Wine links the
+  # prefix's Desktop/Documents/Downloads/Music/... to the host's folders (Kontakt
+  # keeps its Service Center data under Documents and aborts at load when that
+  # open fails with "no such file"), and sample libraries live wherever the user
+  # put them. Anything narrower than host access breaks plugins in every DAW the
+  # moment this app is the one that started the wineserver. Health ("sandbox sees
+  # every path the prefix links to") reports what is missing.
+  - --filesystem=host
+  # Installers the user picks still come through the file-chooser portal. Vendor
+  # managers' download locations are pointed inside the prefix when the configured
+  # one is unset or not writable (the NI module does this at setup and every launch).
+  # wineserver's per-prefix socket must be the SAME file the host's wine sees, so
+  # a DAW's yabridge (host) and this app's daemon (sandbox) share ONE wineserver
+  # for the prefix. This wine build puts that socket under /tmp/.wine-<uid> when
+  # /tmp is a real shared mount, and only falls back to $XDG_RUNTIME_DIR/wine when
+  # /tmp is the sandbox's private tmpfs. The host always uses /tmp/.wine-<uid>, so
+  # we must share the real /tmp; sharing only xdg-run/wine splits them (the
+  # sandbox lands in XDG_RUNTIME_DIR, the host in /tmp — plugins hang with no
+  # daemon in their wineserver). Keep xdg-run/wine too for older wine builds.
+  # (--filesystem=/tmp trips Flathub's finish-args-host-tmp-access lint, which is
+  # on Flathub's documented exceptions list — request the exception at submission.
+  # A narrower /tmp/.wine-<uid> can't be expressed without hardcoding the uid.)
+  - --filesystem=/tmp
+  - --filesystem=xdg-run/wine:create
+  - --env=WINEDLLOVERRIDES=winemenubuilder.exe=d;mscoree=d;mshtml=d
+cleanup:
+  - /include
+  - /share/man
+  - '*.la'
+modules:
+  - name: cabextract
+    buildsystem: autotools
+    sources:
+      - type: archive
+        url: http://deb.debian.org/debian/pool/main/c/cabextract/cabextract_1.11.orig.tar.gz   # upstream site 403s flatpak-builder; identical tarball
+        mirror-urls:
+          - https://www.cabextract.org.uk/cabextract-1.11.tar.gz
+        sha256: b5546db1155e4c718ff3d4b278573604f30dd64c3c5bfd4657cd089b823a3ac6
+
+  - name: 7zip
+    buildsystem: simple
+    build-commands:
+      - make -j$FLATPAK_BUILDER_N_JOBS -C CPP/7zip/Bundles/Alone2 -f makefile.gcc
+      - install -Dm755 CPP/7zip/Bundles/Alone2/_o/7zz /app/bin/7zz
+      - ln -sf 7zz /app/bin/7z
+    sources:
+      - type: archive
+        url: https://github.com/ip7z/7zip/releases/download/24.09/7z2409-src.tar.xz
+        sha256: 49c05169f49572c1128453579af1632a952409ced028259381dac30726b6133a
+        strip-components: 0
+
+  - name: python3-olefile
+    buildsystem: simple
+    build-commands:
+      - pip3 install --verbose --exists-action=i --no-index --find-links="file://${PWD}" --prefix=/app --no-build-isolation olefile
+    sources:
+      - type: file
+        url: https://files.pythonhosted.org/packages/69/1b/077b508e3e500e1629d366249c3ccb32f95e50258b231705c09e3c7a4366/olefile-0.47.zip
+        sha256: 599383381a0bf3dfbd932ca0ca6515acd174ed48870cbf7fee123d698c192c1c
+
+  - name: vstenv
+    buildsystem: simple
+    build-commands:
+      - SITE=$(python3 -c "import sysconfig; print(sysconfig.get_paths()['purelib'].replace('/usr', '/app'))"); mkdir -p "$SITE" && cp -r vstenv "$SITE/"
+      - install -Dm755 flatpak/vstenv-gui /app/bin/vstenv-gui
+      - install -Dm755 flatpak/vstenv /app/bin/vstenv
+      - install -Dm644 data/io.github.dguedry.vstenv.desktop /app/share/applications/io.github.dguedry.vstenv.desktop
+      - install -Dm644 data/io.github.dguedry.vstenv.metainfo.xml /app/share/metainfo/io.github.dguedry.vstenv.metainfo.xml
+      - install -Dm644 data/io.github.dguedry.vstenv.svg /app/share/icons/hicolor/scalable/apps/io.github.dguedry.vstenv.svg
+    sources:
+      # Flathub builds from the tagged release. flatpak/build.sh swaps this for
+      # the working tree (type: dir) for local development builds.
+      - type: git
+        url: https://github.com/dguedry/vstenv.git
+        tag: v0.1.0
+        commit: 0000000000000000000000000000000000000000   # set at the first tagged release

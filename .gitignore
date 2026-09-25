@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+build/
+dist/
+*.egg-info/
+flatpak/build-dir/
+flatpak/repo/
+flatpak/.flatpak-builder/
+flatpak/*.flatpak
+.vscode/
+flatpak/*.dev.yml
+flatpak/build-flathub/
+flatpak/repo-flathub/

@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vstenv"
+version = "0.1.0"
+description = "A managed environment for Windows audio plugins on Linux: vendor managers, their products, and VST bridging, without touching Wine yourself"
+requires-python = ">=3.10"
+dependencies = ["olefile>=0.46"]
+
+[project.scripts]
+vstenv = "vstenv.cli:main"
+vstenv-gui = "vstenv.gui:main"
+
+# Vendor modules. A separate package adds its own by declaring an entry point in
+# this group whose object is a vstenv.vendors.Vendor instance (see vstenv/vendors).
+[project.entry-points."vstenv.vendors"]
+ni = "vstenv.vendors.ni:VENDOR"
+ik = "vstenv.vendors.ik:VENDOR"
+
+[tool.setuptools]
+packages = ["vstenv", "vstenv.vendors", "vstenv.vendors.ni", "vstenv.vendors.ik", "vstenv.installers"]

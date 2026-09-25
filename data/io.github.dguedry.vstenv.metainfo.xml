@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.dguedry.vstenv</id>
+  <name>VST Environment</name>
+  <summary>Windows audio plugins in Linux DAWs, vendor managers included</summary>
+  <developer id="io.github.dguedry">
+    <name>Donnie Guedry</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>A managed environment for Windows audio plugins on Linux. It provisions its own Wine, installs each vendor's manager application (Native Access, IK Product Manager) and the products it delivers, applies every fix those need under Wine, and exposes the result to Linux DAWs as ordinary VST2, VST3 and CLAP plugins through yabridge — without the user ever dealing with Wine. Installed programs appear in the desktop's application menu.</p>
+    <p>Vendor support lives in modules: Native Instruments and IK Multimedia are built in, and a separate package can add another vendor. Vendor managers are not included: download them from the vendor (the app links to the page) and choose the file in the app. A portable Wine build is downloaded on first run.</p>
+    <p>Not affiliated with or endorsed by Native Instruments GmbH or IK Multimedia Production srl.</p>
+  </description>
+  <launchable type="desktop-id">io.github.dguedry.vstenv.desktop</launchable>
+  <provides>
+    <binary>vstenv</binary>
+    <binary>vstenv-gui</binary>
+  </provides>
+  <url type="homepage">https://github.com/dguedry/vstenv</url>
+  <url type="bugtracker">https://github.com/dguedry/vstenv/issues</url>
+  <url type="vcs-browser">https://github.com/dguedry/vstenv</url>
+  <branding>
+    <color type="primary" scheme_preference="light">#5ac8fa</color>
+    <color type="primary" scheme_preference="dark">#1e1e24</color>
+  </branding>
+  <content_rating type="oars-1.1"/>
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <releases>
+    <release version="0.1.0" date="2026-09-25">
+      <description>
+        <p>First release: the vendor-modular successor to nilinux, with Native Instruments and IK Multimedia modules and desktop menu entries for installed programs</p>
+      </description>
+    </release>
+  </releases>
+</component>

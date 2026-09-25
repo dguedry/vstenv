@@ -1,0 +1,7 @@
+{
+  "io.github.dguedry.vstenv": [
+    "finish-args-host-tmp-access",
+    "finish-args-flatpak-spawn-access",
+    "finish-args-host-filesystem-access"
+  ]
+}
