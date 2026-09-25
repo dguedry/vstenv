@@ -9,7 +9,7 @@ stale ones (the program is gone) are removed on every sync.
 """
 from __future__ import annotations
 
-import re, shutil, subprocess
+import re, shutil, subprocess, sys
 from pathlib import Path
 
 from . import APP_ID, APP_NAME, paths, host, pe
@@ -25,11 +25,22 @@ def slug(name: str) -> str:
 
 def desktop_path(name: str) -> Path: return APPS / f"{PREFIX}{slug(name)}.desktop"
 
+def _q(s: str) -> str:
+    """Quote one Exec= argument the way the desktop entry spec wants."""
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+def launcher() -> str:
+    """The command the desktop can run to reach this app. The desktop loads an
+    entry only if its Exec program exists on PATH (GDesktopAppInfo drops it
+    otherwise, silently), so a source checkout without the `vstenv` script must
+    point at its interpreter instead."""
+    if host.in_flatpak(): return f"flatpak run --command={APP_NAME} {APP_ID}"
+    if shutil.which(APP_NAME): return APP_NAME
+    return f"{_q(sys.executable)} -m {APP_NAME}"
+
 def exec_line(name: str) -> str:
     """How the desktop starts the program: through this app, so quirks and vendor launchers apply."""
-    quoted = '"' + name.replace("\\", "\\\\").replace('"', '\\"') + '"'
-    if host.in_flatpak(): return f"flatpak run --command={APP_NAME} {APP_ID} run {quoted}"
-    return f"{APP_NAME} run {quoted}"
+    return f"{launcher()} run {_q(name)}"
 
 def _icon_for(p: Prefix, prog) -> str:
     """Extract the exe's icon once; fall back to the app icon."""
@@ -55,6 +66,17 @@ def entry(p: Prefix, prog) -> str:
 
 def ours() -> list[Path]:
     return sorted(APPS.glob(f"{PREFIX}*.desktop")) if APPS.is_dir() else []
+
+def exec_resolves(desktop: Path) -> bool:
+    """Would the desktop accept this entry? Its Exec program must be an absolute
+    path that exists or a name found on PATH."""
+    try:
+        line = next((l for l in desktop.read_text(errors="replace").splitlines() if l.startswith("Exec=")), "")
+    except OSError: return False
+    m = re.match(r'Exec=(?:"([^"]+)"|(\S+))', line)
+    if not m: return False
+    prog = m.group(1) or m.group(2)
+    return Path(prog).is_file() if "/" in prog else shutil.which(prog) is not None
 
 def sync(p: Prefix, reporter=None) -> dict:
     """Write an entry per runnable program, remove entries for programs that are gone."""

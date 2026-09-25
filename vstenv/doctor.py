@@ -92,7 +92,12 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
     st, detail = yabridge.plugin_wine_status(p)
     c.append(Check("plugin hosts run this prefix with this wine", st == "active", detail, fix="vstenv setup"))
     entries = menu.ours()
-    c.append(Check("desktop menu entries", True, f"{len(entries)} program{'s' if len(entries) != 1 else ''} in the app menu", fix="vstenv menu update"))
+    # The desktop drops an entry whose Exec program it cannot find, without a word.
+    broken = [f.name for f in entries if not menu.exec_resolves(f)]
+    c.append(Check("desktop menu entries", not broken,
+                   f"{len(entries)} program{'s' if len(entries) != 1 else ''} in the app menu" if not broken
+                   else f"{len(broken)} of {len(entries)} entries name a launcher the desktop cannot find (hidden from the menu)",
+                   fix="vstenv menu update"))
     for v in vendors.all():
         try:
             for ck in v.checks(p): c.append(ck)

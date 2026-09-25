@@ -30,8 +30,16 @@ class MenuTest(unittest.TestCase):
         f = self.apps / "io.github.dguedry.vstenv.program.kontakt-8.desktop"
         body = f.read_text()
         self.assertIn("Name=Kontakt 8\n", body); self.assertIn("Native Instruments", body)
-        with mock.patch.object(host, "in_flatpak", return_value=False): self.assertEqual(menu.exec_line("Kontakt 8"), 'vstenv run "Kontakt 8"')
+        with mock.patch.object(host, "in_flatpak", return_value=False), mock.patch.object(menu.shutil, "which", return_value="/usr/bin/vstenv"):
+            self.assertEqual(menu.exec_line("Kontakt 8"), 'vstenv run "Kontakt 8"')
+        with mock.patch.object(host, "in_flatpak", return_value=False), mock.patch.object(menu.shutil, "which", return_value=None):
+            # a source checkout: the desktop hides an entry whose Exec program is not on PATH, so use the interpreter
+            self.assertEqual(menu.exec_line("Kontakt 8"), f'"{menu.sys.executable}" -m vstenv run "Kontakt 8"')
         with mock.patch.object(host, "in_flatpak", return_value=True): self.assertIn("flatpak run --command=vstenv io.github.dguedry.vstenv run", menu.exec_line("Kontakt 8"))
+        self.assertTrue(menu.exec_resolves(f), "the entry must name a launcher the desktop can find")
+        broken = self.apps / "io.github.dguedry.vstenv.program.broken.desktop"
+        broken.write_text("[Desktop Entry]\nType=Application\nName=x\nExec=no-such-launcher run \"x\"\n")
+        self.assertFalse(menu.exec_resolves(broken))
         self.assertIn('Exec=', body); self.assertIn("Icon=io.github.dguedry.vstenv", body)     # no real exe: app icon
         quoted = (self.apps / "io.github.dguedry.vstenv.program.amp-live-2.desktop").read_text()
         self.assertIn('run "Amp \\"Live\\" 2"', quoted)
