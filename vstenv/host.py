@@ -68,3 +68,21 @@ def available() -> tuple[bool, str]:
     if cp.returncode != 0:
         return False, "the sandbox may not run commands on the host (needs --talk-name=org.freedesktop.Flatpak): " + (cp.stderr.strip().splitlines() or ["?"])[-1]
     return True, "Wine processes run on the host (flatpak-spawn --host), in the same pid namespace as DAW plugins"
+
+
+def which(name: str) -> str | None:
+    """Path of a program on the HOST (the sandbox's PATH says nothing about the
+    desktop the user actually runs)."""
+    if not in_flatpak():
+        import shutil
+        return shutil.which(name)
+    out = sh(f"command -v {name}", timeout=20).strip()
+    return out or None
+
+def desktop_tool(cmd: list[str], timeout=30) -> subprocess.CompletedProcess | None:
+    """Run a desktop-database tool (xdg-mime, update-desktop-database) on the
+    host, where the menu and mime databases it edits live. None when the tool
+    is missing there or fails to start; nothing else is worth failing over."""
+    if which(cmd[0]) is None: return None
+    try: return run(cmd, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError): return None

@@ -17,8 +17,8 @@ class UrlSchemesTest(unittest.TestCase):
         self.scheme = vendors.get("ni").url_schemes(self.p)[0]
         self.patches = [mock.patch.object(urlschemes, "BIN", root / ".local/bin"),
                         mock.patch.object(urlschemes, "APPS", root / ".local/share/applications"),
-                        mock.patch.object(urlschemes.shutil, "which", return_value=None),
-                        mock.patch.object(urlschemes.subprocess, "run", return_value=mock.Mock(stdout="", returncode=0))]
+                        mock.patch.object(urlschemes.host, "which", return_value=None),
+                        mock.patch.object(urlschemes.host, "desktop_tool", return_value=mock.Mock(stdout="", returncode=0))]
         for x in self.patches: x.start()
         self.script, self.desktop = urlschemes.script_path(self.scheme), urlschemes.desktop_path(self.scheme)
 
@@ -44,7 +44,7 @@ class UrlSchemesTest(unittest.TestCase):
 
     def test_status_reports_a_foreign_handler(self):
         urlschemes.register(self.p, self.scheme)
-        with mock.patch.object(urlschemes.subprocess, "run", return_value=mock.Mock(stdout="someone-elses.desktop\n", returncode=0)):
+        with mock.patch.object(urlschemes.host, "desktop_tool", return_value=mock.Mock(stdout="someone-elses.desktop\n", returncode=0)):
             st = urlschemes.status(self.scheme)
             self.assertTrue(st["installed"]); self.assertTrue(st["foreign"]); self.assertFalse(st["ok"])
 

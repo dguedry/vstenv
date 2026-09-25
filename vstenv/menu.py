@@ -9,7 +9,7 @@ stale ones (the program is gone) are removed on every sync.
 """
 from __future__ import annotations
 
-import re, shutil, subprocess, sys
+import re, sys
 from pathlib import Path
 
 from . import APP_ID, APP_NAME, paths, host, pe
@@ -35,7 +35,7 @@ def launcher() -> str:
     otherwise, silently), so a source checkout without the `vstenv` script must
     point at its interpreter instead."""
     if host.in_flatpak(): return f"flatpak run --command={APP_NAME} {APP_ID}"
-    if shutil.which(APP_NAME): return APP_NAME
+    if host.which(APP_NAME): return APP_NAME
     return f"{_q(sys.executable)} -m {APP_NAME}"
 
 def exec_line(name: str) -> str:
@@ -76,7 +76,7 @@ def exec_resolves(desktop: Path) -> bool:
     m = re.match(r'Exec=(?:"([^"]+)"|(\S+))', line)
     if not m: return False
     prog = m.group(1) or m.group(2)
-    return Path(prog).is_file() if "/" in prog else shutil.which(prog) is not None
+    return Path(prog).is_file() if "/" in prog else host.which(prog) is not None
 
 def sync(p: Prefix, reporter=None) -> dict:
     """Write an entry per runnable program, remove entries for programs that are gone."""
@@ -93,8 +93,7 @@ def sync(p: Prefix, reporter=None) -> dict:
             if not f.exists() or f.read_text(errors="replace") != body: f.write_text(body); written += 1
         for f in ours():
             if f not in want: f.unlink(); removed += 1
-        if (written or removed) and shutil.which("update-desktop-database"):
-            subprocess.run(["update-desktop-database", str(APPS)], capture_output=True, timeout=30)
+        if written or removed: host.desktop_tool(["update-desktop-database", str(APPS)])
     except OSError as e:
         r.fail(str(e)[:100]); return {"programs": len(progs), "written": written, "removed": removed}
     r.ok(f"{len(progs)} program{'s' if len(progs) != 1 else ''}" + (f", {written} updated" if written else "") + (f", {removed} removed" if removed else ""))
@@ -107,7 +106,6 @@ def remove_all(reporter=None) -> int:
     for f in ours():
         try: f.unlink(); n += 1
         except OSError: pass
-    if n and shutil.which("update-desktop-database"):
-        subprocess.run(["update-desktop-database", str(APPS)], capture_output=True, timeout=30)
+    if n: host.desktop_tool(["update-desktop-database", str(APPS)])
     r.ok(f"{n} removed" if n else "none")
     return n

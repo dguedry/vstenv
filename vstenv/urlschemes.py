@@ -10,10 +10,10 @@ scheme and a script that runs the vendor's command with the URL. Both live under
 """
 from __future__ import annotations
 
-import shlex, shutil, subprocess
+import shlex, subprocess
 from pathlib import Path
 
-from . import APP_ID, paths
+from . import APP_ID, paths, host
 from .progress import null_reporter
 from .vendors import UrlScheme
 from .wine import Prefix
@@ -64,7 +64,8 @@ def status(s: UrlScheme) -> dict:
     """Is the handler installed, and is the desktop actually using it?"""
     default = ""
     try:
-        default = subprocess.run(["xdg-mime", "query", "default", mime(s)], capture_output=True, text=True, timeout=10).stdout.strip()
+        cp = host.desktop_tool(["xdg-mime", "query", "default", mime(s)], timeout=10)
+        default = cp.stdout.strip() if cp else ""
     except (OSError, subprocess.SubprocessError): pass
     installed = script_path(s).exists() and desktop_path(s).exists() and _ours(script_path(s))
     return {"installed": installed, "default": default, "is_default": default == desktop_path(s).name,
@@ -86,10 +87,8 @@ def register(p: Prefix, s: UrlScheme, reporter=None) -> bool:
         if not script.exists() or script.read_text(errors="replace") != want: script.write_text(want)
         script.chmod(0o755)
         if not desktop.exists() or desktop.read_text(errors="replace") != desktop_content(s): desktop.write_text(desktop_content(s))
-        if shutil.which("update-desktop-database"):
-            subprocess.run(["update-desktop-database", str(APPS)], capture_output=True, timeout=30)
-        if shutil.which("xdg-mime"):
-            subprocess.run(["xdg-mime", "default", desktop.name, mime(s)], capture_output=True, timeout=30)
+        host.desktop_tool(["update-desktop-database", str(APPS)])
+        host.desktop_tool(["xdg-mime", "default", desktop.name, mime(s)])
     except (OSError, subprocess.SubprocessError) as e:
         r.fail(str(e)[:100]); return False
     after = status(s)
@@ -106,8 +105,7 @@ def unregister(s: UrlScheme, reporter=None) -> bool:
         if f.exists() and (f.suffix == ".desktop" or _ours(f)):
             try: f.unlink(); removed = True
             except OSError as e: r.fail(str(e)[:80]); return False
-    if shutil.which("update-desktop-database"):
-        subprocess.run(["update-desktop-database", str(APPS)], capture_output=True, timeout=30)
+    host.desktop_tool(["update-desktop-database", str(APPS)])
     r.ok("removed" if removed else "nothing to remove")
     return removed
 

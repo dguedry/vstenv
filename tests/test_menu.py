@@ -17,7 +17,7 @@ class MenuTest(unittest.TestCase):
                       Program(name="Amp \"Live\" 2", publisher="Someone", exe=r"C:\Program Files\K\amp.exe")]
         self.patches = [mock.patch.object(menu, "APPS", self.apps), mock.patch.object(menu, "ICONS", self.icons),
                         mock.patch.object(programs, "installed", lambda p: list(self.progs)),
-                        mock.patch.object(menu.shutil, "which", return_value=None)]
+                        mock.patch.object(menu.host, "which", return_value=None)]
         for x in self.patches: x.start()
 
     def tearDown(self):
@@ -30,9 +30,9 @@ class MenuTest(unittest.TestCase):
         f = self.apps / "io.github.dguedry.vstenv.program.kontakt-8.desktop"
         body = f.read_text()
         self.assertIn("Name=Kontakt 8\n", body); self.assertIn("Native Instruments", body)
-        with mock.patch.object(host, "in_flatpak", return_value=False), mock.patch.object(menu.shutil, "which", return_value="/usr/bin/vstenv"):
+        with mock.patch.object(host, "in_flatpak", return_value=False), mock.patch.object(menu.host, "which", return_value="/usr/bin/vstenv"):
             self.assertEqual(menu.exec_line("Kontakt 8"), 'vstenv run "Kontakt 8"')
-        with mock.patch.object(host, "in_flatpak", return_value=False), mock.patch.object(menu.shutil, "which", return_value=None):
+        with mock.patch.object(host, "in_flatpak", return_value=False), mock.patch.object(menu.host, "which", return_value=None):
             # a source checkout: the desktop hides an entry whose Exec program is not on PATH, so use the interpreter
             self.assertEqual(menu.exec_line("Kontakt 8"), f'"{menu.sys.executable}" -m vstenv run "Kontakt 8"')
         with mock.patch.object(host, "in_flatpak", return_value=True): self.assertIn("flatpak run --command=vstenv io.github.dguedry.vstenv run", menu.exec_line("Kontakt 8"))
