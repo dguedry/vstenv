@@ -217,12 +217,14 @@ class Window(Adw.ApplicationWindow):
 
     # ---- install page -------------------------------------------------------------------
     def build_install(self):
-        page = Adw.PreferencesPage(); self.manager_rows = {}
+        page = Adw.PreferencesPage(); self.manager_rows = {}; self.open_rows = {}
         for v in vendors.with_manager():
             g = Adw.PreferencesGroup(title=v.name, description=f"Products from your {v.name} account.")
-            g.add(_row(f"Open {v.manager_name}", "Sign in, install or update products. New plugins are bridged while it runs and when you close it.", "go-next-symbolic", lambda v=v: self.open_manager(v)))
+            # Shown only once the manager is installed (refresh_install)
+            o = _row(f"Open {v.manager_name}", "Sign in, install or update products. New plugins are bridged while it runs and when you close it.", "go-next-symbolic", lambda v=v: self.open_manager(v))
+            o.set_visible(False); self.open_rows[v.id] = o; g.add(o)
             g.add(_row(f"Get {v.manager_name} from {v.name}", v.download_page or "", "web-browser-symbolic", lambda v=v: self.open_url(v.download_page)))
-            r = _row(f"Install or update {v.manager_name} from a downloaded installer", f"Pick {v.installer_hint}.", "document-open-symbolic",
+            r = _row(f"Install {v.manager_name} from a downloaded installer", f"Pick {v.installer_hint}.", "document-open-symbolic",
                      lambda v=v: self.pick_file(f"Choose the {v.manager_name} installer", lambda f, v=v: self.install_manager(v, f), downloads=True))
             self.manager_rows[v.id] = r; g.add(r)
             if type(v).install_product is not vendors.Vendor.install_product:
@@ -348,7 +350,16 @@ class Window(Adw.ApplicationWindow):
                     if row: row.set_subtitle(GLib.markup_escape_text(n or f"Pick {v.installer_hint}."))
             ui(show)
         threading.Thread(target=work, daemon=True).start()
-    def refresh_all(self): self.refresh_plugins(); self.refresh_programs(); self.refresh_health(); self.refresh_notices()
+    def refresh_install(self):
+        """Offer "Open" only for an installed manager; the installer row reads
+        Install or Update accordingly."""
+        ready = self.is_ready()
+        for v in vendors.with_manager():
+            installed = ready and v.manager_installed(self.prefix)
+            self.open_rows[v.id].set_visible(installed)
+            ver = (v.manager_version(self.prefix) or "") if installed else ""
+            self.manager_rows[v.id].set_title(f"{'Update' if installed else 'Install'} {v.manager_name}{' ' + ver if ver else ''} from a downloaded installer")
+    def refresh_all(self): self.refresh_install(); self.refresh_plugins(); self.refresh_programs(); self.refresh_health(); self.refresh_notices()
 
 class App(Adw.Application):
     def __init__(self):
