@@ -32,6 +32,7 @@ from pathlib import Path
 from .. import Vendor, Product, Check, UrlScheme
 from ...progress import null_reporter
 from ... import mono
+from ...installers import steinberg as pkg
 from ...wine import Prefix
 
 MANAGER = "Steinberg Download Assistant"
@@ -106,6 +107,16 @@ class Steinberg(Vendor):
         latest = max(d.glob("*.log"), key=lambda f: f.stat().st_mtime, default=None) if d.is_dir() else None
         return {"steinberg-download-assistant.log": latest} if latest else {}
 
+    # -- installs ------------------------------------------------------------------------------
+    # The Download Assistant hands every package to the .NET Install Assistant, which
+    # refuses any with a signed prerun script under Wine (no PowerShell signature
+    # provider). Those are finished here from the package it leaves in Temp.
+    def accepts_product_installer(self, f): return pkg.is_package(f)
+    def install_product(self, p, installer, r=None, **kw): return pkg.install(p, Path(installer), r)
+    def staged_installs(self, p): return pkg.staged(p)
+    def finish_installs(self, p, r=None): return pkg.finish_staged(p, r)
+    def rescue_installs(self, p, r=None): return pkg.finish_staged(p, r)
+
     # -- health ------------------------------------------------------------------------------------
     def checks(self, p) -> list[Check]:
         c = []
@@ -119,6 +130,8 @@ class Steinberg(Vendor):
             has = mono.installed(p)
             c.append(Check("Wine Mono (.NET) for the Steinberg Install Assistant", has, "" if has else "runtime components and products fail to install without it",
                            fix="vstenv manager steinberg repair"))
+            left = pkg.staged(p)
+            c.append(Check("no Steinberg installs left unfinished", not left, ", ".join(x.name for x in left), fix="vstenv finish-installs"))
         return c
     def status(self, p) -> dict:
         m = self._manager(p)
