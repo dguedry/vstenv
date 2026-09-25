@@ -6,12 +6,17 @@ querying an MSI virtual table Wine's SQL parser rejects. It never exits, so an
 exit code never arrives and a caller waiting on it waits for its timeout --
 an hour in `install_app`, which users reasonably read as "hangs indefinitely".
 
+A second form spins instead: the inner setup burns half a core in a request
+loop against wineserver, again writing nothing, forever (Kontakt 8 8.13.1,
+2026-09-25). So CPU time is not evidence of progress; bytes written are.
+
 This watches a running installer and reports when it has plainly stopped. The
 rule is deliberately conservative, because acting on a false positive (killing
-an installer that is merely slow) is worse than waiting: progress counts as
-*any* CPU time used or *any* byte written, and it must be absent for several
-consecutive minutes before we call it stalled. Slow disks, big payloads and
-Wine's own sluggishness all still count as progress.
+an installer that is merely slow) is worse than waiting: progress is *any* byte
+written by any of the watched processes (the setup stubs and the msiexec that
+does the copying for them), and it must be absent for several consecutive
+minutes before we call it stalled. Slow disks, big payloads and Wine's own
+sluggishness all still write something along the way.
 """
 from __future__ import annotations
 
@@ -42,7 +47,8 @@ class Progress:
     written: int = 0    # bytes written, cumulative
 
     def moved(self, other: "Progress") -> bool:
-        return other.cpu > self.cpu or other.written > self.written
+        """Only bytes written count: a spinning setup burns CPU while stuck."""
+        return other.written > self.written
 
 def read_progress(pids: list[int]) -> Progress:
     """CPU and bytes-written totals for these pids, 0 when they cannot be read."""
@@ -80,7 +86,7 @@ class StallWatch:
             self._last = p
             self._since = self._now()
             return False
-        if self._last.moved(p):             # any CPU or any byte written counts as alive
+        if self._last.moved(p):             # any byte written counts as alive (CPU does not: a stuck setup can spin)
             self._since = None
         elif self._since is None:
             self._since = self._now()

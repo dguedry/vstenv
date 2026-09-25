@@ -21,11 +21,20 @@ class StallWatchTest(unittest.TestCase):
             self.t[0] = 29; self.assertFalse(w.update([123]))
             self.t[0] = 31; self.assertTrue(w.update([123]))
 
-    def test_cpu_progress_resets_the_clock(self):
+    def test_cpu_alone_is_not_progress(self):
+        """Kontakt 8 8.13.1's inner setup spins at half a core while stuck (2026-09-25):
+        CPU time must not reset the clock, only bytes written."""
         w = self._watch()
-        with mock.patch.object(stall, "read_progress", side_effect=[stall.Progress(10, 100), stall.Progress(11, 100), stall.Progress(11, 100)]):
+        with mock.patch.object(stall, "read_progress", side_effect=[stall.Progress(10, 100), stall.Progress(500, 100), stall.Progress(1000, 100)]):
             w.update([123])
-            self.t[0] = 25; self.assertFalse(w.update([123]))    # used CPU: alive
+            self.t[0] = 25; self.assertFalse(w.update([123]))    # not quiet long enough yet
+            self.t[0] = 31; self.assertTrue(w.update([123]))     # spinning, nothing written: stalled
+
+    def test_writes_reset_the_clock(self):
+        w = self._watch()
+        with mock.patch.object(stall, "read_progress", side_effect=[stall.Progress(10, 100), stall.Progress(10, 101), stall.Progress(10, 101)]):
+            w.update([123])
+            self.t[0] = 25; self.assertFalse(w.update([123]))    # wrote a byte: alive
             self.t[0] = 50; self.assertFalse(w.update([123]))    # only 25s quiet since
             self.assertLess(w.quiet_for(), 30)
 
@@ -55,7 +64,7 @@ class StallWatchTest(unittest.TestCase):
 
 class ProgressTest(unittest.TestCase):
     def test_moved(self):
-        self.assertTrue(stall.Progress(1, 0).moved(stall.Progress(2, 0)))
+        self.assertFalse(stall.Progress(1, 0).moved(stall.Progress(2, 0)))   # CPU only: a stuck setup can spin
         self.assertTrue(stall.Progress(1, 0).moved(stall.Progress(1, 5)))
         self.assertFalse(stall.Progress(2, 5).moved(stall.Progress(2, 5)))
 

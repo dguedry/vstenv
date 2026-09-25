@@ -51,3 +51,16 @@ class StagedTest(unittest.TestCase):
             self.assertEqual(installaware.staged_installs(p, products.find_download), [])
 
 if __name__ == "__main__": unittest.main()
+
+
+class InstallPidsTest(unittest.TestCase):
+    def test_watches_stubs_inner_setup_and_msiexec(self):
+        from unittest import mock
+        from vstenv.installers import installaware
+        p = mock.Mock()
+        p.processes.return_value = [(1, "C:\\...\\Temp\\Kontakt_8_Installer\\Kontakt 8 8.13.1 Setup PC.exe /s"),
+                                    (2, ".\\Kontakt 8 Setup PC.exe /s TARGETDIR=..."),
+                                    (3, "C:\\windows\\syswow64\\msiexec.exe -Embedding 464"),
+                                    (4, "C:\\Program Files\\Native Instruments\\Native Access\\Native Access.exe"),
+                                    (5, "C:\\windows\\system32\\services.exe")]
+        self.assertEqual(installaware.install_pids(p), [1, 2, 3])

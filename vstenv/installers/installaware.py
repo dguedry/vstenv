@@ -75,18 +75,25 @@ def run_watched(p: Prefix, exe: Path, trace: Path, r) -> tuple[int, bool]:
     watch = StallWatch()
     with open(trace, "wb") as f:
         proc = host.popen([str(p.build.wine), str(exe), "/s"], env=p.wine_env(None, "+msi"), stdout=subprocess.DEVNULL, stderr=f)
-        deadline = time.time() + 3600
+        deadline = time.time() + 3600; rc = None
         while True:
-            try: return proc.wait(timeout=10), False
-            except subprocess.TimeoutExpired: pass
-            if watch.update([pid for pid, _ in p.processes(exe.name)]):
-                r.log(f"no CPU and no disk writes for {watch.quiet_for():.0f}s: treating as stalled")
-                p.kill_exe(exe.name)
+            if rc is None:
+                try: rc = proc.wait(timeout=10)
+                except subprocess.TimeoutExpired: pass
+            else: time.sleep(10)
+            pids = install_pids(p)
+            # The stub can exit (re-launched through start.exe, or done with its part)
+            # while the inner setup and msiexec still run the actual install: keep
+            # watching those until they finish or stall.
+            if rc is not None and not pids: return rc, False
+            if watch.update(pids):
+                r.log(f"no disk writes for {watch.quiet_for():.0f}s: treating as stalled")
+                kill_installs(p)
                 try: proc.wait(timeout=30)
                 except subprocess.TimeoutExpired: proc.kill()
                 return -1, True
             if time.time() > deadline:
-                p.kill_exe(exe.name); proc.kill()
+                kill_installs(p); proc.kill()
                 return -1, True
 
 def install(p: Prefix, setup: Path, reporter=None, keep_trace=False) -> dict:
@@ -160,13 +167,28 @@ def staged_installs(p: Prefix, find_download: FindDownload | None = None) -> lis
     return out
 
 SETUP_HINT = "Setup PC.exe"     # what a running setup's command line contains
+MSI_HINT = "msiexec"            # the MSI service the stub hands the actual copying to
+
+def install_pids(p: Prefix) -> list[int]:
+    """Every process doing an InstallAware install in this prefix: the outer stub,
+    the inner setup it extracts and runs, and msiexec. All three must be watched
+    together: while msiexec copies files the stubs sit idle, and a stuck inner
+    setup spins while the stub waits."""
+    return [pid for pid, cmd in p.processes() if SETUP_HINT.lower() in cmd.lower() or MSI_HINT in cmd.lower()]
+
+def kill_installs(p: Prefix) -> list[int]:
+    """Stop every setup stub and the msiexec serving it (a lingering msiexec
+    -Embedding blocks the next MSI run). Returns the pids signalled."""
+    pids = install_pids(p)
+    if pids: host.run(["kill", "-KILL", *map(str, pids)], capture_output=True, timeout=20); time.sleep(2)
+    return pids
 
 def stalled_setup(p: Prefix, watch=None, quiet_seconds: float = 300.0):
     """A setup the manager started that has stopped making progress. Keep the
     returned watch and pass it back on the next call: the judgement needs
     history, not a single sample. Returns (watch, stalled, pids)."""
     from ..stall import StallWatch
-    pids = [pid for pid, cmd in p.processes() if SETUP_HINT.lower() in cmd.lower()]
+    pids = install_pids(p)
     if watch is None: watch = StallWatch(quiet_seconds=quiet_seconds)
     return watch, watch.update(pids), pids
 
@@ -175,13 +197,10 @@ def rescue(p: Prefix, reporter=None, find_download: FindDownload | None = None, 
     The manager drives these, so when one wedges nothing else can complete it:
     the staged folder is held open by the dead-in-the-water process."""
     r = null_reporter(reporter)
-    killed = []
-    for pid, cmd in p.processes():
-        if SETUP_HINT.lower() in cmd.lower():
-            r.step(f"Stopping the stalled installer (pid {pid})")
-            try: os.kill(pid, 9); killed.append(pid); r.ok()
-            except OSError as e: r.fail(str(e))
-    if killed: time.sleep(2)
+    pids = install_pids(p)
+    if pids:
+        r.step(f"Stopping the stalled installer (pid {', '.join(map(str, pids))})")
+        kill_installs(p); r.ok()
     return finish_staged(p, r, find_download, busy)
 
 def finish_staged(p: Prefix, reporter=None, find_download: FindDownload | None = None, busy: Callable[[Prefix, str], bool] | None = None) -> list[dict]:
@@ -210,12 +229,12 @@ def _finish_from_staged(p: Prefix, st: StagedInstall, r) -> dict:
     paths.ensure_dirs()
     trace = paths.LOGS / f"{st.name}-finish.trace"
     r.step(f"Re-running staged installer: {st.exe.name}")
-    cp = p.run([str(st.exe), "/s"], debug="+msi", timeout=3600, capture=False, stderr_to=trace)
+    rc, stalled = run_watched(p, st.exe, trace, r)     # the staged stub can stall exactly like the original did
     roots, regkeys = parse_trace(trace)
-    if cp.returncode == 0 and regkeys and any(p.reg_query(_split_key(k)[0]).get(_split_key(k)[1]) for k in regkeys):
+    if not stalled and rc == 0 and regkeys and any(p.reg_query(_split_key(k)[0]).get(_split_key(k)[1]) for k in regkeys):
         r.ok("installer succeeded"); trace.unlink(missing_ok=True)
         return {"name": st.name, "method": "installer", "regkeys": regkeys}
-    r.fail(f"installer exit {cp.returncode}; deploying the staged payload")
+    r.fail(("installer stopped making progress" if stalled else f"installer exit {rc}") + "; deploying the staged payload")
     if not roots: raise RuntimeError("trace has no destination roots; cannot deploy")
     n = _deploy_and_register(p, st.msi, st.dir / "data", roots, regkeys, r)
     trace.unlink(missing_ok=True)
