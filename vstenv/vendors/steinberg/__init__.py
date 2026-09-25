@@ -9,7 +9,7 @@ Java runtime. Two things break under Wine (found with SDA 1.40.1, 2026-09-25):
   NullPointerException, 300 times per screen). Giving this one executable
   Wine's built-in D3D11, DXGI, D3D10 and D3D9 through a per-application
   DllOverrides key makes the text render; DXVK stays in place for the plugins.
-- Sign-in never comes back. SDA opens the Steinberg ID login in the system
+- Sign-in never comes back (SDA and the Activation Manager alike). SDA opens the Steinberg ID login in the system
   browser; the flow page ends by opening a net-steinberg-sda:// link, which
   starts a second SDA instance that hands the URL to the running one over its
   IPC. The host browser needs a handler for that scheme (urlschemes.py); the
@@ -41,6 +41,11 @@ DEFAULT_EXE = r"C:\Program Files (x86)\Steinberg\Download Assistant\Steinberg Do
 OVERRIDES = ("d3d9", "d3d10core", "d3d11", "dxgi")
 OVERRIDES_KEY = rf"HKCU\Software\Wine\AppDefaults\{EXE}\DllOverrides"
 SCHEME = "net-steinberg-sda"
+# The Activation Manager (Qt) signs in the same way: system browser, then the flow
+# page opens net-steinberg-activation-manager://…, which the prefix registers as
+# `SteinbergActivationManager.exe --redirect "%1"`.
+SAM_SCHEME = "net-steinberg-activation-manager"
+SAM_EXE = r"C:\Program Files\Steinberg\Activation Manager\SteinbergActivationManager.exe"
 
 def text_fix_applied(p: Prefix) -> bool:
     cur = p.reg_query(OVERRIDES_KEY)
@@ -101,7 +106,9 @@ class Steinberg(Vendor):
         return [Product(name=x.name, vendor=self.id, kind="App", version=x.version, install_dir=x.install_dir)
                 for x in programs.installed(p) if self.publisher.search(x.publisher or "") and not self.is_manager_program(x)]
     def url_schemes(self, p):
-        return [UrlScheme(SCHEME, f"{MANAGER} login callback", lambda p: [str(p.build.wine), str(p.to_host(self._exe(p)))])]
+        return [UrlScheme(SCHEME, f"{MANAGER} login callback", lambda p: [str(p.build.wine), str(p.to_host(self._exe(p)))]),
+                UrlScheme(SAM_SCHEME, "Steinberg Activation Manager login callback",
+                          lambda p: [str(p.build.wine), str(p.to_host(SAM_EXE)), "--redirect"])]
     def logs(self, p):
         d = p.user_dir / "AppData/Local/Steinberg Download Assistant/logs"
         latest = max(d.glob("*.log"), key=lambda f: f.stat().st_mtime, default=None) if d.is_dir() else None

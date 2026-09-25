@@ -66,4 +66,4 @@ class SteinbergTest(unittest.TestCase):
         self.assertFalse(sb.apply_text_fix(p)); p.reg_add.assert_not_called(); self.assertTrue(sb.text_fix_applied(p))
     def test_declares_the_login_callback_scheme(self):
         v = vendors.get("steinberg")
-        self.assertEqual([s.scheme for s in v.url_schemes(None)], ["net-steinberg-sda"])
+        self.assertEqual([s.scheme for s in v.url_schemes(None)], ["net-steinberg-sda", "net-steinberg-activation-manager"])
