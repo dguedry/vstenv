@@ -34,6 +34,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.2" date="2026-09-25">
+      <description>
+        <p>Add the package __main__ (python -m vstenv)</p>
+      </description>
+    </release>
     <release version="0.1.1" date="2026-09-25">
       <description>
         <p>vstenv: a vendor-modular environment for Windows audio plugins on Linux</p>
