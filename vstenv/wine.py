@@ -194,20 +194,45 @@ done"""
                 except OSError: return True
         except OSError: return False
 
+    def lock_holders(self) -> list[int] | None:
+        """Pids holding this prefix's wineserver lock, read from the host's
+        /proc/locks (the kernel names the holder of every fcntl lock, whatever
+        its environment looks like). [] when nobody holds it or the pid is in a
+        namespace the host cannot see (shown as 0); None when /proc/locks could
+        not be read, so the caller can tell 'no holder' from 'no answer'."""
+        try: st = (self.wineserver_dir() / "lock").stat()
+        except OSError: return []
+        key = f"{os.major(st.st_dev):02x}:{os.minor(st.st_dev):02x}:{st.st_ino}"
+        out = host.sh("cat /proc/locks && echo __locks_read__")
+        if "__locks_read__" not in out: return None
+        pids = []
+        for line in out.splitlines():
+            f = line.split()          # "1: POSIX ADVISORY WRITE <pid> <maj>:<min>:<ino> <start> <end>"; waiters start with "->"
+            if len(f) >= 6 and f[0].endswith(":") and f[5] == key and f[4].isdigit() and int(f[4]) > 0: pids.append(int(f[4]))
+        return pids
+
     def wineserver_scope(self) -> str:
         """Where this prefix's wineserver lives relative to us:
         'none'    - no wineserver is up for this prefix
-        'ours'    - up, and visible in our /proc (same pid namespace: we can use it)
-        'foreign' - up (holds the lock in /tmp) but not found by the host-wide
-                    scan: it runs in a pid namespace we cannot reach (a sandboxed
-                    DAW with its own Wine?). wineserver addresses its clients by
-                    pid (tgkill, ptrace, process_vm_readv), so a client from
-                    another namespace gets no APCs or suspends: Electron's renderer
-                    dies at once and the server can spin forever. Our own Wine runs
-                    on the host for exactly this reason (host.py)."""
+        'ours'    - up, and its process is visible from the host (same pid
+                    namespace as the Wine we run: we can use it)
+        'foreign' - up (holds the lock) but its holder is in a pid namespace the
+                    host cannot see (a sandboxed DAW with its own Wine?).
+                    wineserver addresses its clients by pid (tgkill, ptrace,
+                    process_vm_readv), so a client from another namespace gets no
+                    APCs or suspends: Electron's renderer dies at once and the
+                    server can spin forever. Our own Wine runs on the host for
+                    exactly this reason (host.py).
+        'unknown' - up, but neither /proc/locks nor the process scan could be
+                    read just now; callers should not treat this as foreign.
+        The lock holder from /proc/locks is the primary evidence; the WINEPREFIX
+        scan of /proc is the fallback, since a holder started with an unusual
+        environment would otherwise look foreign."""
         if not self.wineserver_running(): return "none"
+        holders = self.lock_holders()
+        if holders: return "ours"
         if any("wineserver" in cmd for _, cmd in self.processes()): return "ours"
-        return "foreign"
+        return "unknown" if holders is None else "foreign"
 
     def kill_exe(self, exe_name: str, wait=3.0):
         pids = [str(pid) for pid, _ in self.processes(exe_name)]

@@ -36,7 +36,8 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
     scope = p.wineserver_scope()
     c.append(Check("wineserver reachable from here", scope != "foreign",
                    {"none": "not running (starts on first use)", "ours": "running on the host, reachable from here",
-                    "foreign": "running in a pid namespace this app cannot reach (a sandboxed DAW with its own Wine?)"}[scope],
+                    "foreign": "running in a pid namespace this app cannot reach (a sandboxed DAW with its own Wine?)",
+                    "unknown": "running; could not read /proc/locks or scan /proc just now (retry)"}[scope],
                    fix="close the DAW or the other instance and wait for its wineserver to exit"))
     rs = runtime.status(p)
     c.append(Check("prefix prepared (fonts, C runtime)", rs["prepared"], fix="vstenv setup"))

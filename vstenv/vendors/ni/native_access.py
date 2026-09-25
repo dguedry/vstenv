@@ -338,7 +338,10 @@ def launch(p: Prefix, reporter=None, extra_args=()) -> subprocess.Popen:
     r = null_reporter(reporter)
     exe = na_exe(p)
     if not exe.exists(): raise RuntimeError(f"Native Access is not installed yet — download it from {NA_DOWNLOAD_PAGE} and use install-na")
-    if p.wineserver_scope() == "foreign": raise RuntimeError(FOREIGN_WINESERVER)
+    scope = p.wineserver_scope()
+    if scope == "foreign":
+        raise RuntimeError(f"{FOREIGN_WINESERVER}\n(lock {p.wineserver_dir() / 'lock'} is held, but no wineserver for {p.path} is visible from the host)")
+    if scope == "unknown": r.log("could not tell whose wineserver holds the prefix lock; launching anyway")
     if p.is_running("Native Access.exe"): p.kill_exe("Native Access.exe")
     clear_stale_mutexes(p)
     if stack_patch(exe) == "patched": r.log("re-applied stack patch (NA updated itself)")
