@@ -263,6 +263,7 @@ class Window(Adw.ApplicationWindow):
         g = Adw.PreferencesGroup(title="Other plugins", description="Any Windows VST2 / VST3 / CLAP installer.")
         g.add(_row("Run a plugin installer", "The installer's own window opens; plugins are bridged when it finishes.", "document-open-symbolic", lambda: self.pick_file("Choose installer", self.install_program)))
         g.add(_row("Add a plugin folder", "If an installer put VST2 .dlls somewhere unusual inside the prefix.", "folder-open-symbolic", self.pick_folder))
+        g.add(_row("Install the .NET runtime (Wine Mono)", "For installers and programs built on .NET; downloaded from WineHQ to match this Wine. Vendor modules that need it install it themselves.", "system-software-install-symbolic", self.install_mono))
         g.add(_row("Bridge plugins now", "Re-scan the prefix and update the DAW-visible plugins.", "view-refresh-symbolic", self.sync))
         g.add(_row("Finish interrupted installs", "Complete an install a vendor's manager started but did not finish (Health lists them).", "emblem-synchronizing-symbolic", self.finish_installs))
         page.add(g); return page
@@ -323,6 +324,10 @@ class Window(Adw.ApplicationWindow):
             except GLib.Error: return
             cb(Path(f.get_path()))
         d.open(self, None, on)
+    def install_mono(self):
+        from . import mono
+        if not self.is_ready(): self.toast("Run setup first"); return
+        self.run_bg("Installing the .NET runtime (Wine Mono)", lambda r: mono.install(self.prefix, r))
     def pick_folder(self):
         d = Gtk.FileDialog(title="Choose plugin folder", initial_folder=Gio.File.new_for_path(str(self.prefix.drive_c / "Program Files")))
         def on(dlg, res):

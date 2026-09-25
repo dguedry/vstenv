@@ -12,11 +12,11 @@ is installed, both readable without starting Wine:
   target path lives.
 
 Registry entries give the uninstaller; shortcuts give the launcher; the two are
-merged by name. This prefix is tuned for audio software (Windows 10, real C
-runtime, no Wine Mono or Gecko, no 3D layer): programs needing .NET, an embedded
-browser or Direct3D will not run, and that is said in the GUI rather than fixed
-here, because each of those layers would put the vendors' software at risk.
-Vendor modules contribute extra program sources (Vendor.programs).
+merged by name. The prefix is tuned for audio software: Windows 10, a real C
+runtime, Direct3D through DXVK, and .NET through Wine Mono when something
+needs it (a vendor module asks for it, or the user installs it from the
+Install tab). No embedded browser (Gecko) is installed: nothing supported
+needs one. Vendor modules contribute extra program sources (Vendor.programs).
 """
 import re, shlex, struct, time
 from dataclasses import dataclass, field
@@ -29,8 +29,8 @@ UNINSTALL_KEYS = (r"Software\Microsoft\Windows\CurrentVersion\Uninstall",
                   r"Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall")
 SKIP_NAMES = re.compile(r"^(Wine (Mono|Gecko)|Microsoft Visual C\+\+|Windows .*Runtime)", re.I)
 NOT_A_LAUNCHER = re.compile(r"(unins|uninstall|setup|update|crash|helper)", re.I)
-LIMITS = ("Programs that need .NET, an embedded browser (Gecko) or Direct3D will not run here: "
-          "this prefix is tuned for audio software and adding those layers would put the vendors' software at risk.")
+LIMITS = ("Windows installers and programs run with the environment's own Wine. Direct3D goes through DXVK; "
+          ".NET is available once Wine Mono is installed (below); programs that need an embedded browser (Gecko) will not run.")
 
 @dataclass
 class Program:

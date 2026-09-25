@@ -122,6 +122,13 @@ def cmd_doctor(a):
 def cmd_status(a):
     p = _prefix(); print(yabridge.status(p))
 
+def cmd_mono(a):
+    from . import mono
+    p = _prefix()
+    if a.action == "status":
+        st = mono.status(p); print(f"wine mono: {'installed' if st['installed'] else 'not installed'} (this wine wants {st['required']})"); return
+    r = ConsoleReporter(); mono.install(p, r); _fail_if(r)
+
 def cmd_dxvk(a):
     from . import dxvk
     p = _prefix()
@@ -195,6 +202,8 @@ def main(argv=None):
     s = sp.add_parser("menu", help="desktop menu entries for the prefix's programs"); s.add_argument("action", nargs="?", default="update", choices=["update", "remove"]); s.set_defaults(f=cmd_menu)
     sp.add_parser("doctor", help="check every fix and prerequisite").set_defaults(f=cmd_doctor)
     sp.add_parser("status", help="yabridge status").set_defaults(f=cmd_status)
+    s = sp.add_parser("mono", help=".NET runtime (Wine Mono) for programs that need it: install | status")
+    s.add_argument("action", nargs="?", default="install", choices=["install", "status"]); s.set_defaults(f=cmd_mono)
     s = sp.add_parser("dxvk", help="Direct3D on Vulkan for plugin GUIs that Wine draws wrong")
     s.add_argument("action", nargs="?", default="install", choices=["install", "remove", "status"]); s.add_argument("--force", action="store_true"); s.set_defaults(f=cmd_dxvk)
     sp.add_parser("prefixes", help="which vstenv prefixes exist, who owns a vendor daemon, what yabridge points at").set_defaults(f=cmd_prefixes)
