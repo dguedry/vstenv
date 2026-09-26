@@ -54,6 +54,35 @@ def provision(reporter=None, build=WINE_BUILD) -> WineBuild:
     r.ok(dest.name)
     return WineBuild(dest)
 
+# Wine's unix-side modules link host libraries. The core needs only glibc and X11;
+# the rest is optional and a distribution may lack a library version a module
+# was built against (winedmo: FFmpeg 4). Which of these matters:
+ESSENTIAL_MODULES = ("winex11", "winevulkan", "opengl32", "dwrite", "win32u", "ntdll")
+AUDIO_MODULES = ("winepulse", "winealsa")           # one of them must load
+
+def missing_module_libs(build: WineBuild) -> dict[str, list[str]]:
+    """{module: [missing host libraries]} for the build's unix modules, resolved on
+    the host (where Wine runs). ntdll.so and win32u.so are Wine's own and are
+    found by its loader, not by ldd, so they are not counted."""
+    d = build.root / "lib/wine/x86_64-unix"
+    out = host.sh(f'cd {str(d)!r} && for f in *.so; do echo "== $f"; ldd "$f" 2>/dev/null | grep "not found"; done', timeout=120)
+    res: dict[str, list[str]] = {}; cur = None
+    for line in out.splitlines():
+        if line.startswith("== "): cur = line[3:].removesuffix(".so"); continue
+        lib = line.split()[0] if line.split() else ""
+        if cur and lib and lib not in ("ntdll.so", "win32u.so"): res.setdefault(cur, []).append(lib)
+    return res
+
+def module_libs_check(missing: dict[str, list[str]]) -> tuple[bool, str]:
+    """(ok, detail): not ok when an essential module or all audio modules lost a library."""
+    essential = [m for m in ESSENTIAL_MODULES if m in missing]
+    audio_gone = all(m in missing for m in AUDIO_MODULES)
+    if essential or audio_gone:
+        bad = essential + ([m for m in AUDIO_MODULES if m in missing] if audio_gone else [])
+        return False, "; ".join(f"{m} needs {', '.join(missing[m])}" for m in bad)
+    if not missing: return True, "every module's host libraries are present"
+    return True, "optional modules unavailable here: " + "; ".join(f"{m} ({', '.join(v)})" for m, v in sorted(missing.items()))
+
 def installed_build() -> WineBuild | None:
     dest = paths.WINE_DIR / WINE_BUILD["name"]
     return WineBuild(dest) if (dest / "bin").exists() else None

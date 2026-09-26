@@ -30,6 +30,8 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
     if p is None:
         if b is None: return c
         p = wine.Prefix(paths.PREFIX, b)
+    ok, detail = wine.module_libs_check(wine.missing_module_libs(b))
+    c.append(Check("Wine modules find their host libraries", ok, detail, fix="install the named libraries with your package manager (optional modules only lose that feature)"))
     c.append(Check("prefix", p.exists, str(p.path), fix="vstenv setup"))
     if not p.exists: return c
     hok, hdetail = host.available()
