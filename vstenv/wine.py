@@ -34,6 +34,23 @@ class WineBuild:
         try: return subprocess.run([str(self.wine), "--version"], capture_output=True, text=True, timeout=20).stdout.strip()
         except Exception: return "unknown"
 
+RELEASE_REPO = "dguedry/vstenv"     # every release carries the Wine tarball yabridge was built against
+
+def wine_tarball_sources(build=WINE_BUILD) -> list[tuple[str, str]]:
+    """Where to get the pinned Wine, in order: the app's own latest release (the
+    tested tarball, served with the app), then the upstream build server. The
+    sha256 is the same either way, so a swapped file is refused."""
+    from .download import text
+    import json
+    name = build["name"] + ".tar.xz"; out = []
+    try:
+        rel = json.loads(text(f"https://api.github.com/repos/{RELEASE_REPO}/releases/latest"))
+        a = next((a for a in rel.get("assets", []) if a.get("name") == name), None)
+        if a: out.append((a["browser_download_url"], f"{RELEASE_REPO} release {rel.get('tag_name', '')}"))
+    except Exception: pass
+    out.append((build["url"], "upstream build"))
+    return out
+
 def provision(reporter=None, build=WINE_BUILD) -> WineBuild:
     """Download+extract the pinned wine build if missing. Returns the build."""
     r = null_reporter(reporter); paths.ensure_dirs()
@@ -42,8 +59,12 @@ def provision(reporter=None, build=WINE_BUILD) -> WineBuild:
         return WineBuild(dest)
     from .download import fetch
     r.step(f"Downloading wine ({build['name']})")
-    tarball = fetch(build["url"], paths.DOWNLOADS / (build["name"] + ".tar.xz"), sha256=build["sha256"], reporter=r)
-    r.ok()
+    tarball = None; errors = []
+    for url, label in wine_tarball_sources(build):
+        try: tarball = fetch(url, paths.DOWNLOADS / (build["name"] + ".tar.xz"), sha256=build["sha256"], reporter=r, label=f"wine ({label})"); break
+        except Exception as e: errors.append(f"{label}: {str(e)[:80]}"); r.log(f"{label}: {str(e)[:100]}")
+    if tarball is None: raise RuntimeError("could not download the Wine build: " + "; ".join(errors))
+    r.ok(label)
     r.step("Extracting wine")
     tmp = paths.WINE_DIR / (build["name"] + ".tmp")
     shutil.rmtree(tmp, ignore_errors=True); tmp.mkdir(parents=True)

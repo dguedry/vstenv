@@ -162,10 +162,17 @@ jobs:
           curl -sSL -o wine.tar.xz "$url"; echo "$sha  wine.tar.xz" | sha256sum -c
           mkdir wine && tar -xJf wine.tar.xz -C wine --strip-components=1
       - run: scripts/build-yabridge.sh "$PWD/wine" "$PWD/out"
+      # The very tarball yabridge was built against ships with the release too, so
+      # the app fetches the tested Wine from its own release first and only falls
+      # back to the upstream build server (wine.py: wine_tarball_sources).
+      - name: Keep the pinned Wine tarball for the release
+        run: cp wine.tar.xz "out/$(python3 -c 'from vstenv.wine import WINE_BUILD; print(WINE_BUILD["name"])').tar.xz"
       - uses: actions/upload-artifact@v4
         with:
           name: yabridge-build
-          path: out/yabridge-*.tar.gz
+          path: |
+            out/yabridge-*.tar.gz
+            out/wine-*.tar.xz
           if-no-files-found: error
 
   # Publish the bundle to a GitHub release when either: (a) a v* tag was pushed
@@ -202,5 +209,5 @@ jobs:
           fi
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "vstenv $TAG" --generate-notes
-          gh release upload "$TAG" vstenv.flatpak yabridge-*.tar.gz --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload "$TAG" vstenv.flatpak yabridge-*.tar.gz wine-*.tar.xz --repo "$GITHUB_REPOSITORY" --clobber
           echo "published $TAG"
