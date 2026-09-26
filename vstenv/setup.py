@@ -1,7 +1,7 @@
 """Setting the environment up and keeping it consistent: the core steps, then
 every vendor module's own, in one idempotent pass."""
 from pathlib import Path
-from . import runtime, dxvk, yabridge, menu, urlschemes, vendors
+from . import runtime, dxvk, yabridge, menu, urlschemes, vendors, tools
 from .progress import null_reporter
 from .wine import Prefix
 
@@ -13,6 +13,7 @@ def prepare(p: Prefix, reporter=None):
     """Everything that does not need a vendor's manager: prefix, fonts, C runtime,
     DXVK, yabridge, then each vendor's own prerequisites. Safe to re-run."""
     r = null_reporter(reporter)
+    _guarded(r, "7-Zip", lambda: tools.ensure(r))
     p.create(r); p.declare_wine(r); p.refresh_builtins(r); runtime.install(p, r)
     _guarded(r, "Installing DXVK", lambda: dxvk.install(p, r))     # skipped without a hardware Vulkan driver
     p.wait_idle()

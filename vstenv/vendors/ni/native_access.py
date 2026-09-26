@@ -7,7 +7,7 @@ from pathlib import Path
 from ... import paths, pe
 from ...download import text
 from ...progress import null_reporter
-from ...runtime import need as _need
+from ... import tools
 from ...wine import Prefix
 
 NA_DOWNLOAD_PAGE = "https://www.native-instruments.com/pages/native-access"
@@ -48,12 +48,12 @@ def latest_version() -> str | None:
 # --- install -----------------------------------------------------------------------
 def extract_app(installer: Path, dest_dir: Path):
     """The NSIS package does not run under Wine; pull app-64.7z out of it."""
-    _need("7z")
+    sz = tools.seven_zip()
     with tempfile.TemporaryDirectory() as t:
-        subprocess.run(["7z", "e", "-y", f"-o{t}", str(installer), "$PLUGINSDIR/app-64.7z"], check=True, capture_output=True)
+        subprocess.run([sz, "e", "-y", f"-o{t}", str(installer), "$PLUGINSDIR/app-64.7z"], check=True, capture_output=True)
         app7z = Path(t) / "app-64.7z"
         if not app7z.exists(): raise RuntimeError("installer has no $PLUGINSDIR/app-64.7z")
-        subprocess.run(["7z", "x", "-y", f"-o{dest_dir}", str(app7z)], check=True, capture_output=True)
+        subprocess.run([sz, "x", "-y", f"-o{dest_dir}", str(app7z)], check=True, capture_output=True)
     if not (dest_dir / "Native Access.exe").exists(): raise RuntimeError("extracted app has no Native Access.exe")
 
 def install(p: Prefix, installer: Path, reporter=None, keep_previous=True):
@@ -92,14 +92,14 @@ def stack_ok(exe: Path) -> bool:
 
 # --- fix 4: NTK Daemon helper service ----------------------------------------------------------------
 def ntk_daemon(p: Prefix, reporter=None) -> str | None:
-    r = null_reporter(reporter); _need("7z")
+    r = null_reporter(reporter); sz = tools.seven_zip(r)
     r.step("Installing NTK Daemon helper service")
     setups = sorted((na_dir(p) / "resources/daemon").rglob("NTKDaemon*Setup*.exe"))
     if not setups: r.fail("NTKDaemon setup exe not found in NA resources"); return None
     setup = setups[-1]
     dest = p.drive_c / NTK_REL; dest.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as t:
-        subprocess.run(["7z", "x", "-y", f"-o{t}", str(setup)], check=True, capture_output=True)
+        subprocess.run([sz, "x", "-y", f"-o{t}", str(setup)], check=True, capture_output=True)
         exes = list(Path(t).rglob("NTKDaemon.exe"))
         if not exes: r.fail("NTKDaemon.exe not in extracted setup"); return None
         if p.is_running("NTKDaemon.exe"): p.sc("stop", "NTKDaemon"); time.sleep(2)

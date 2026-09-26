@@ -8,6 +8,7 @@ import shutil, subprocess, tempfile
 from pathlib import Path
 from . import paths
 from .download import fetch
+from . import tools
 from .progress import null_reporter
 from .wine import Prefix
 
@@ -121,7 +122,7 @@ def registry(p: Prefix, reporter=None):
 
 # --- real C runtime -----------------------------------------------------------------------
 def vc_runtime(p: Prefix, reporter=None):
-    r = null_reporter(reporter); need("cabextract"); need("7z")
+    r = null_reporter(reporter)
     s32 = p.drive_c / "windows/system32"
     r.step("Installing real ucrtbase.dll (VC2019 redist)")
     if (s32 / "ucrtbase.dll.wine-builtin.bak").exists() and (s32 / "ucrtbase.dll").stat().st_size > 900_000:
@@ -129,10 +130,9 @@ def vc_runtime(p: Prefix, reporter=None):
     else:
         vc19 = fetch(UCRT_URL, paths.DOWNLOADS / "VC_redist2019.x64.exe", sha256=UCRT_SHA256, reporter=r, label="VC2019")
         with tempfile.TemporaryDirectory() as t:
-            subprocess.run(["cabextract", "-q", "-d", t, "-F", "a10", str(vc19)], check=True)
-            subprocess.run(["cabextract", "-q", "-d", t, "-F", "ucrtbase.dll", f"{t}/a10"], check=True)
-            src = Path(t) / "ucrtbase.dll"
-            if not src.exists(): raise RuntimeError("ucrtbase.dll not found in VC2019 redist")
+            files = tools.extract_cabinets(vc19, Path(t), r)          # bootstrapper -> attached cabinets -> a10 (a cabinet) -> ucrtbase.dll
+            src = next((x for x in files if x.name.lower() == "ucrtbase.dll"), None)
+            if src is None: raise RuntimeError("ucrtbase.dll not found in VC2019 redist")
             bak = s32 / "ucrtbase.dll.wine-builtin.bak"
             if not bak.exists() and (s32 / "ucrtbase.dll").exists(): shutil.copy2(s32 / "ucrtbase.dll", bak)
             shutil.copy2(src, s32 / "ucrtbase.dll")
@@ -143,19 +143,14 @@ def vc_runtime(p: Prefix, reporter=None):
     else:
         vc22 = fetch(VC2022_URL, paths.DOWNLOADS / "VC_redist2022.x64.exe", reporter=r, label="VC2022")
         with tempfile.TemporaryDirectory() as t:
-            subprocess.run(["cabextract", "-q", "-d", t, str(vc22)], capture_output=True)
-            cab = None
-            for c in sorted(Path(t).glob("a*")):
-                l = subprocess.run(["7z", "l", str(c)], capture_output=True, text=True).stdout
-                if "vcruntime140.dll_amd64" in l: cab = c; break
-            if cab is None: raise RuntimeError("x64 runtime cab not found in VC2022 redist")
-            rt = Path(t) / "rt"; rt.mkdir()
-            subprocess.run(["cabextract", "-q", "-d", str(rt), str(cab)], check=True)
+            files = tools.extract_cabinets(vc22, Path(t), r)
+            x64 = [x for x in files if x.name.endswith("_amd64")]
+            if not any(x.name == "vcruntime140.dll_amd64" for x in x64): raise RuntimeError("x64 runtime not found in VC2022 redist")
             n = 0
-            for f in rt.glob("*_amd64"):
-                dll = f.name[: -len("_amd64")]
+            for x in x64:
+                dll = x.name[: -len("_amd64")]
                 if (s32 / dll).exists() and not (s32 / (dll + ".bak")).exists(): shutil.copy2(s32 / dll, s32 / (dll + ".bak"))
-                shutil.copy2(f, s32 / dll); n += 1
+                shutil.copy2(x, s32 / dll); n += 1
         r.ok(f"{n} DLLs")
 
 def install(p: Prefix, reporter=None):

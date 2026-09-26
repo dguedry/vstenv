@@ -28,7 +28,7 @@ Vendor managers are not bundled. On first run the app prepares the environment
 (a portable Wine build is downloaded), then the Install tab links to each
 vendor's download page; pick the downloaded installer and the rest is automatic.
 
-From source (Python 3.10+, `7z`, `cabextract`, GTK4/libadwaita for the GUI):
+From source (Python 3.10+, GTK4/libadwaita for the GUI; 7-Zip is fetched if the host's is older than 24):
 
 ```sh
 pip install -e .

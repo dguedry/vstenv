@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from .. import paths, host
+from .. import paths, host, tools
 from ..progress import null_reporter
 from ..wine import Prefix
 
@@ -99,7 +99,7 @@ def run_watched(p: Prefix, exe: Path, trace: Path, r) -> tuple[int, bool]:
 def install(p: Prefix, setup: Path, reporter=None, keep_trace=False) -> dict:
     """Install from a setup exe (or its zip). Returns a summary dict."""
     r = null_reporter(reporter); paths.ensure_dirs()
-    if not shutil.which("7z"): raise RuntimeError("missing host tool: 7z")
+    sz = tools.seven_zip(r)
     work = Path(tempfile.mkdtemp(prefix="vstenv-app-", dir=paths.CACHE))
     try:
         exe = setup_exe_from(setup, work)
@@ -118,7 +118,7 @@ def install(p: Prefix, setup: Path, reporter=None, keep_trace=False) -> dict:
         else:       r.fail(f"installer exit {rc}; falling back to manual deploy")
         if not roots: raise RuntimeError("trace has no destination roots; cannot deploy")
         r.step("Extracting installer payload"); bag = work / "bag"; bag.mkdir()
-        subprocess.run(["7z", "x", "-y", f"-o{bag}", str(exe)], check=True, capture_output=True)
+        subprocess.run([sz, "x", "-y", f"-o{bag}", str(exe)], check=True, capture_output=True)
         msis = list(bag.glob("*.msi"))
         if not msis: raise RuntimeError("no inner MSI in installer")
         r.ok(msis[0].name)

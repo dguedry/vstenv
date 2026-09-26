@@ -19,8 +19,10 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
     `on_check` is called with each Check as it completes, so a UI can show
     results as they arrive instead of a blank page until the last one lands."""
     c = _Checks(on_check)
-    for tool in ("7z", "cabextract"):
-        c.append(Check(f"host tool: {tool}", bool(shutil.which(tool)), fix=f"install {tool} with your package manager"))
+    from . import tools
+    sz = tools.seven_zip_status()
+    c.append(Check("7-Zip (24+) for unpacking vendor packages", bool(sz["path"]), f"{sz['version']} ({sz['source']})" if sz["path"] else "none new enough on this host; setup fetches the official static build",
+                   fix="vstenv setup"))
     try: import olefile; c.append(Check("python: olefile", True))
     except ImportError: c.append(Check("python: olefile", False, fix="pip install olefile"))
     b = wine.installed_build()

@@ -63,15 +63,6 @@ cleanup:
   - /share/man
   - '*.la'
 modules:
-  - name: cabextract
-    buildsystem: autotools
-    sources:
-      - type: archive
-        url: http://deb.debian.org/debian/pool/main/c/cabextract/cabextract_1.11.orig.tar.gz   # upstream site 403s flatpak-builder; identical tarball
-        mirror-urls:
-          - https://www.cabextract.org.uk/cabextract-1.11.tar.gz
-        sha256: b5546db1155e4c718ff3d4b278573604f30dd64c3c5bfd4657cd089b823a3ac6
-
   - name: 7zip
     buildsystem: simple
     build-commands:

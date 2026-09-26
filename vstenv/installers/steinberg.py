@@ -22,7 +22,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .. import paths
+from .. import paths, tools
 from ..progress import null_reporter
 from ..wine import Prefix
 
@@ -42,9 +42,9 @@ def _listing(f: Path) -> list[str]:
         try:
             with zipfile.ZipFile(f) as z: return z.namelist()
         except (OSError, zipfile.BadZipFile): return []
-    if f.suffix.lower() == ".exe" and shutil.which("7z"):
+    if f.suffix.lower() == ".exe" and tools.seven_zip_status()["path"]:
         try:
-            cp = subprocess.run(["7z", "l", "-ba", "-slt", str(f)], capture_output=True, text=True, timeout=120)
+            cp = subprocess.run([tools.seven_zip(), "l", "-ba", "-slt", str(f)], capture_output=True, text=True, timeout=120)
             return [l[7:] for l in cp.stdout.splitlines() if l.startswith("Path = ")]
         except (OSError, subprocess.SubprocessError): return []
     return []
@@ -59,11 +59,9 @@ def extract(pkg: Path, dest: Path) -> Path:
     if pkg.suffix.lower() == ".zip":
         with zipfile.ZipFile(pkg) as z: z.extractall(dest)
     else:
-        if not shutil.which("7z"): raise RuntimeError("missing host tool: 7z")
-        cp = subprocess.run(["7z", "x", "-y", f"-o{dest}", str(pkg)], capture_output=True, text=True, timeout=1800)
+        cp = subprocess.run([tools.seven_zip(), "x", "-y", f"-o{dest}", str(pkg)], capture_output=True, text=True, timeout=1800)
         if cp.returncode != 0:
-            raise RuntimeError(f"7z could not unpack {pkg.name} (this self-extractor needs 7-Zip 24 or newer): "
-                               + (cp.stdout + cp.stderr).strip().splitlines()[-1][:120])
+            raise RuntimeError(f"7-Zip could not unpack {pkg.name}: " + ((cp.stdout + cp.stderr).strip().splitlines() or ["?"])[-1][:120])
     for x in sorted(dest.rglob("setup.xml")): return x.parent
     raise RuntimeError(f"{pkg.name} has no setup.xml")
 
