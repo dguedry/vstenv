@@ -39,10 +39,30 @@ class WineFixesTest(unittest.TestCase):
             with mock.patch.dict("os.environ", {"VSTENV_WINE_FIXES": str(tgz)}):
                 self.assertEqual(winefixes.install(b), {})
             self.assertEqual((b.root / winefixes.PE_DIR / "dcomp.dll").read_bytes(), b"stock dcomp")
-    def test_offline_install_fails_softly(self):
+    def test_offline_install_fails_softly_and_keeps_what_is_in_place(self):
         with tempfile.TemporaryDirectory() as d:
-            b = _fake_build(Path(d))
+            tmp = Path(d); b = _fake_build(tmp); tgz = _tarball(tmp)
             with mock.patch.dict("os.environ", {"VSTENV_WINE_FIXES": ""}), mock.patch.object(winefixes, "text", side_effect=OSError("offline")):
                 self.assertEqual(winefixes.install(b), {})
+            with mock.patch.dict("os.environ", {"VSTENV_WINE_FIXES": str(tgz)}): winefixes.install(b)
+            with mock.patch.dict("os.environ", {"VSTENV_WINE_FIXES": ""}), mock.patch.object(winefixes, "text", side_effect=OSError("offline")):
+                self.assertEqual(list(winefixes.install(b)), ["dcomp.dll"], "offline: the installed set stays")
+    def test_a_newer_release_replaces_the_installed_set(self):
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d); b = _fake_build(tmp)
+            def release(tag, payload):
+                rel = {"tag_name": tag, "assets": [{"name": "wine-fixes-11.17.tar.gz", "browser_download_url": "http://x/" + tag}]}
+                tgz = _tarball(tmp / tag, payload=payload) if (tmp / tag).mkdir() is None else None
+                return mock.patch.object(winefixes, "text", return_value=json.dumps(rel)), mock.patch.object(winefixes, "fetch", return_value=tgz)
+            with mock.patch.dict("os.environ", {"VSTENV_WINE_FIXES": ""}):
+                p1, p2 = release("v0.2.0", b"first")
+                with p1, p2: winefixes.install(b)
+                self.assertEqual((b.root / winefixes.PE_DIR / "dcomp.dll").read_bytes(), b"first"); self.assertEqual(winefixes.marker(b)["release"], "v0.2.0")
+                with p1, p2 as fetch_mock: winefixes.install(b)
+                fetch_mock.assert_not_called()                      # same release: nothing fetched, nothing touched
+                p3, p4 = release("v0.2.1", b"second")
+                with p3, p4: winefixes.install(b)
+                self.assertEqual((b.root / winefixes.PE_DIR / "dcomp.dll").read_bytes(), b"second"); self.assertEqual(winefixes.marker(b)["release"], "v0.2.1")
+                self.assertEqual((b.root / winefixes.PE_DIR / "dcomp.dll.orig").read_bytes(), b"stock dcomp", "the stock file stays the original")
 
 if __name__ == "__main__": unittest.main()

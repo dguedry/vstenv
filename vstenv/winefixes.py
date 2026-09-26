@@ -61,34 +61,46 @@ def status(build: wine.WineBuild | None) -> dict:
     missing = [d for d in FIXES if d not in inst]
     return {"installed": not missing, "files": sorted(inst), "missing": missing, "asset": asset_name(build), "marker": marker(build) if build else None}
 
-def _find_tarball(build, r) -> tuple[Path | None, str]:
-    """VSTENV_WINE_FIXES (a local tarball, for builds made by hand), else the asset
-    on the app's latest release."""
+def _release(r) -> tuple[dict | None, str]:
+    """The app's latest release (its JSON) and tag, or (None, '') when offline."""
+    try:
+        rel = json.loads(text(f"https://api.github.com/repos/{RELEASE_REPO}/releases/latest"))
+        return rel, rel.get("tag_name", "")
+    except Exception as e:
+        r.log(f"could not read {RELEASE_REPO} releases: {str(e)[:80]}"); return None, ""
+
+def _locate(build, r) -> tuple[Path | None, dict | None, str, str]:
+    """Where the fixes come from: VSTENV_WINE_FIXES (a local tarball, for builds made
+    by hand) as a path, else the asset on the app's latest release, not yet fetched.
+    Returns (local path, release asset, label, release tag)."""
     override = os.environ.get("VSTENV_WINE_FIXES")
     if override:
         f = Path(override).expanduser()
-        if f.is_file(): return f, f"{f.name} (VSTENV_WINE_FIXES)"
+        if f.is_file(): return f, None, f"{f.name} (VSTENV_WINE_FIXES)", "local"
         r.log(f"VSTENV_WINE_FIXES={override} does not exist; ignoring")
     name = asset_name(build)
-    try:
-        rel = json.loads(text(f"https://api.github.com/repos/{RELEASE_REPO}/releases/latest"))
-    except Exception as e:
-        r.log(f"could not read {RELEASE_REPO} releases: {str(e)[:80]}"); return None, ""
+    rel, tag = _release(r)
+    if rel is None: return None, None, "", ""
     a = next((a for a in rel.get("assets", []) if a.get("name") == name), None)
-    if a is None: return None, ""
-    return fetch(a["browser_download_url"], paths.DOWNLOADS / name, reporter=r, label="wine fixes"), f"{name} ({RELEASE_REPO} release {rel.get('tag_name', '')})"
+    return None, a, f"{name} ({RELEASE_REPO} release {tag})" if a else "", tag
 
 def install(build: wine.WineBuild, reporter=None, force=False) -> dict[str, str]:
     """Put the release's patched DLLs into the Wine build. Idempotent: nothing is
-    touched when every file already has the manifest's hash. Returns what is installed."""
+    touched when the installed set came from the latest release (or, offline, when
+    every file is in place). Returns what is installed."""
     r = null_reporter(reporter)
     r.step("Wine fixes (patched DLLs)")
-    if not force and not status(build)["missing"]:
-        r.skip(f"in place: {', '.join(sorted(installed(build)))}"); return installed(build)
-    tgz, label = _find_tarball(build, r)
-    if tgz is None:
+    tgz, asset, label, tag = _locate(build, r)
+    in_place = not status(build)["missing"]
+    current = (marker(build) or {}).get("release")
+    available = tgz is not None or asset is not None
+    if not force and in_place and (not available or (tag and tag == current)):
+        r.skip(f"in place: {', '.join(sorted(installed(build)))}" + (f" ({current})" if current else "")); return installed(build)
+    if not available:
         r.fail(f"no {asset_name(build)} on the latest {RELEASE_REPO} release (or offline); Steinberg's DirectComposition programs stay unavailable")
         return installed(build)
+    if tgz is None:   # cached per release: the same asset name carries a different build on every release
+        tgz = fetch(asset["browser_download_url"], paths.DOWNLOADS / f"{tag}-{asset_name(build)}", reporter=r, label="wine fixes")
     with tempfile.TemporaryDirectory(prefix="wine-fixes-") as tmp:
         with tarfile.open(tgz) as t: t.extractall(tmp, filter="tar")
         src = next((d for d in Path(tmp).rglob("manifest.json")), None)
@@ -103,12 +115,13 @@ def install(build: wine.WineBuild, reporter=None, force=False) -> dict[str, str]
             dst = build.root / PE_DIR / name
             orig = dst.with_suffix(dst.suffix + ".orig")
             if dst.exists() and not orig.exists() and _sha(dst) != sha: shutil.copy2(dst, orig)
+            if dst.exists() and _sha(dst) == sha: done[name] = sha; continue
             tmpf = dst.with_name(f".{name}.new")
             shutil.copy2(f, tmpf); tmpf.replace(dst)      # rename: a running program keeps its old mapping
             done[name] = sha
     m = marker(build) or {}
     files = dict(m.get("files") or {}); files.update(done)
-    (build.root / MARKER_NAME).write_text(json.dumps({"wine_version": wine_version(build), "files": files, "source": label,
+    (build.root / MARKER_NAME).write_text(json.dumps({"wine_version": wine_version(build), "files": files, "source": label, "release": tag,
                                                        "patches": man.get("patches", []), "installed": date.today().isoformat()}, indent=2))
     (r.ok if done else r.fail)(", ".join(f"{n} ({FIXES.get(n, 'patched')})" for n in done) if done else "nothing usable in the tarball")
     return installed(build)

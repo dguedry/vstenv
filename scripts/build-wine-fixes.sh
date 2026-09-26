@@ -19,7 +19,8 @@ OUT="${2:-$PWD}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 PATCH="$HERE/patches/wine/dcomp-steinberg-$VERSION.patch"
 [ -f "$PATCH" ] || { echo "no patch for Wine $VERSION: $PATCH" >&2; exit 1; }
-WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
+# WINE_FIXES_WORK=<dir> keeps the patched tree (unstripped DLL for symbols).
+if [ -n "${WINE_FIXES_WORK:-}" ]; then WORK="$WINE_FIXES_WORK"; mkdir -p "$WORK"; else WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT; fi
 cd "$WORK"
 
 echo "== sources"
@@ -48,11 +49,11 @@ for i in include/d2d1*.idl include/dwrite*.idl; do make "${i%.idl}.h" >/dev/null
 echo "== build dcomp.dll"
 make -j"$(nproc)" dlls/dcomp/x86_64-windows/dcomp.dll >/dev/null
 DLL="$SRC/dlls/dcomp/x86_64-windows/dcomp.dll"
-x86_64-w64-mingw32-strip --strip-unneeded "$DLL" 2>/dev/null || true
 
 echo "== package"
 PKG="$WORK/wine-fixes"; mkdir -p "$PKG"
-cp "$DLL" "$PKG/dcomp.dll"
+cp "$DLL" "$PKG/dcomp.dll.unstripped"; x86_64-w64-mingw32-strip --strip-unneeded -o "$PKG/dcomp.dll" "$DLL" 2>/dev/null || cp "$DLL" "$PKG/dcomp.dll"
+rm -f "$PKG/dcomp.dll.unstripped"
 python3 - "$PKG" "$VERSION" "$(basename "$PATCH")" <<'EOF'
 import hashlib, json, sys
 from pathlib import Path

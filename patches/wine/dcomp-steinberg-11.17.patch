@@ -1,24 +1,6 @@
-From: Donnie Guedry <dguedry@gmail.com>
-Subject: [PATCH] dcomp: Device-level surfaces, virtual surfaces and Direct2D rendering devices.
-
-On top of wine-staging 11.17 (patch set dcomp-DCompositionCreateDevice2):
-
-- keep the rendering device a composition device is created with, and route
-  IDCompositionDevice::CreateSurface / CreateVirtualSurface through a surface
-  factory on it;
-- virtual surfaces: ordinary surfaces plus Resize (a new backing surface, content
-  not carried over) and Trim (no-op);
-- a Direct2D rendering device: the factory obtains the DXGI device behind it
-  (ID2D1Device2::GetDxgiDevice) for surfaces and copies, and BeginDraw can hand
-  out an ID2D1DeviceContext targeting the draw surface;
-- EndDraw no longer refuses non-DXGI factories.
-
-Makes Steinberg's graphics2d-based products (HALion Sonic 7) run: they create the
-composition device from a Direct2D device, draw through ID2D1DeviceContext and use
-virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully.
-
---- a/dlls/dcomp/dcomp_private.h
-+++ b/dlls/dcomp/dcomp_private.h
+diff -ruN a/dlls/dcomp/dcomp_private.h b/dlls/dcomp/dcomp_private.h
+--- a/dlls/dcomp/dcomp_private.h	2026-09-26 17:39:17.219369287 -0500
++++ b/dlls/dcomp/dcomp_private.h	2026-09-26 17:37:20.293357460 -0500
 @@ -20,7 +20,7 @@
  
  #include "dcomp.h"
@@ -59,8 +41,46 @@ virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully
      UINT width;
      UINT height;
      DXGI_FORMAT pixel_format;
---- a/dlls/dcomp/device.c
-+++ b/dlls/dcomp/device.c
+@@ -84,6 +90,9 @@
+     enum DCOMPOSITION_BORDER_MODE border_mode;
+     enum DCOMPOSITION_BACKFACE_VISIBILITY visibility;
+     float offset_x;
++    float offset_y;
++    D2D_MATRIX_3X2_F transform;
++    BOOL has_transform;
+     struct list child_visuals; /* visuals closer to head are lower in z-order */
+     struct list entry;
+     struct composition_visual *parent;
+@@ -139,11 +148,25 @@
+ void dcomp_lock(void);
+ void dcomp_unlock(void);
+ HRESULT create_surface(struct composition_surface_factory *factory, UINT width, UINT height,
+-        DXGI_FORMAT pixel_format, DXGI_ALPHA_MODE alpha_mode, IDCompositionSurface **dcomp_surface);
++        DXGI_FORMAT pixel_format, DXGI_ALPHA_MODE alpha_mode, BOOL is_virtual, IDCompositionSurface **dcomp_surface);
+ HRESULT create_surface_factory(struct composition_device *device, IUnknown *rendering_device, IDCompositionSurfaceFactory **factory);
+ HRESULT create_target(struct composition_device *device, HWND hwnd, BOOL topmost, IDCompositionTarget **target);
+ HRESULT create_target_from_shared_visual_handle(struct composition_device *device, HANDLE shared_visual_handle, void **new_target);
+ HRESULT create_visual(int version, REFIID iid, void **visual);
++HRESULT create_animation(IDCompositionAnimation **out);
++HRESULT create_rectangle_clip(IDCompositionRectangleClip **out);
++HRESULT create_transform_3d(IDCompositionTransform3D **out);
++HRESULT create_transform(IDCompositionTransform **out);
++HRESULT create_effect_group(IDCompositionEffectGroup **out);
++HRESULT create_translate_transform(IDCompositionTranslateTransform **out);
++HRESULT create_scale_transform(IDCompositionScaleTransform **out);
++HRESULT create_rotate_transform(IDCompositionRotateTransform **out);
++HRESULT create_skew_transform(IDCompositionSkewTransform **out);
++HRESULT create_matrix_transform(IDCompositionMatrixTransform **out);
++HRESULT create_translate_transform_3d(IDCompositionTranslateTransform3D **out);
++HRESULT create_scale_transform_3d(IDCompositionScaleTransform3D **out);
++HRESULT create_rotate_transform_3d(IDCompositionRotateTransform3D **out);
++HRESULT create_matrix_transform_3d(IDCompositionMatrixTransform3D **out);
+ HRESULT create_visual_from_shared_visual_handle(HANDLE shared_visual_handle, void **new_visual);
+ 
+ 
+diff -ruN a/dlls/dcomp/device.c b/dlls/dcomp/device.c
+--- a/dlls/dcomp/device.c	2026-09-26 17:39:17.219614317 -0500
++++ b/dlls/dcomp/device.c	2026-09-26 17:37:20.294257849 -0500
 @@ -117,6 +117,8 @@
              WaitForSingleObject(device->thread, INFINITE);
              CloseHandle(device->thread);
@@ -70,7 +90,136 @@ virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully
          free(device);
      }
  
-@@ -814,22 +816,72 @@
+@@ -407,7 +409,7 @@
+ 
+ static void do_composite_dxgi_surface(const struct composition_target *target,
+                                       const struct composition_visual *visual,
+-                                      IDXGISurface *dxgi_surface)
++                                      IDXGISurface *dxgi_surface, float x, float y, float sx, float sy)
+ {
+     ID3DDeviceContextState *state = NULL, *old_state = NULL;
+     ID3D11DeviceContext1 *d3d11_device_context1 = NULL;
+@@ -553,7 +555,8 @@
+     if (!target->topmost)
+         style |= DCX_CLIPCHILDREN;
+     dst_dc = GetDCEx(target->hwnd, 0, style);
+-    GdiAlphaBlend(dst_dc, 0, 0, size.width, size.height, src_dc, 0, 0, size.width, size.height, blend_func);
++    GdiAlphaBlend(dst_dc, (int)x, (int)y, (int)(size.width * sx), (int)(size.height * sy),
++            src_dc, 0, 0, size.width, size.height, blend_func);
+     ReleaseDC(target->hwnd, dst_dc);
+ 
+     ID2D1GdiInteropRenderTarget_ReleaseDC(visual->interop, NULL);
+@@ -607,17 +610,31 @@
+     return visual;
+ }
+ 
+-static HRESULT do_composite(const struct composition_target *target, struct composition_visual *visual)
++/* The visual's offset and, of its transform, the translation and scale; the
++ * position accumulates down the tree. */
++static HRESULT do_composite(const struct composition_target *target, struct composition_visual *visual,
++        float x, float y)
+ {
+     struct composition_visual *child_visual;
+-    IDXGISurface *dxgi_surface;
++    IDXGISurface *dxgi_surface = NULL;
++    float sx = 1.0f, sy = 1.0f;
+     HRESULT hr;
+ 
++    x += visual->offset_x;
++    y += visual->offset_y;
++    if (visual->has_transform)
++    {
++        x += visual->transform._31;
++        y += visual->transform._32;
++        if (visual->transform._11 != 0.0f) sx = visual->transform._11;
++        if (visual->transform._22 != 0.0f) sy = visual->transform._22;
++    }
++
+     if (visual->shared_visual_handle)
+     {
+         struct composition_visual *root = shared_visual_target_get_root(visual->shared_visual_handle);
+         if (root)
+-            do_composite(target, root);
++            do_composite(target, root, x, y);
+     }
+ 
+     /* Render content */
+@@ -667,7 +684,12 @@
+             }
+ 
+             surface_impl = impl_from_IDCompositionSurface(surface);
+-            if (IsEqualGUID(&surface_impl->physical_surface_iid, &IID_IDXGISurface))
++            if (!surface_impl->physical_surface)
++            {
++                /* A virtual surface that has no size yet: nothing to draw. */
++                IDCompositionSurface_Release(surface);
++            }
++            else if (IsEqualGUID(&surface_impl->physical_surface_iid, &IID_IDXGISurface))
+             {
+                 dxgi_surface = (IDXGISurface *)surface_impl->physical_surface;
+                 IDXGISurface_AddRef(dxgi_surface);
+@@ -687,13 +709,16 @@
+             return E_FAIL;
+         }
+ 
+-        do_composite_dxgi_surface(target, visual, dxgi_surface);
+-        IDXGISurface_Release(dxgi_surface);
++        if (dxgi_surface)
++        {
++            do_composite_dxgi_surface(target, visual, dxgi_surface, x, y, sx, sy);
++            IDXGISurface_Release(dxgi_surface);
++        }
+     }
+ 
+     LIST_FOR_EACH_ENTRY(child_visual, &visual->child_visuals, struct composition_visual, entry)
+     {
+-        do_composite(target, child_visual);
++        do_composite(target, child_visual, x, y);
+     }
+ 
+     return S_OK;
+@@ -733,7 +758,7 @@
+                 continue;
+ 
+             visual = impl_from_IDCompositionVisual(target->root);
+-            if (SUCCEEDED(do_composite(target, visual)))
++            if (SUCCEEDED(do_composite(target, visual, 0.0f, 0.0f)))
+                 count++;
+         }
+ 
+@@ -789,11 +814,29 @@
+     return E_NOTIMPL;
+ }
+ 
++static HRESULT frame_statistics(DCOMPOSITION_FRAME_STATISTICS *statistics)
++{
++    LARGE_INTEGER now, freq;
++
++    if (!statistics)
++        return E_INVALIDARG;
++    QueryPerformanceCounter(&now);
++    QueryPerformanceFrequency(&freq);
++    /* The compositor thread paints as fast as it can; report a nominal 60 Hz. */
++    statistics->lastFrameTime = now;
++    statistics->currentCompositionRate.Numerator = 60;
++    statistics->currentCompositionRate.Denominator = 1;
++    statistics->currentTime = now;
++    statistics->timeFrequency = freq;
++    statistics->nextEstimatedFrameTime.QuadPart = now.QuadPart + freq.QuadPart / 60;
++    return S_OK;
++}
++
+ static HRESULT STDMETHODCALLTYPE device_GetFrameStatistics(IDCompositionDevice *iface,
+         DCOMPOSITION_FRAME_STATISTICS *statistics)
+ {
+-    FIXME("iface %p, statistics %p stub!\n", iface, statistics);
+-    return E_NOTIMPL;
++    TRACE("iface %p, statistics %p.\n", iface, statistics);
++    return frame_statistics(statistics);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE device_CreateTargetForHwnd(IDCompositionDevice *iface,
+@@ -814,22 +857,72 @@
      return create_visual(1, &IID_IDCompositionVisual, (void **)visual);
  }
  
@@ -147,7 +296,163 @@ virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully
  }
  
  static HRESULT STDMETHODCALLTYPE device_CreateSurfaceFromHandle(IDCompositionDevice *iface,
-@@ -1060,18 +1112,24 @@
+@@ -849,110 +942,114 @@
+ static HRESULT STDMETHODCALLTYPE device_CreateTranslateTransform(IDCompositionDevice *iface,
+         IDCompositionTranslateTransform **transform)
+ {
+-    FIXME("iface %p, transform %p stub!\n", iface, transform);
+-    return E_NOTIMPL;
++    TRACE("iface %p, transform %p.\n", iface, transform);
++    return create_translate_transform(transform);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE device_CreateScaleTransform(IDCompositionDevice *iface,
+         IDCompositionScaleTransform **transform)
+ {
+-    FIXME("iface %p, transform %p stub!\n", iface, transform);
+-    return E_NOTIMPL;
++    TRACE("iface %p, transform %p.\n", iface, transform);
++    return create_scale_transform(transform);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE device_CreateRotateTransform(IDCompositionDevice *iface,
+         IDCompositionRotateTransform **transform)
+ {
+-    FIXME("iface %p, transform %p stub!\n", iface, transform);
+-    return E_NOTIMPL;
++    TRACE("iface %p, transform %p.\n", iface, transform);
++    return create_rotate_transform(transform);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE device_CreateSkewTransform(IDCompositionDevice *iface,
+         IDCompositionSkewTransform **transform)
+ {
+-    FIXME("iface %p, transform %p stub!\n", iface, transform);
+-    return E_NOTIMPL;
++    TRACE("iface %p, transform %p.\n", iface, transform);
++    return create_skew_transform(transform);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE device_CreateMatrixTransform(IDCompositionDevice *iface,
+         IDCompositionMatrixTransform **transform)
+ {
+-    FIXME("iface %p, transform %p stub!\n", iface, transform);
+-    return E_NOTIMPL;
++    TRACE("iface %p, transform %p.\n", iface, transform);
++    return create_matrix_transform(transform);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE device_CreateTransformGroup(IDCompositionDevice *iface,
+         IDCompositionTransform **transforms, UINT elements,
+         IDCompositionTransform **transform_group)
+ {
+-    FIXME("iface %p, transforms %p, elements %u, transform_group %p stub!\n", iface, transforms,
++    TRACE("iface %p, transforms %p, elements %u, transform_group %p.\n", iface, transforms,
+             elements, transform_group);
+-    return E_NOTIMPL;
++    return create_transform(transform_group);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE device_CreateTranslateTransform3D(IDCompositionDevice *iface,
+         IDCompositionTranslateTransform3D **transform_3d)
+ {
+-    FIXME("iface %p, translate_transform_3d %p stub!\n", iface, transform_3d);
+-    return E_NOTIMPL;
++    TRACE("iface %p, translate_transform_3d %p.\n", iface, transform_3d);
++    return create_translate_transform_3d(transform_3d);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE device_CreateScaleTransform3D(IDCompositionDevice *iface,
+         IDCompositionScaleTransform3D **transform_3d)
+ {
+-    FIXME("iface %p, transform_3d %p stub!\n", iface, transform_3d);
+-    return E_NOTIMPL;
++    TRACE("iface %p, transform_3d %p.\n", iface, transform_3d);
++    return create_scale_transform_3d(transform_3d);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE device_CreateRotateTransform3D(IDCompositionDevice *iface,
+         IDCompositionRotateTransform3D **transform_3d)
+ {
+-    FIXME("iface %p, transform_3d %p stub!\n", iface, transform_3d);
+-    return E_NOTIMPL;
++    TRACE("iface %p, transform_3d %p.\n", iface, transform_3d);
++    return create_rotate_transform_3d(transform_3d);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE device_CreateMatrixTransform3D(IDCompositionDevice *iface,
+         IDCompositionMatrixTransform3D **transform_3d)
+ {
+-    FIXME("iface %p, transform_3d %p stub!\n", iface, transform_3d);
+-    return E_NOTIMPL;
++    TRACE("iface %p, transform_3d %p.\n", iface, transform_3d);
++    return create_matrix_transform_3d(transform_3d);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE device_CreateTransform3DGroup(IDCompositionDevice *iface,
+         IDCompositionTransform3D **transforms_3d, UINT elements,
+         IDCompositionTransform3D **transform_3d_group)
+ {
+-    FIXME("iface %p, transforms_3d %p, elements %u, transform_3d_group %p stub!\n", iface,
++    TRACE("iface %p, transforms_3d %p, elements %u, transform_3d_group %p.\n", iface,
+             transforms_3d, elements, transform_3d_group);
+-    return E_NOTIMPL;
++    return create_transform_3d(transform_3d_group);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE device_CreateEffectGroup(IDCompositionDevice *iface,
+         IDCompositionEffectGroup **effect_group)
+ {
+-    FIXME("iface %p, effect_group %p stub!\n", iface, effect_group);
+-    return E_NOTIMPL;
++    TRACE("iface %p, effect_group %p.\n", iface, effect_group);
++    return create_effect_group(effect_group);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE device_CreateRectangleClip(IDCompositionDevice *iface,
+         IDCompositionRectangleClip **clip)
+ {
+-    FIXME("iface %p, clip %p stub!\n", iface, clip);
+-    return E_NOTIMPL;
++    TRACE("iface %p, clip %p.\n", iface, clip);
++    return create_rectangle_clip(clip);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE device_CreateAnimation(IDCompositionDevice *iface,
+         IDCompositionAnimation **animation)
+ {
+-    FIXME("iface %p, animation %p stub!\n", iface, animation);
+-    return E_NOTIMPL;
++    TRACE("iface %p, animation %p.\n", iface, animation);
++    return create_animation(animation);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE device_CheckDeviceState(IDCompositionDevice *iface,
+         BOOL *valid)
+ {
+-    FIXME("iface %p, valid %p stub!\n", iface, valid);
+-    return E_NOTIMPL;
++    TRACE("iface %p, valid %p.\n", iface, valid);
++
++    if (!valid)
++        return E_INVALIDARG;
++    *valid = TRUE;
++    return S_OK;
+ }
+ 
+ static const struct IDCompositionDeviceVtbl device_vtbl =
+@@ -1034,8 +1131,8 @@
+ static HRESULT STDMETHODCALLTYPE desktop_device_GetFrameStatistics(IDCompositionDeviceUnknown *iface,
+         DCOMPOSITION_FRAME_STATISTICS *statistics)
+ {
+-    FIXME("iface %p, statistics %p stub!\n", iface, statistics);
+-    return E_NOTIMPL;
++    TRACE("iface %p, statistics %p.\n", iface, statistics);
++    return frame_statistics(statistics);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE desktop_device_CreateVisual(IDCompositionDeviceUnknown *iface,
+@@ -1060,119 +1157,125 @@
          UINT width, UINT height, DXGI_FORMAT pixel_format, DXGI_ALPHA_MODE alpha_mode,
          IDCompositionSurface **surface)
  {
@@ -176,7 +481,136 @@ virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully
  }
  
  static HRESULT STDMETHODCALLTYPE desktop_device_CreateTranslateTransform(IDCompositionDeviceUnknown *iface,
-@@ -1990,7 +2048,7 @@
+         IDCompositionTranslateTransform **transform)
+ {
+-    FIXME("iface %p, transform %p stub!\n", iface, transform);
+-    return E_NOTIMPL;
++    TRACE("iface %p, transform %p.\n", iface, transform);
++    return create_translate_transform(transform);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE desktop_device_CreateScaleTransform(IDCompositionDeviceUnknown *iface,
+         IDCompositionScaleTransform **transform)
+ {
+-    FIXME("iface %p, transform %p stub!\n", iface, transform);
+-    return E_NOTIMPL;
++    TRACE("iface %p, transform %p.\n", iface, transform);
++    return create_scale_transform(transform);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE desktop_device_CreateRotateTransform(IDCompositionDeviceUnknown *iface,
+         IDCompositionRotateTransform **transform)
+ {
+-    FIXME("iface %p, transform %p stub!\n", iface, transform);
+-    return E_NOTIMPL;
++    TRACE("iface %p, transform %p.\n", iface, transform);
++    return create_rotate_transform(transform);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE desktop_device_CreateSkewTransform(IDCompositionDeviceUnknown *iface,
+         IDCompositionSkewTransform **transform)
+ {
+-    FIXME("iface %p, transform %p stub!\n", iface, transform);
+-    return E_NOTIMPL;
++    TRACE("iface %p, transform %p.\n", iface, transform);
++    return create_skew_transform(transform);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE desktop_device_CreateMatrixTransform(IDCompositionDeviceUnknown *iface,
+         IDCompositionMatrixTransform **transform)
+ {
+-    FIXME("iface %p, transform %p stub!\n", iface, transform);
+-    return E_NOTIMPL;
++    TRACE("iface %p, transform %p.\n", iface, transform);
++    return create_matrix_transform(transform);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE desktop_device_CreateTransformGroup(IDCompositionDeviceUnknown *iface,
+         IDCompositionTransform **transforms, UINT elements, IDCompositionTransform **transform_group)
+ {
+-    FIXME("iface %p, transforms %p, elements %u, transform_group %p stub!\n", iface, transforms,
++    TRACE("iface %p, transforms %p, elements %u, transform_group %p.\n", iface, transforms,
+             elements, transform_group);
+-    return E_NOTIMPL;
++    return create_transform(transform_group);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE desktop_device_CreateTranslateTransform3D(IDCompositionDeviceUnknown *iface,
+         IDCompositionTranslateTransform3D **transform_3d)
+ {
+-    FIXME("iface %p, translate_transform_3d %p stub!\n", iface, transform_3d);
+-    return E_NOTIMPL;
++    TRACE("iface %p, translate_transform_3d %p.\n", iface, transform_3d);
++    return create_translate_transform_3d(transform_3d);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE desktop_device_CreateScaleTransform3D(IDCompositionDeviceUnknown *iface,
+         IDCompositionScaleTransform3D **transform_3d)
+ {
+-    FIXME("iface %p, transform_3d %p stub!\n", iface, transform_3d);
+-    return E_NOTIMPL;
++    TRACE("iface %p, transform_3d %p.\n", iface, transform_3d);
++    return create_scale_transform_3d(transform_3d);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE desktop_device_CreateRotateTransform3D(IDCompositionDeviceUnknown *iface,
+         IDCompositionRotateTransform3D **transform_3d)
+ {
+-    FIXME("iface %p, transform_3d %p stub!\n", iface, transform_3d);
+-    return E_NOTIMPL;
++    TRACE("iface %p, transform_3d %p.\n", iface, transform_3d);
++    return create_rotate_transform_3d(transform_3d);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE desktop_device_CreateMatrixTransform3D(IDCompositionDeviceUnknown *iface,
+         IDCompositionMatrixTransform3D **transform_3d)
+ {
+-    FIXME("iface %p, transform_3d %p stub!\n", iface, transform_3d);
+-    return E_NOTIMPL;
++    TRACE("iface %p, transform_3d %p.\n", iface, transform_3d);
++    return create_matrix_transform_3d(transform_3d);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE desktop_device_CreateTransform3DGroup(IDCompositionDeviceUnknown *iface,
+         IDCompositionTransform3D **transforms_3d, UINT elements,
+         IDCompositionTransform3D **transform_3d_group)
+ {
+-    FIXME("iface %p, transforms_3d %p, elements %u, transform_3d_group %p stub!\n", iface,
++    TRACE("iface %p, transforms_3d %p, elements %u, transform_3d_group %p.\n", iface,
+             transforms_3d, elements, transform_3d_group);
+-    return E_NOTIMPL;
++    return create_transform_3d(transform_3d_group);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE desktop_device_CreateEffectGroup(IDCompositionDeviceUnknown *iface,
+         IDCompositionEffectGroup **effect_group)
+ {
+-    FIXME("iface %p, effect_group %p stub!\n", iface, effect_group);
+-    return E_NOTIMPL;
++    TRACE("iface %p, effect_group %p.\n", iface, effect_group);
++    return create_effect_group(effect_group);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE desktop_device_CreateRectangleClip(IDCompositionDeviceUnknown *iface,
+         IDCompositionRectangleClip **clip)
+ {
+-    FIXME("iface %p, clip %p stub!\n", iface, clip);
+-    return E_NOTIMPL;
++    TRACE("iface %p, clip %p.\n", iface, clip);
++    return create_rectangle_clip(clip);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE desktop_device_CreateAnimation(IDCompositionDeviceUnknown *iface,
+         IDCompositionAnimation **animation)
+ {
+-    FIXME("iface %p, animation %p stub!\n", iface, animation);
+-    return E_NOTIMPL;
++    TRACE("iface %p, animation %p.\n", iface, animation);
++    return create_animation(animation);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE desktop_device_CreateTargetForHwnd(IDCompositionDeviceUnknown *iface,
+@@ -1990,7 +2093,7 @@
      desktop_device_Unknown99,
  };
  
@@ -185,7 +619,7 @@ virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully
  {
      struct composition_device *device;
      HRESULT hr;
-@@ -2006,6 +2064,8 @@
+@@ -2006,6 +2109,8 @@
      device->IDCompositionDevice_iface.lpVtbl = &device_vtbl;
      device->IDCompositionDeviceUnknown_iface.lpVtbl = &desktop_device_vtbl;
      device->version = version;
@@ -194,7 +628,7 @@ virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully
      device->ref = 1;
      hr = IDCompositionDevice_QueryInterface(&device->IDCompositionDevice_iface, iid, out);
      IDCompositionDevice_Release(&device->IDCompositionDevice_iface);
-@@ -2019,7 +2079,7 @@
+@@ -2019,7 +2124,7 @@
      if (!IsEqualIID(iid, &IID_IDCompositionDevice))
          return E_NOINTERFACE;
  
@@ -203,7 +637,7 @@ virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully
  }
  
  HRESULT WINAPI DCompositionCreateDevice2(IUnknown *rendering_device, REFIID iid, void **device)
-@@ -2030,7 +2090,7 @@
+@@ -2030,7 +2135,7 @@
              && !IsEqualIID(iid, &IID_IDCompositionDesktopDevice))
          return E_NOINTERFACE;
  
@@ -212,7 +646,7 @@ virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully
  }
  
  HRESULT WINAPI DCompositionCreateDevice3(IUnknown *rendering_device, REFIID iid, void **device)
-@@ -2041,7 +2101,7 @@
+@@ -2041,7 +2146,7 @@
              && !IsEqualIID(iid, &IID_IDCompositionDesktopDevice))
          return E_NOINTERFACE;
  
@@ -221,8 +655,1727 @@ virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully
  }
  
  HRESULT WINAPI DCompositionCreateSharedVisualHandle(HANDLE *handle)
---- a/dlls/dcomp/surface.c
-+++ b/dlls/dcomp/surface.c
+diff -ruN a/dlls/dcomp/Makefile.in b/dlls/dcomp/Makefile.in
+--- a/dlls/dcomp/Makefile.in	2026-09-26 17:27:27.747517572 -0500
++++ b/dlls/dcomp/Makefile.in	2026-09-26 17:37:20.293495379 -0500
+@@ -6,6 +6,7 @@
+ SOURCES = \
+ 	dcomp_private_iface.idl \
+ 	device.c \
++	objects.c \
+ 	surface.c \
+ 	target.c \
+ 	visual.c
+diff -ruN a/dlls/dcomp/objects.c b/dlls/dcomp/objects.c
+--- a/dlls/dcomp/objects.c	1969-12-31 18:00:00.000000000 -0600
++++ b/dlls/dcomp/objects.c	2026-09-26 17:38:02.321048268 -0500
+@@ -0,0 +1,1703 @@
++/*
++ * DirectComposition property objects: transforms, clips, effect groups, animations.
++ *
++ * The compositor applies only what it understands (visual offsets and a
++ * matrix's translation/scale); every object here accepts its properties so
++ * that programs which do not check HRESULTs, and keep the object pointers,
++ * get valid objects instead of crashing on a null one.
++ *
++ * Copyright 2026 Donnie Guedry
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
++ */
++
++#define COBJMACROS
++#include "dcomp_private.h"
++#include "wine/debug.h"
++
++WINE_DEFAULT_DEBUG_CHANNEL(dcomp);
++
++struct animation_object
++{
++    IDCompositionAnimation IDCompositionAnimation_iface;
++    LONG ref;
++};
++
++static inline struct animation_object *impl_from_IDCompositionAnimation(IDCompositionAnimation *iface)
++{
++    return CONTAINING_RECORD(iface, struct animation_object, IDCompositionAnimation_iface);
++}
++
++static HRESULT STDMETHODCALLTYPE animation_QueryInterface(IDCompositionAnimation *iface, REFIID iid, void **out)
++{
++    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
++
++    if (IsEqualGUID(iid, &IID_IDCompositionAnimation)
++            || IsEqualGUID(iid, &IID_IUnknown))
++    {
++        IUnknown_AddRef((IUnknown *)iface);
++        *out = iface;
++        return S_OK;
++    }
++
++    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
++    *out = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG STDMETHODCALLTYPE animation_AddRef(IDCompositionAnimation *iface)
++{
++    struct animation_object *object = impl_from_IDCompositionAnimation(iface);
++    ULONG ref = InterlockedIncrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    return ref;
++}
++
++static ULONG STDMETHODCALLTYPE animation_Release(IDCompositionAnimation *iface)
++{
++    struct animation_object *object = impl_from_IDCompositionAnimation(iface);
++    ULONG ref = InterlockedDecrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    if (!ref)
++        free(object);
++    return ref;
++}
++
++static HRESULT STDMETHODCALLTYPE animation_Reset(IDCompositionAnimation *iface)
++{
++    TRACE("iface %p: accepted, not applied.\n", iface);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE animation_SetAbsoluteBeginTime(IDCompositionAnimation *iface, LARGE_INTEGER time)
++{
++    TRACE("iface %p, time %s: accepted, not applied.\n", iface, wine_dbgstr_longlong(time.QuadPart));
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE animation_AddCubic(IDCompositionAnimation *iface, double offset, float constant_coefficient, float linear_coefficient, float quadratic_coefficient, float cubic_coefficient)
++{
++    TRACE("iface %p, offset %f, constant_coefficient %f, linear_coefficient %f, quadratic_coefficient %f, cubic_coefficient %f: accepted, not applied.\n", iface, offset, constant_coefficient, linear_coefficient, quadratic_coefficient, cubic_coefficient);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE animation_AddSinusoidal(IDCompositionAnimation *iface, double offset, float bias, float amplitude, float frequency, float phase)
++{
++    TRACE("iface %p, offset %f, bias %f, amplitude %f, frequency %f, phase %f: accepted, not applied.\n", iface, offset, bias, amplitude, frequency, phase);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE animation_AddRepeat(IDCompositionAnimation *iface, double offset, double duration)
++{
++    TRACE("iface %p, offset %f, duration %f: accepted, not applied.\n", iface, offset, duration);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE animation_End(IDCompositionAnimation *iface, double offset, float value)
++{
++    TRACE("iface %p, offset %f, value %f: accepted, not applied.\n", iface, offset, value);
++    return S_OK;
++}
++
++static const IDCompositionAnimationVtbl animation_vtbl =
++{
++    animation_QueryInterface,
++    animation_AddRef,
++    animation_Release,
++    animation_Reset,
++    animation_SetAbsoluteBeginTime,
++    animation_AddCubic,
++    animation_AddSinusoidal,
++    animation_AddRepeat,
++    animation_End,
++};
++
++HRESULT create_animation(IDCompositionAnimation **out)
++{
++    struct animation_object *object;
++
++    if (!out)
++        return E_INVALIDARG;
++    if (!(object = calloc(1, sizeof(*object))))
++        return E_OUTOFMEMORY;
++    object->IDCompositionAnimation_iface.lpVtbl = &animation_vtbl;
++    object->ref = 1;
++    *out = &object->IDCompositionAnimation_iface;
++    return S_OK;
++}
++
++struct rectangle_clip_object
++{
++    IDCompositionRectangleClip IDCompositionRectangleClip_iface;
++    LONG ref;
++};
++
++static inline struct rectangle_clip_object *impl_from_IDCompositionRectangleClip(IDCompositionRectangleClip *iface)
++{
++    return CONTAINING_RECORD(iface, struct rectangle_clip_object, IDCompositionRectangleClip_iface);
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_QueryInterface(IDCompositionRectangleClip *iface, REFIID iid, void **out)
++{
++    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
++
++    if (IsEqualGUID(iid, &IID_IDCompositionRectangleClip)
++            || IsEqualGUID(iid, &IID_IDCompositionClip)
++            || IsEqualGUID(iid, &IID_IUnknown))
++    {
++        IUnknown_AddRef((IUnknown *)iface);
++        *out = iface;
++        return S_OK;
++    }
++
++    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
++    *out = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG STDMETHODCALLTYPE rectangle_clip_AddRef(IDCompositionRectangleClip *iface)
++{
++    struct rectangle_clip_object *object = impl_from_IDCompositionRectangleClip(iface);
++    ULONG ref = InterlockedIncrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    return ref;
++}
++
++static ULONG STDMETHODCALLTYPE rectangle_clip_Release(IDCompositionRectangleClip *iface)
++{
++    struct rectangle_clip_object *object = impl_from_IDCompositionRectangleClip(iface);
++    ULONG ref = InterlockedDecrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    if (!ref)
++        free(object);
++    return ref;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetLeftAnimation(IDCompositionRectangleClip *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetLeft(IDCompositionRectangleClip *iface, float left)
++{
++    TRACE("iface %p, left %f: accepted, not applied.\n", iface, left);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetTopAnimation(IDCompositionRectangleClip *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetTop(IDCompositionRectangleClip *iface, float top)
++{
++    TRACE("iface %p, top %f: accepted, not applied.\n", iface, top);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetRightAnimation(IDCompositionRectangleClip *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetRight(IDCompositionRectangleClip *iface, float right)
++{
++    TRACE("iface %p, right %f: accepted, not applied.\n", iface, right);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetBottomAnimation(IDCompositionRectangleClip *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetBottom(IDCompositionRectangleClip *iface, float bottom)
++{
++    TRACE("iface %p, bottom %f: accepted, not applied.\n", iface, bottom);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetTopLeftRadiusXAnimation(IDCompositionRectangleClip *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetTopLeftRadiusX(IDCompositionRectangleClip *iface, float radius)
++{
++    TRACE("iface %p, radius %f: accepted, not applied.\n", iface, radius);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetTopLeftRadiusYAnimation(IDCompositionRectangleClip *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetTopLeftRadiusY(IDCompositionRectangleClip *iface, float radius)
++{
++    TRACE("iface %p, radius %f: accepted, not applied.\n", iface, radius);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetTopRightRadiusXAnimation(IDCompositionRectangleClip *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetTopRightRadiusX(IDCompositionRectangleClip *iface, float radius)
++{
++    TRACE("iface %p, radius %f: accepted, not applied.\n", iface, radius);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetTopRightRadiusYAnimation(IDCompositionRectangleClip *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetTopRightRadiusY(IDCompositionRectangleClip *iface, float radius)
++{
++    TRACE("iface %p, radius %f: accepted, not applied.\n", iface, radius);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetBottomLeftRadiusXAnimation(IDCompositionRectangleClip *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetBottomLeftRadiusX(IDCompositionRectangleClip *iface, float radius)
++{
++    TRACE("iface %p, radius %f: accepted, not applied.\n", iface, radius);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetBottomLeftRadiusYAnimation(IDCompositionRectangleClip *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetBottomLeftRadiusY(IDCompositionRectangleClip *iface, float radius)
++{
++    TRACE("iface %p, radius %f: accepted, not applied.\n", iface, radius);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetBottomRightRadiusXAnimation(IDCompositionRectangleClip *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetBottomRightRadiusX(IDCompositionRectangleClip *iface, float radius)
++{
++    TRACE("iface %p, radius %f: accepted, not applied.\n", iface, radius);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetBottomRightRadiusYAnimation(IDCompositionRectangleClip *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rectangle_clip_SetBottomRightRadiusY(IDCompositionRectangleClip *iface, float radius)
++{
++    TRACE("iface %p, radius %f: accepted, not applied.\n", iface, radius);
++    return S_OK;
++}
++
++static const IDCompositionRectangleClipVtbl rectangle_clip_vtbl =
++{
++    rectangle_clip_QueryInterface,
++    rectangle_clip_AddRef,
++    rectangle_clip_Release,
++    rectangle_clip_SetLeftAnimation,
++    rectangle_clip_SetLeft,
++    rectangle_clip_SetTopAnimation,
++    rectangle_clip_SetTop,
++    rectangle_clip_SetRightAnimation,
++    rectangle_clip_SetRight,
++    rectangle_clip_SetBottomAnimation,
++    rectangle_clip_SetBottom,
++    rectangle_clip_SetTopLeftRadiusXAnimation,
++    rectangle_clip_SetTopLeftRadiusX,
++    rectangle_clip_SetTopLeftRadiusYAnimation,
++    rectangle_clip_SetTopLeftRadiusY,
++    rectangle_clip_SetTopRightRadiusXAnimation,
++    rectangle_clip_SetTopRightRadiusX,
++    rectangle_clip_SetTopRightRadiusYAnimation,
++    rectangle_clip_SetTopRightRadiusY,
++    rectangle_clip_SetBottomLeftRadiusXAnimation,
++    rectangle_clip_SetBottomLeftRadiusX,
++    rectangle_clip_SetBottomLeftRadiusYAnimation,
++    rectangle_clip_SetBottomLeftRadiusY,
++    rectangle_clip_SetBottomRightRadiusXAnimation,
++    rectangle_clip_SetBottomRightRadiusX,
++    rectangle_clip_SetBottomRightRadiusYAnimation,
++    rectangle_clip_SetBottomRightRadiusY,
++};
++
++HRESULT create_rectangle_clip(IDCompositionRectangleClip **out)
++{
++    struct rectangle_clip_object *object;
++
++    if (!out)
++        return E_INVALIDARG;
++    if (!(object = calloc(1, sizeof(*object))))
++        return E_OUTOFMEMORY;
++    object->IDCompositionRectangleClip_iface.lpVtbl = &rectangle_clip_vtbl;
++    object->ref = 1;
++    *out = &object->IDCompositionRectangleClip_iface;
++    return S_OK;
++}
++
++struct transform_3d_object
++{
++    IDCompositionTransform3D IDCompositionTransform3D_iface;
++    LONG ref;
++};
++
++static inline struct transform_3d_object *impl_from_IDCompositionTransform3D(IDCompositionTransform3D *iface)
++{
++    return CONTAINING_RECORD(iface, struct transform_3d_object, IDCompositionTransform3D_iface);
++}
++
++static HRESULT STDMETHODCALLTYPE transform_3d_QueryInterface(IDCompositionTransform3D *iface, REFIID iid, void **out)
++{
++    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
++
++    if (IsEqualGUID(iid, &IID_IDCompositionTransform3D)
++            || IsEqualGUID(iid, &IID_IDCompositionEffect)
++            || IsEqualGUID(iid, &IID_IUnknown))
++    {
++        IUnknown_AddRef((IUnknown *)iface);
++        *out = iface;
++        return S_OK;
++    }
++
++    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
++    *out = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG STDMETHODCALLTYPE transform_3d_AddRef(IDCompositionTransform3D *iface)
++{
++    struct transform_3d_object *object = impl_from_IDCompositionTransform3D(iface);
++    ULONG ref = InterlockedIncrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    return ref;
++}
++
++static ULONG STDMETHODCALLTYPE transform_3d_Release(IDCompositionTransform3D *iface)
++{
++    struct transform_3d_object *object = impl_from_IDCompositionTransform3D(iface);
++    ULONG ref = InterlockedDecrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    if (!ref)
++        free(object);
++    return ref;
++}
++
++static const IDCompositionTransform3DVtbl transform_3d_vtbl =
++{
++    transform_3d_QueryInterface,
++    transform_3d_AddRef,
++    transform_3d_Release,
++};
++
++HRESULT create_transform_3d(IDCompositionTransform3D **out)
++{
++    struct transform_3d_object *object;
++
++    if (!out)
++        return E_INVALIDARG;
++    if (!(object = calloc(1, sizeof(*object))))
++        return E_OUTOFMEMORY;
++    object->IDCompositionTransform3D_iface.lpVtbl = &transform_3d_vtbl;
++    object->ref = 1;
++    *out = &object->IDCompositionTransform3D_iface;
++    return S_OK;
++}
++
++struct transform_object
++{
++    IDCompositionTransform IDCompositionTransform_iface;
++    LONG ref;
++};
++
++static inline struct transform_object *impl_from_IDCompositionTransform(IDCompositionTransform *iface)
++{
++    return CONTAINING_RECORD(iface, struct transform_object, IDCompositionTransform_iface);
++}
++
++static HRESULT STDMETHODCALLTYPE transform_QueryInterface(IDCompositionTransform *iface, REFIID iid, void **out)
++{
++    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
++
++    if (IsEqualGUID(iid, &IID_IDCompositionTransform)
++            || IsEqualGUID(iid, &IID_IDCompositionTransform3D)
++            || IsEqualGUID(iid, &IID_IDCompositionEffect)
++            || IsEqualGUID(iid, &IID_IUnknown))
++    {
++        IUnknown_AddRef((IUnknown *)iface);
++        *out = iface;
++        return S_OK;
++    }
++
++    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
++    *out = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG STDMETHODCALLTYPE transform_AddRef(IDCompositionTransform *iface)
++{
++    struct transform_object *object = impl_from_IDCompositionTransform(iface);
++    ULONG ref = InterlockedIncrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    return ref;
++}
++
++static ULONG STDMETHODCALLTYPE transform_Release(IDCompositionTransform *iface)
++{
++    struct transform_object *object = impl_from_IDCompositionTransform(iface);
++    ULONG ref = InterlockedDecrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    if (!ref)
++        free(object);
++    return ref;
++}
++
++static const IDCompositionTransformVtbl transform_vtbl =
++{
++    transform_QueryInterface,
++    transform_AddRef,
++    transform_Release,
++};
++
++HRESULT create_transform(IDCompositionTransform **out)
++{
++    struct transform_object *object;
++
++    if (!out)
++        return E_INVALIDARG;
++    if (!(object = calloc(1, sizeof(*object))))
++        return E_OUTOFMEMORY;
++    object->IDCompositionTransform_iface.lpVtbl = &transform_vtbl;
++    object->ref = 1;
++    *out = &object->IDCompositionTransform_iface;
++    return S_OK;
++}
++
++struct effect_group_object
++{
++    IDCompositionEffectGroup IDCompositionEffectGroup_iface;
++    LONG ref;
++};
++
++static inline struct effect_group_object *impl_from_IDCompositionEffectGroup(IDCompositionEffectGroup *iface)
++{
++    return CONTAINING_RECORD(iface, struct effect_group_object, IDCompositionEffectGroup_iface);
++}
++
++static HRESULT STDMETHODCALLTYPE effect_group_QueryInterface(IDCompositionEffectGroup *iface, REFIID iid, void **out)
++{
++    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
++
++    if (IsEqualGUID(iid, &IID_IDCompositionEffectGroup)
++            || IsEqualGUID(iid, &IID_IDCompositionEffect)
++            || IsEqualGUID(iid, &IID_IUnknown))
++    {
++        IUnknown_AddRef((IUnknown *)iface);
++        *out = iface;
++        return S_OK;
++    }
++
++    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
++    *out = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG STDMETHODCALLTYPE effect_group_AddRef(IDCompositionEffectGroup *iface)
++{
++    struct effect_group_object *object = impl_from_IDCompositionEffectGroup(iface);
++    ULONG ref = InterlockedIncrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    return ref;
++}
++
++static ULONG STDMETHODCALLTYPE effect_group_Release(IDCompositionEffectGroup *iface)
++{
++    struct effect_group_object *object = impl_from_IDCompositionEffectGroup(iface);
++    ULONG ref = InterlockedDecrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    if (!ref)
++        free(object);
++    return ref;
++}
++
++static HRESULT STDMETHODCALLTYPE effect_group_SetOpacityAnimation(IDCompositionEffectGroup *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE effect_group_SetOpacity(IDCompositionEffectGroup *iface, float opacity)
++{
++    TRACE("iface %p, opacity %f: accepted, not applied.\n", iface, opacity);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE effect_group_SetTransform3D(IDCompositionEffectGroup *iface, IDCompositionTransform3D *transform)
++{
++    TRACE("iface %p, transform %p: accepted, not applied.\n", iface, transform);
++    return S_OK;
++}
++
++static const IDCompositionEffectGroupVtbl effect_group_vtbl =
++{
++    effect_group_QueryInterface,
++    effect_group_AddRef,
++    effect_group_Release,
++    effect_group_SetOpacityAnimation,
++    effect_group_SetOpacity,
++    effect_group_SetTransform3D,
++};
++
++HRESULT create_effect_group(IDCompositionEffectGroup **out)
++{
++    struct effect_group_object *object;
++
++    if (!out)
++        return E_INVALIDARG;
++    if (!(object = calloc(1, sizeof(*object))))
++        return E_OUTOFMEMORY;
++    object->IDCompositionEffectGroup_iface.lpVtbl = &effect_group_vtbl;
++    object->ref = 1;
++    *out = &object->IDCompositionEffectGroup_iface;
++    return S_OK;
++}
++
++struct translate_transform_object
++{
++    IDCompositionTranslateTransform IDCompositionTranslateTransform_iface;
++    LONG ref;
++};
++
++static inline struct translate_transform_object *impl_from_IDCompositionTranslateTransform(IDCompositionTranslateTransform *iface)
++{
++    return CONTAINING_RECORD(iface, struct translate_transform_object, IDCompositionTranslateTransform_iface);
++}
++
++static HRESULT STDMETHODCALLTYPE translate_transform_QueryInterface(IDCompositionTranslateTransform *iface, REFIID iid, void **out)
++{
++    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
++
++    if (IsEqualGUID(iid, &IID_IDCompositionTranslateTransform)
++            || IsEqualGUID(iid, &IID_IDCompositionTransform)
++            || IsEqualGUID(iid, &IID_IDCompositionTransform3D)
++            || IsEqualGUID(iid, &IID_IDCompositionEffect)
++            || IsEqualGUID(iid, &IID_IUnknown))
++    {
++        IUnknown_AddRef((IUnknown *)iface);
++        *out = iface;
++        return S_OK;
++    }
++
++    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
++    *out = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG STDMETHODCALLTYPE translate_transform_AddRef(IDCompositionTranslateTransform *iface)
++{
++    struct translate_transform_object *object = impl_from_IDCompositionTranslateTransform(iface);
++    ULONG ref = InterlockedIncrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    return ref;
++}
++
++static ULONG STDMETHODCALLTYPE translate_transform_Release(IDCompositionTranslateTransform *iface)
++{
++    struct translate_transform_object *object = impl_from_IDCompositionTranslateTransform(iface);
++    ULONG ref = InterlockedDecrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    if (!ref)
++        free(object);
++    return ref;
++}
++
++static HRESULT STDMETHODCALLTYPE translate_transform_SetOffsetXAnimation(IDCompositionTranslateTransform *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE translate_transform_SetOffsetX(IDCompositionTranslateTransform *iface, float offset)
++{
++    TRACE("iface %p, offset %f: accepted, not applied.\n", iface, offset);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE translate_transform_SetOffsetYAnimation(IDCompositionTranslateTransform *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE translate_transform_SetOffsetY(IDCompositionTranslateTransform *iface, float offset)
++{
++    TRACE("iface %p, offset %f: accepted, not applied.\n", iface, offset);
++    return S_OK;
++}
++
++static const IDCompositionTranslateTransformVtbl translate_transform_vtbl =
++{
++    translate_transform_QueryInterface,
++    translate_transform_AddRef,
++    translate_transform_Release,
++    translate_transform_SetOffsetXAnimation,
++    translate_transform_SetOffsetX,
++    translate_transform_SetOffsetYAnimation,
++    translate_transform_SetOffsetY,
++};
++
++HRESULT create_translate_transform(IDCompositionTranslateTransform **out)
++{
++    struct translate_transform_object *object;
++
++    if (!out)
++        return E_INVALIDARG;
++    if (!(object = calloc(1, sizeof(*object))))
++        return E_OUTOFMEMORY;
++    object->IDCompositionTranslateTransform_iface.lpVtbl = &translate_transform_vtbl;
++    object->ref = 1;
++    *out = &object->IDCompositionTranslateTransform_iface;
++    return S_OK;
++}
++
++struct scale_transform_object
++{
++    IDCompositionScaleTransform IDCompositionScaleTransform_iface;
++    LONG ref;
++};
++
++static inline struct scale_transform_object *impl_from_IDCompositionScaleTransform(IDCompositionScaleTransform *iface)
++{
++    return CONTAINING_RECORD(iface, struct scale_transform_object, IDCompositionScaleTransform_iface);
++}
++
++static HRESULT STDMETHODCALLTYPE scale_transform_QueryInterface(IDCompositionScaleTransform *iface, REFIID iid, void **out)
++{
++    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
++
++    if (IsEqualGUID(iid, &IID_IDCompositionScaleTransform)
++            || IsEqualGUID(iid, &IID_IDCompositionTransform)
++            || IsEqualGUID(iid, &IID_IDCompositionTransform3D)
++            || IsEqualGUID(iid, &IID_IDCompositionEffect)
++            || IsEqualGUID(iid, &IID_IUnknown))
++    {
++        IUnknown_AddRef((IUnknown *)iface);
++        *out = iface;
++        return S_OK;
++    }
++
++    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
++    *out = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG STDMETHODCALLTYPE scale_transform_AddRef(IDCompositionScaleTransform *iface)
++{
++    struct scale_transform_object *object = impl_from_IDCompositionScaleTransform(iface);
++    ULONG ref = InterlockedIncrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    return ref;
++}
++
++static ULONG STDMETHODCALLTYPE scale_transform_Release(IDCompositionScaleTransform *iface)
++{
++    struct scale_transform_object *object = impl_from_IDCompositionScaleTransform(iface);
++    ULONG ref = InterlockedDecrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    if (!ref)
++        free(object);
++    return ref;
++}
++
++static HRESULT STDMETHODCALLTYPE scale_transform_SetScaleXAnimation(IDCompositionScaleTransform *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE scale_transform_SetScaleX(IDCompositionScaleTransform *iface, float scale)
++{
++    TRACE("iface %p, scale %f: accepted, not applied.\n", iface, scale);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE scale_transform_SetScaleYAnimation(IDCompositionScaleTransform *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE scale_transform_SetScaleY(IDCompositionScaleTransform *iface, float scale)
++{
++    TRACE("iface %p, scale %f: accepted, not applied.\n", iface, scale);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE scale_transform_SetCenterXAnimation(IDCompositionScaleTransform *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE scale_transform_SetCenterX(IDCompositionScaleTransform *iface, float center)
++{
++    TRACE("iface %p, center %f: accepted, not applied.\n", iface, center);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE scale_transform_SetCenterYAnimation(IDCompositionScaleTransform *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE scale_transform_SetCenterY(IDCompositionScaleTransform *iface, float center)
++{
++    TRACE("iface %p, center %f: accepted, not applied.\n", iface, center);
++    return S_OK;
++}
++
++static const IDCompositionScaleTransformVtbl scale_transform_vtbl =
++{
++    scale_transform_QueryInterface,
++    scale_transform_AddRef,
++    scale_transform_Release,
++    scale_transform_SetScaleXAnimation,
++    scale_transform_SetScaleX,
++    scale_transform_SetScaleYAnimation,
++    scale_transform_SetScaleY,
++    scale_transform_SetCenterXAnimation,
++    scale_transform_SetCenterX,
++    scale_transform_SetCenterYAnimation,
++    scale_transform_SetCenterY,
++};
++
++HRESULT create_scale_transform(IDCompositionScaleTransform **out)
++{
++    struct scale_transform_object *object;
++
++    if (!out)
++        return E_INVALIDARG;
++    if (!(object = calloc(1, sizeof(*object))))
++        return E_OUTOFMEMORY;
++    object->IDCompositionScaleTransform_iface.lpVtbl = &scale_transform_vtbl;
++    object->ref = 1;
++    *out = &object->IDCompositionScaleTransform_iface;
++    return S_OK;
++}
++
++struct rotate_transform_object
++{
++    IDCompositionRotateTransform IDCompositionRotateTransform_iface;
++    LONG ref;
++};
++
++static inline struct rotate_transform_object *impl_from_IDCompositionRotateTransform(IDCompositionRotateTransform *iface)
++{
++    return CONTAINING_RECORD(iface, struct rotate_transform_object, IDCompositionRotateTransform_iface);
++}
++
++static HRESULT STDMETHODCALLTYPE rotate_transform_QueryInterface(IDCompositionRotateTransform *iface, REFIID iid, void **out)
++{
++    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
++
++    if (IsEqualGUID(iid, &IID_IDCompositionRotateTransform)
++            || IsEqualGUID(iid, &IID_IDCompositionTransform)
++            || IsEqualGUID(iid, &IID_IDCompositionTransform3D)
++            || IsEqualGUID(iid, &IID_IDCompositionEffect)
++            || IsEqualGUID(iid, &IID_IUnknown))
++    {
++        IUnknown_AddRef((IUnknown *)iface);
++        *out = iface;
++        return S_OK;
++    }
++
++    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
++    *out = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG STDMETHODCALLTYPE rotate_transform_AddRef(IDCompositionRotateTransform *iface)
++{
++    struct rotate_transform_object *object = impl_from_IDCompositionRotateTransform(iface);
++    ULONG ref = InterlockedIncrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    return ref;
++}
++
++static ULONG STDMETHODCALLTYPE rotate_transform_Release(IDCompositionRotateTransform *iface)
++{
++    struct rotate_transform_object *object = impl_from_IDCompositionRotateTransform(iface);
++    ULONG ref = InterlockedDecrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    if (!ref)
++        free(object);
++    return ref;
++}
++
++static HRESULT STDMETHODCALLTYPE rotate_transform_SetAngleAnimation(IDCompositionRotateTransform *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rotate_transform_SetAngle(IDCompositionRotateTransform *iface, float angle)
++{
++    TRACE("iface %p, angle %f: accepted, not applied.\n", iface, angle);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rotate_transform_SetCenterXAnimation(IDCompositionRotateTransform *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rotate_transform_SetCenterX(IDCompositionRotateTransform *iface, float center_x)
++{
++    TRACE("iface %p, center_x %f: accepted, not applied.\n", iface, center_x);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rotate_transform_SetCenterYAnimation(IDCompositionRotateTransform *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rotate_transform_SetCenterY(IDCompositionRotateTransform *iface, float center_y)
++{
++    TRACE("iface %p, center_y %f: accepted, not applied.\n", iface, center_y);
++    return S_OK;
++}
++
++static const IDCompositionRotateTransformVtbl rotate_transform_vtbl =
++{
++    rotate_transform_QueryInterface,
++    rotate_transform_AddRef,
++    rotate_transform_Release,
++    rotate_transform_SetAngleAnimation,
++    rotate_transform_SetAngle,
++    rotate_transform_SetCenterXAnimation,
++    rotate_transform_SetCenterX,
++    rotate_transform_SetCenterYAnimation,
++    rotate_transform_SetCenterY,
++};
++
++HRESULT create_rotate_transform(IDCompositionRotateTransform **out)
++{
++    struct rotate_transform_object *object;
++
++    if (!out)
++        return E_INVALIDARG;
++    if (!(object = calloc(1, sizeof(*object))))
++        return E_OUTOFMEMORY;
++    object->IDCompositionRotateTransform_iface.lpVtbl = &rotate_transform_vtbl;
++    object->ref = 1;
++    *out = &object->IDCompositionRotateTransform_iface;
++    return S_OK;
++}
++
++struct skew_transform_object
++{
++    IDCompositionSkewTransform IDCompositionSkewTransform_iface;
++    LONG ref;
++};
++
++static inline struct skew_transform_object *impl_from_IDCompositionSkewTransform(IDCompositionSkewTransform *iface)
++{
++    return CONTAINING_RECORD(iface, struct skew_transform_object, IDCompositionSkewTransform_iface);
++}
++
++static HRESULT STDMETHODCALLTYPE skew_transform_QueryInterface(IDCompositionSkewTransform *iface, REFIID iid, void **out)
++{
++    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
++
++    if (IsEqualGUID(iid, &IID_IDCompositionSkewTransform)
++            || IsEqualGUID(iid, &IID_IDCompositionTransform)
++            || IsEqualGUID(iid, &IID_IDCompositionTransform3D)
++            || IsEqualGUID(iid, &IID_IDCompositionEffect)
++            || IsEqualGUID(iid, &IID_IUnknown))
++    {
++        IUnknown_AddRef((IUnknown *)iface);
++        *out = iface;
++        return S_OK;
++    }
++
++    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
++    *out = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG STDMETHODCALLTYPE skew_transform_AddRef(IDCompositionSkewTransform *iface)
++{
++    struct skew_transform_object *object = impl_from_IDCompositionSkewTransform(iface);
++    ULONG ref = InterlockedIncrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    return ref;
++}
++
++static ULONG STDMETHODCALLTYPE skew_transform_Release(IDCompositionSkewTransform *iface)
++{
++    struct skew_transform_object *object = impl_from_IDCompositionSkewTransform(iface);
++    ULONG ref = InterlockedDecrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    if (!ref)
++        free(object);
++    return ref;
++}
++
++static HRESULT STDMETHODCALLTYPE skew_transform_SetAngleXAnimation(IDCompositionSkewTransform *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE skew_transform_SetAngleX(IDCompositionSkewTransform *iface, float angle)
++{
++    TRACE("iface %p, angle %f: accepted, not applied.\n", iface, angle);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE skew_transform_SetAngleYAnimation(IDCompositionSkewTransform *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE skew_transform_SetAngleY(IDCompositionSkewTransform *iface, float angle)
++{
++    TRACE("iface %p, angle %f: accepted, not applied.\n", iface, angle);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE skew_transform_SetCenterXAnimation(IDCompositionSkewTransform *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE skew_transform_SetCenterX(IDCompositionSkewTransform *iface, float center)
++{
++    TRACE("iface %p, center %f: accepted, not applied.\n", iface, center);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE skew_transform_SetCenterYAnimation(IDCompositionSkewTransform *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE skew_transform_SetCenterY(IDCompositionSkewTransform *iface, float center)
++{
++    TRACE("iface %p, center %f: accepted, not applied.\n", iface, center);
++    return S_OK;
++}
++
++static const IDCompositionSkewTransformVtbl skew_transform_vtbl =
++{
++    skew_transform_QueryInterface,
++    skew_transform_AddRef,
++    skew_transform_Release,
++    skew_transform_SetAngleXAnimation,
++    skew_transform_SetAngleX,
++    skew_transform_SetAngleYAnimation,
++    skew_transform_SetAngleY,
++    skew_transform_SetCenterXAnimation,
++    skew_transform_SetCenterX,
++    skew_transform_SetCenterYAnimation,
++    skew_transform_SetCenterY,
++};
++
++HRESULT create_skew_transform(IDCompositionSkewTransform **out)
++{
++    struct skew_transform_object *object;
++
++    if (!out)
++        return E_INVALIDARG;
++    if (!(object = calloc(1, sizeof(*object))))
++        return E_OUTOFMEMORY;
++    object->IDCompositionSkewTransform_iface.lpVtbl = &skew_transform_vtbl;
++    object->ref = 1;
++    *out = &object->IDCompositionSkewTransform_iface;
++    return S_OK;
++}
++
++struct matrix_transform_object
++{
++    IDCompositionMatrixTransform IDCompositionMatrixTransform_iface;
++    LONG ref;
++};
++
++static inline struct matrix_transform_object *impl_from_IDCompositionMatrixTransform(IDCompositionMatrixTransform *iface)
++{
++    return CONTAINING_RECORD(iface, struct matrix_transform_object, IDCompositionMatrixTransform_iface);
++}
++
++static HRESULT STDMETHODCALLTYPE matrix_transform_QueryInterface(IDCompositionMatrixTransform *iface, REFIID iid, void **out)
++{
++    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
++
++    if (IsEqualGUID(iid, &IID_IDCompositionMatrixTransform)
++            || IsEqualGUID(iid, &IID_IDCompositionTransform)
++            || IsEqualGUID(iid, &IID_IDCompositionTransform3D)
++            || IsEqualGUID(iid, &IID_IDCompositionEffect)
++            || IsEqualGUID(iid, &IID_IUnknown))
++    {
++        IUnknown_AddRef((IUnknown *)iface);
++        *out = iface;
++        return S_OK;
++    }
++
++    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
++    *out = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG STDMETHODCALLTYPE matrix_transform_AddRef(IDCompositionMatrixTransform *iface)
++{
++    struct matrix_transform_object *object = impl_from_IDCompositionMatrixTransform(iface);
++    ULONG ref = InterlockedIncrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    return ref;
++}
++
++static ULONG STDMETHODCALLTYPE matrix_transform_Release(IDCompositionMatrixTransform *iface)
++{
++    struct matrix_transform_object *object = impl_from_IDCompositionMatrixTransform(iface);
++    ULONG ref = InterlockedDecrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    if (!ref)
++        free(object);
++    return ref;
++}
++
++static HRESULT STDMETHODCALLTYPE matrix_transform_SetMatrix(IDCompositionMatrixTransform *iface, const D2D_MATRIX_3X2_F *matrix)
++{
++    TRACE("iface %p, matrix %p: accepted, not applied.\n", iface, matrix);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE matrix_transform_SetMatrixElementAnimation(IDCompositionMatrixTransform *iface, int row, int column, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, row %d, column %d, animation %p: accepted, not applied.\n", iface, row, column, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE matrix_transform_SetMatrixElement(IDCompositionMatrixTransform *iface, int row, int column, float value)
++{
++    TRACE("iface %p, row %d, column %d, value %f: accepted, not applied.\n", iface, row, column, value);
++    return S_OK;
++}
++
++static const IDCompositionMatrixTransformVtbl matrix_transform_vtbl =
++{
++    matrix_transform_QueryInterface,
++    matrix_transform_AddRef,
++    matrix_transform_Release,
++    matrix_transform_SetMatrix,
++    matrix_transform_SetMatrixElementAnimation,
++    matrix_transform_SetMatrixElement,
++};
++
++HRESULT create_matrix_transform(IDCompositionMatrixTransform **out)
++{
++    struct matrix_transform_object *object;
++
++    if (!out)
++        return E_INVALIDARG;
++    if (!(object = calloc(1, sizeof(*object))))
++        return E_OUTOFMEMORY;
++    object->IDCompositionMatrixTransform_iface.lpVtbl = &matrix_transform_vtbl;
++    object->ref = 1;
++    *out = &object->IDCompositionMatrixTransform_iface;
++    return S_OK;
++}
++
++struct translate_transform_3d_object
++{
++    IDCompositionTranslateTransform3D IDCompositionTranslateTransform3D_iface;
++    LONG ref;
++};
++
++static inline struct translate_transform_3d_object *impl_from_IDCompositionTranslateTransform3D(IDCompositionTranslateTransform3D *iface)
++{
++    return CONTAINING_RECORD(iface, struct translate_transform_3d_object, IDCompositionTranslateTransform3D_iface);
++}
++
++static HRESULT STDMETHODCALLTYPE translate_transform_3d_QueryInterface(IDCompositionTranslateTransform3D *iface, REFIID iid, void **out)
++{
++    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
++
++    if (IsEqualGUID(iid, &IID_IDCompositionTranslateTransform3D)
++            || IsEqualGUID(iid, &IID_IDCompositionTransform3D)
++            || IsEqualGUID(iid, &IID_IDCompositionEffect)
++            || IsEqualGUID(iid, &IID_IUnknown))
++    {
++        IUnknown_AddRef((IUnknown *)iface);
++        *out = iface;
++        return S_OK;
++    }
++
++    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
++    *out = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG STDMETHODCALLTYPE translate_transform_3d_AddRef(IDCompositionTranslateTransform3D *iface)
++{
++    struct translate_transform_3d_object *object = impl_from_IDCompositionTranslateTransform3D(iface);
++    ULONG ref = InterlockedIncrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    return ref;
++}
++
++static ULONG STDMETHODCALLTYPE translate_transform_3d_Release(IDCompositionTranslateTransform3D *iface)
++{
++    struct translate_transform_3d_object *object = impl_from_IDCompositionTranslateTransform3D(iface);
++    ULONG ref = InterlockedDecrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    if (!ref)
++        free(object);
++    return ref;
++}
++
++static HRESULT STDMETHODCALLTYPE translate_transform_3d_SetOffsetXAnimation(IDCompositionTranslateTransform3D *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE translate_transform_3d_SetOffsetX(IDCompositionTranslateTransform3D *iface, float offset)
++{
++    TRACE("iface %p, offset %f: accepted, not applied.\n", iface, offset);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE translate_transform_3d_SetOffsetYAnimation(IDCompositionTranslateTransform3D *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE translate_transform_3d_SetOffsetY(IDCompositionTranslateTransform3D *iface, float offset)
++{
++    TRACE("iface %p, offset %f: accepted, not applied.\n", iface, offset);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE translate_transform_3d_SetOffsetZAnimation(IDCompositionTranslateTransform3D *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE translate_transform_3d_SetOffsetZ(IDCompositionTranslateTransform3D *iface, float offset)
++{
++    TRACE("iface %p, offset %f: accepted, not applied.\n", iface, offset);
++    return S_OK;
++}
++
++static const IDCompositionTranslateTransform3DVtbl translate_transform_3d_vtbl =
++{
++    translate_transform_3d_QueryInterface,
++    translate_transform_3d_AddRef,
++    translate_transform_3d_Release,
++    translate_transform_3d_SetOffsetXAnimation,
++    translate_transform_3d_SetOffsetX,
++    translate_transform_3d_SetOffsetYAnimation,
++    translate_transform_3d_SetOffsetY,
++    translate_transform_3d_SetOffsetZAnimation,
++    translate_transform_3d_SetOffsetZ,
++};
++
++HRESULT create_translate_transform_3d(IDCompositionTranslateTransform3D **out)
++{
++    struct translate_transform_3d_object *object;
++
++    if (!out)
++        return E_INVALIDARG;
++    if (!(object = calloc(1, sizeof(*object))))
++        return E_OUTOFMEMORY;
++    object->IDCompositionTranslateTransform3D_iface.lpVtbl = &translate_transform_3d_vtbl;
++    object->ref = 1;
++    *out = &object->IDCompositionTranslateTransform3D_iface;
++    return S_OK;
++}
++
++struct scale_transform_3d_object
++{
++    IDCompositionScaleTransform3D IDCompositionScaleTransform3D_iface;
++    LONG ref;
++};
++
++static inline struct scale_transform_3d_object *impl_from_IDCompositionScaleTransform3D(IDCompositionScaleTransform3D *iface)
++{
++    return CONTAINING_RECORD(iface, struct scale_transform_3d_object, IDCompositionScaleTransform3D_iface);
++}
++
++static HRESULT STDMETHODCALLTYPE scale_transform_3d_QueryInterface(IDCompositionScaleTransform3D *iface, REFIID iid, void **out)
++{
++    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
++
++    if (IsEqualGUID(iid, &IID_IDCompositionScaleTransform3D)
++            || IsEqualGUID(iid, &IID_IDCompositionTransform3D)
++            || IsEqualGUID(iid, &IID_IDCompositionEffect)
++            || IsEqualGUID(iid, &IID_IUnknown))
++    {
++        IUnknown_AddRef((IUnknown *)iface);
++        *out = iface;
++        return S_OK;
++    }
++
++    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
++    *out = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG STDMETHODCALLTYPE scale_transform_3d_AddRef(IDCompositionScaleTransform3D *iface)
++{
++    struct scale_transform_3d_object *object = impl_from_IDCompositionScaleTransform3D(iface);
++    ULONG ref = InterlockedIncrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    return ref;
++}
++
++static ULONG STDMETHODCALLTYPE scale_transform_3d_Release(IDCompositionScaleTransform3D *iface)
++{
++    struct scale_transform_3d_object *object = impl_from_IDCompositionScaleTransform3D(iface);
++    ULONG ref = InterlockedDecrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    if (!ref)
++        free(object);
++    return ref;
++}
++
++static HRESULT STDMETHODCALLTYPE scale_transform_3d_SetScaleXAnimation(IDCompositionScaleTransform3D *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE scale_transform_3d_SetScaleX(IDCompositionScaleTransform3D *iface, float scale)
++{
++    TRACE("iface %p, scale %f: accepted, not applied.\n", iface, scale);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE scale_transform_3d_SetScaleYAnimation(IDCompositionScaleTransform3D *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE scale_transform_3d_SetScaleY(IDCompositionScaleTransform3D *iface, float scale)
++{
++    TRACE("iface %p, scale %f: accepted, not applied.\n", iface, scale);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE scale_transform_3d_SetScaleZAnimation(IDCompositionScaleTransform3D *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE scale_transform_3d_SetScaleZ(IDCompositionScaleTransform3D *iface, float scale)
++{
++    TRACE("iface %p, scale %f: accepted, not applied.\n", iface, scale);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE scale_transform_3d_SetCenterXAnimation(IDCompositionScaleTransform3D *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE scale_transform_3d_SetCenterX(IDCompositionScaleTransform3D *iface, float center)
++{
++    TRACE("iface %p, center %f: accepted, not applied.\n", iface, center);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE scale_transform_3d_SetCenterYAnimation(IDCompositionScaleTransform3D *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE scale_transform_3d_SetCenterY(IDCompositionScaleTransform3D *iface, float center)
++{
++    TRACE("iface %p, center %f: accepted, not applied.\n", iface, center);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE scale_transform_3d_SetCenterZAnimation(IDCompositionScaleTransform3D *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE scale_transform_3d_SetCenterZ(IDCompositionScaleTransform3D *iface, float center)
++{
++    TRACE("iface %p, center %f: accepted, not applied.\n", iface, center);
++    return S_OK;
++}
++
++static const IDCompositionScaleTransform3DVtbl scale_transform_3d_vtbl =
++{
++    scale_transform_3d_QueryInterface,
++    scale_transform_3d_AddRef,
++    scale_transform_3d_Release,
++    scale_transform_3d_SetScaleXAnimation,
++    scale_transform_3d_SetScaleX,
++    scale_transform_3d_SetScaleYAnimation,
++    scale_transform_3d_SetScaleY,
++    scale_transform_3d_SetScaleZAnimation,
++    scale_transform_3d_SetScaleZ,
++    scale_transform_3d_SetCenterXAnimation,
++    scale_transform_3d_SetCenterX,
++    scale_transform_3d_SetCenterYAnimation,
++    scale_transform_3d_SetCenterY,
++    scale_transform_3d_SetCenterZAnimation,
++    scale_transform_3d_SetCenterZ,
++};
++
++HRESULT create_scale_transform_3d(IDCompositionScaleTransform3D **out)
++{
++    struct scale_transform_3d_object *object;
++
++    if (!out)
++        return E_INVALIDARG;
++    if (!(object = calloc(1, sizeof(*object))))
++        return E_OUTOFMEMORY;
++    object->IDCompositionScaleTransform3D_iface.lpVtbl = &scale_transform_3d_vtbl;
++    object->ref = 1;
++    *out = &object->IDCompositionScaleTransform3D_iface;
++    return S_OK;
++}
++
++struct rotate_transform_3d_object
++{
++    IDCompositionRotateTransform3D IDCompositionRotateTransform3D_iface;
++    LONG ref;
++};
++
++static inline struct rotate_transform_3d_object *impl_from_IDCompositionRotateTransform3D(IDCompositionRotateTransform3D *iface)
++{
++    return CONTAINING_RECORD(iface, struct rotate_transform_3d_object, IDCompositionRotateTransform3D_iface);
++}
++
++static HRESULT STDMETHODCALLTYPE rotate_transform_3d_QueryInterface(IDCompositionRotateTransform3D *iface, REFIID iid, void **out)
++{
++    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
++
++    if (IsEqualGUID(iid, &IID_IDCompositionRotateTransform3D)
++            || IsEqualGUID(iid, &IID_IDCompositionTransform3D)
++            || IsEqualGUID(iid, &IID_IDCompositionEffect)
++            || IsEqualGUID(iid, &IID_IUnknown))
++    {
++        IUnknown_AddRef((IUnknown *)iface);
++        *out = iface;
++        return S_OK;
++    }
++
++    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
++    *out = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG STDMETHODCALLTYPE rotate_transform_3d_AddRef(IDCompositionRotateTransform3D *iface)
++{
++    struct rotate_transform_3d_object *object = impl_from_IDCompositionRotateTransform3D(iface);
++    ULONG ref = InterlockedIncrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    return ref;
++}
++
++static ULONG STDMETHODCALLTYPE rotate_transform_3d_Release(IDCompositionRotateTransform3D *iface)
++{
++    struct rotate_transform_3d_object *object = impl_from_IDCompositionRotateTransform3D(iface);
++    ULONG ref = InterlockedDecrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    if (!ref)
++        free(object);
++    return ref;
++}
++
++static HRESULT STDMETHODCALLTYPE rotate_transform_3d_SetAngleAnimation(IDCompositionRotateTransform3D *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rotate_transform_3d_SetAngle(IDCompositionRotateTransform3D *iface, float scale)
++{
++    TRACE("iface %p, scale %f: accepted, not applied.\n", iface, scale);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rotate_transform_3d_SetAxisXAnimation(IDCompositionRotateTransform3D *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rotate_transform_3d_SetAxisX(IDCompositionRotateTransform3D *iface, float scale)
++{
++    TRACE("iface %p, scale %f: accepted, not applied.\n", iface, scale);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rotate_transform_3d_SetAxisYAnimation(IDCompositionRotateTransform3D *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rotate_transform_3d_SetAxisY(IDCompositionRotateTransform3D *iface, float scale)
++{
++    TRACE("iface %p, scale %f: accepted, not applied.\n", iface, scale);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rotate_transform_3d_SetAxisZAnimation(IDCompositionRotateTransform3D *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rotate_transform_3d_SetAxisZ(IDCompositionRotateTransform3D *iface, float center)
++{
++    TRACE("iface %p, center %f: accepted, not applied.\n", iface, center);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rotate_transform_3d_SetCenterXAnimation(IDCompositionRotateTransform3D *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rotate_transform_3d_SetCenterX(IDCompositionRotateTransform3D *iface, float center)
++{
++    TRACE("iface %p, center %f: accepted, not applied.\n", iface, center);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rotate_transform_3d_SetCenterYAnimation(IDCompositionRotateTransform3D *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rotate_transform_3d_SetCenterY(IDCompositionRotateTransform3D *iface, float center)
++{
++    TRACE("iface %p, center %f: accepted, not applied.\n", iface, center);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rotate_transform_3d_SetCenterZAnimation(IDCompositionRotateTransform3D *iface, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, animation %p: accepted, not applied.\n", iface, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE rotate_transform_3d_SetCenterZ(IDCompositionRotateTransform3D *iface, float center)
++{
++    TRACE("iface %p, center %f: accepted, not applied.\n", iface, center);
++    return S_OK;
++}
++
++static const IDCompositionRotateTransform3DVtbl rotate_transform_3d_vtbl =
++{
++    rotate_transform_3d_QueryInterface,
++    rotate_transform_3d_AddRef,
++    rotate_transform_3d_Release,
++    rotate_transform_3d_SetAngleAnimation,
++    rotate_transform_3d_SetAngle,
++    rotate_transform_3d_SetAxisXAnimation,
++    rotate_transform_3d_SetAxisX,
++    rotate_transform_3d_SetAxisYAnimation,
++    rotate_transform_3d_SetAxisY,
++    rotate_transform_3d_SetAxisZAnimation,
++    rotate_transform_3d_SetAxisZ,
++    rotate_transform_3d_SetCenterXAnimation,
++    rotate_transform_3d_SetCenterX,
++    rotate_transform_3d_SetCenterYAnimation,
++    rotate_transform_3d_SetCenterY,
++    rotate_transform_3d_SetCenterZAnimation,
++    rotate_transform_3d_SetCenterZ,
++};
++
++HRESULT create_rotate_transform_3d(IDCompositionRotateTransform3D **out)
++{
++    struct rotate_transform_3d_object *object;
++
++    if (!out)
++        return E_INVALIDARG;
++    if (!(object = calloc(1, sizeof(*object))))
++        return E_OUTOFMEMORY;
++    object->IDCompositionRotateTransform3D_iface.lpVtbl = &rotate_transform_3d_vtbl;
++    object->ref = 1;
++    *out = &object->IDCompositionRotateTransform3D_iface;
++    return S_OK;
++}
++
++struct matrix_transform_3d_object
++{
++    IDCompositionMatrixTransform3D IDCompositionMatrixTransform3D_iface;
++    LONG ref;
++};
++
++static inline struct matrix_transform_3d_object *impl_from_IDCompositionMatrixTransform3D(IDCompositionMatrixTransform3D *iface)
++{
++    return CONTAINING_RECORD(iface, struct matrix_transform_3d_object, IDCompositionMatrixTransform3D_iface);
++}
++
++static HRESULT STDMETHODCALLTYPE matrix_transform_3d_QueryInterface(IDCompositionMatrixTransform3D *iface, REFIID iid, void **out)
++{
++    TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
++
++    if (IsEqualGUID(iid, &IID_IDCompositionMatrixTransform3D)
++            || IsEqualGUID(iid, &IID_IDCompositionTransform3D)
++            || IsEqualGUID(iid, &IID_IDCompositionEffect)
++            || IsEqualGUID(iid, &IID_IUnknown))
++    {
++        IUnknown_AddRef((IUnknown *)iface);
++        *out = iface;
++        return S_OK;
++    }
++
++    WARN("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
++    *out = NULL;
++    return E_NOINTERFACE;
++}
++
++static ULONG STDMETHODCALLTYPE matrix_transform_3d_AddRef(IDCompositionMatrixTransform3D *iface)
++{
++    struct matrix_transform_3d_object *object = impl_from_IDCompositionMatrixTransform3D(iface);
++    ULONG ref = InterlockedIncrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    return ref;
++}
++
++static ULONG STDMETHODCALLTYPE matrix_transform_3d_Release(IDCompositionMatrixTransform3D *iface)
++{
++    struct matrix_transform_3d_object *object = impl_from_IDCompositionMatrixTransform3D(iface);
++    ULONG ref = InterlockedDecrement(&object->ref);
++
++    TRACE("iface %p, ref %lu.\n", iface, ref);
++    if (!ref)
++        free(object);
++    return ref;
++}
++
++static HRESULT STDMETHODCALLTYPE matrix_transform_3d_SetMatrix(IDCompositionMatrixTransform3D *iface, const D3DMATRIX *matrix)
++{
++    TRACE("iface %p, matrix %p: accepted, not applied.\n", iface, matrix);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE matrix_transform_3d_SetMatrixElementAnimation(IDCompositionMatrixTransform3D *iface, int row, int column, IDCompositionAnimation *animation)
++{
++    TRACE("iface %p, row %d, column %d, animation %p: accepted, not applied.\n", iface, row, column, animation);
++    return S_OK;
++}
++
++static HRESULT STDMETHODCALLTYPE matrix_transform_3d_SetMatrixElement(IDCompositionMatrixTransform3D *iface, int row, int column, float value)
++{
++    TRACE("iface %p, row %d, column %d, value %f: accepted, not applied.\n", iface, row, column, value);
++    return S_OK;
++}
++
++static const IDCompositionMatrixTransform3DVtbl matrix_transform_3d_vtbl =
++{
++    matrix_transform_3d_QueryInterface,
++    matrix_transform_3d_AddRef,
++    matrix_transform_3d_Release,
++    matrix_transform_3d_SetMatrix,
++    matrix_transform_3d_SetMatrixElementAnimation,
++    matrix_transform_3d_SetMatrixElement,
++};
++
++HRESULT create_matrix_transform_3d(IDCompositionMatrixTransform3D **out)
++{
++    struct matrix_transform_3d_object *object;
++
++    if (!out)
++        return E_INVALIDARG;
++    if (!(object = calloc(1, sizeof(*object))))
++        return E_OUTOFMEMORY;
++    object->IDCompositionMatrixTransform3D_iface.lpVtbl = &matrix_transform_3d_vtbl;
++    object->ref = 1;
++    *out = &object->IDCompositionMatrixTransform3D_iface;
++    return S_OK;
++}
+diff -ruN a/dlls/dcomp/surface.c b/dlls/dcomp/surface.c
+--- a/dlls/dcomp/surface.c	2026-09-26 17:39:17.219899492 -0500
++++ b/dlls/dcomp/surface.c	2026-09-26 17:37:39.318093037 -0500
 @@ -26,6 +26,8 @@
  
  WINE_DEFAULT_DEBUG_CHANNEL(dcomp);
@@ -250,7 +2403,17 @@ virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully
      FIXME("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
      *out = NULL;
      return E_NOINTERFACE;
-@@ -87,9 +100,9 @@
+@@ -62,7 +75,8 @@
+ 
+     if (!ref)
+     {
+-        IUnknown_Release(surface->physical_surface);
++        if (surface->physical_surface)
++            IUnknown_Release(surface->physical_surface);
+         IDCompositionSurfaceFactory_Release(surface->factory);
+         if (surface->draw_surface)
+             ID3D11Texture2D_Release(surface->draw_surface);
+@@ -87,12 +101,15 @@
      TRACE("iface %p, rect %s, iid %s, object %p, offset %p.\n", iface, wine_dbgstr_rect(rect),
              debugstr_guid(iid), object, offset);
  
@@ -262,7 +2425,13 @@ virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully
          return E_NOTIMPL;
      }
  
-@@ -102,7 +115,7 @@
++    if (!surface->physical_surface)
++        return E_INVALIDARG;   /* an empty virtual surface: Resize() it first */
++
+     if (!rect)
+     {
+         SetRect(&whole_rect, 0, 0, surface->width, surface->height);
+@@ -102,7 +119,7 @@
      /* TODO: Check if IDCompositionSurface is virtual when virtual IDCompositionSurface is implemented */
  
      /* The first BeginDraw must use the whole surface for non-virtual IDCompositionSurface */
@@ -271,7 +2440,7 @@ virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully
              && rect->right == surface->width && rect->bottom == surface->height))
          return E_INVALIDARG;
  
-@@ -115,15 +128,13 @@
+@@ -115,15 +132,13 @@
  
      if (!surface->draw_surface)
      {
@@ -290,7 +2459,7 @@ virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully
          if (FAILED(hr))
          {
              FIXME("Failed to get a d3d11 device, should a new one be created?\n");
-@@ -164,14 +175,60 @@
+@@ -164,14 +179,60 @@
      device->drawing_surface = &surface->IDCompositionSurfaceUnknown_iface;
      dcomp_unlock();
  
@@ -354,7 +2523,7 @@ virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully
  }
  
  static HRESULT STDMETHODCALLTYPE surface_EndDraw(IDCompositionSurfaceUnknown *iface)
-@@ -198,15 +255,16 @@
+@@ -198,15 +259,16 @@
  
      /* TODO: Copy data after Commit() is called instead of doing it immediately here */
  
@@ -377,7 +2546,18 @@ virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully
      if (FAILED(hr))
      {
          FIXME("Failed to get a d3d11 device, should a new one be created?\n");
-@@ -321,7 +379,7 @@
+@@ -309,7 +371,9 @@
+         return S_OK;
+     }
+ 
+-    IUnknown_Release(surface->physical_surface);
++    if (surface->physical_surface)
++        IUnknown_Release(surface->physical_surface);
++    surface->physical_surface = NULL;
+     if (surface->draw_surface)
+     {
+         ID3D11Texture2D_Release(surface->draw_surface);
+@@ -321,7 +385,7 @@
      desc.Format = surface->pixel_format;
      desc.SampleDesc.Count = 1;
      desc.SampleDesc.Quality = 0;
@@ -386,16 +2566,43 @@ virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully
              DXGI_USAGE_BACK_BUFFER | DXGI_USAGE_SHADER_INPUT, NULL, &dxgi_surface);
      if (FAILED(hr))
      {
-@@ -1056,7 +1114,7 @@
+@@ -1036,14 +1100,15 @@
+ }
+ 
+ HRESULT create_surface(struct composition_surface_factory *factory, UINT width, UINT height,
+-        DXGI_FORMAT pixel_format, DXGI_ALPHA_MODE alpha_mode, IDCompositionSurface **dcomp_surface)
++        DXGI_FORMAT pixel_format, DXGI_ALPHA_MODE alpha_mode, BOOL is_virtual, IDCompositionSurface **dcomp_surface)
+ {
++    const GUID *physical_surface_iid = &IID_IDXGISurface;
+     struct composition_surface *surface;
+-    const GUID *physical_surface_iid;
+-    IUnknown *physical_surface;
++    IUnknown *physical_surface = NULL;
+     HRESULT hr;
+ 
+-    if (!width || !height)
++    /* A virtual surface is sparse: an empty one is legal, and gets its backing on Resize(). */
++    if ((!width || !height) && !is_virtual)
+         return E_INVALIDARG;
+ 
+     if (pixel_format != DXGI_FORMAT_B8G8R8A8_UNORM && pixel_format != DXGI_FORMAT_R8G8B8A8_UNORM
+@@ -1056,7 +1121,14 @@
      if (alpha_mode != DXGI_ALPHA_MODE_PREMULTIPLIED && alpha_mode != DXGI_ALPHA_MODE_IGNORE)
          return E_INVALIDARG;
  
 -    if (IsEqualGUID(&factory->rendering_device_iid, &IID_IDXGIDevice))
-+    if (factory->dxgi_device)
++    if (!factory->dxgi_device)
++    {
++        FIXME("Only IDCompositionSurfaceFactory created with an IDXGIDevice rendering device is "
++              "currently supported, rendering device guid %s.\n",
++              wine_dbgstr_guid(&factory->rendering_device_iid));
++        return E_NOTIMPL;
++    }
++    if (width && height)
      {
          IDXGISurface *dxgi_surface;
          DXGI_SURFACE_DESC desc;
-@@ -1068,7 +1126,7 @@
+@@ -1068,7 +1140,7 @@
          desc.SampleDesc.Quality = 0;
          /* TODO: What about alpha_mode ? */
  
@@ -404,15 +2611,33 @@ virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully
                  DXGI_USAGE_BACK_BUFFER | DXGI_USAGE_SHADER_INPUT, NULL, &dxgi_surface);
          if (FAILED(hr))
          {
-@@ -1092,6 +1150,7 @@
+@@ -1077,14 +1149,6 @@
+         }
+ 
+         physical_surface = (IUnknown *)dxgi_surface;
+-        physical_surface_iid = &IID_IDXGISurface;
+-    }
+-    else
+-    {
+-        FIXME("Only IDCompositionSurfaceFactory created with an IDXGIDevice rendering device is "
+-              "currently supported, rendering device guid %s.\n",
+-              wine_dbgstr_guid(&factory->rendering_device_iid));
+-        return E_NOTIMPL;
+     }
+ 
+     surface = calloc(1, sizeof(*surface));
+@@ -1092,8 +1156,10 @@
          return E_OUTOFMEMORY;
  
      surface->IDCompositionSurfaceUnknown_iface.lpVtbl = &surface_vtbl;
 +    surface->IDCompositionVirtualSurface_iface.lpVtbl = &vsurface_vtbl;
      surface->factory = &factory->IDCompositionSurfaceFactory_iface;
      IDCompositionSurfaceFactory_AddRef(surface->factory);
++    surface->is_virtual = is_virtual;
      surface->physical_surface = physical_surface;
-@@ -1106,6 +1165,115 @@
+     surface->physical_surface_iid = *physical_surface_iid;
+     surface->width = width;
+@@ -1106,6 +1172,130 @@
      return S_OK;
  }
  
@@ -474,12 +2699,26 @@ virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully
 +
 +    TRACE("iface %p, width %u, height %u.\n", iface, width, height);
 +
-+    if (!width || !height)
-+        return E_INVALIDARG;
 +    if (width == surface->width && height == surface->height)
 +        return S_OK;
 +    if (!factory->dxgi_device)
 +        return E_NOTIMPL;
++
++    if (!width || !height)
++    {
++        /* Empty again: drop the backing, keep the object. */
++        if (surface->physical_surface)
++            IUnknown_Release(surface->physical_surface);
++        surface->physical_surface = NULL;
++        if (surface->draw_surface)
++        {
++            ID3D11Texture2D_Release(surface->draw_surface);
++            surface->draw_surface = NULL;
++        }
++        surface->width = width;
++        surface->height = height;
++        return S_OK;
++    }
 +
 +    /* A new backing surface of the new size; the content is not carried over. */
 +    desc.Width = width;
@@ -493,7 +2732,8 @@ virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully
 +        ERR("Failed to create a IDXGISurface, hr %#lx.\n", hr);
 +        return hr;
 +    }
-+    IUnknown_Release(surface->physical_surface);
++    if (surface->physical_surface)
++        IUnknown_Release(surface->physical_surface);
 +    surface->physical_surface = (IUnknown *)dxgi_surface;
 +    if (surface->draw_surface)
 +    {
@@ -528,7 +2768,7 @@ virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully
  static HRESULT STDMETHODCALLTYPE factory_QueryInterface(IDCompositionSurfaceFactory *iface, REFIID iid, void **out)
  {
      TRACE("iface %p, iid %s, out %p!\n", iface, debugstr_guid(iid), out);
-@@ -1143,6 +1311,8 @@
+@@ -1143,6 +1333,8 @@
      {
          IDCompositionDevice_Release(factory->device);
          IUnknown_Release(factory->rendering_device);
@@ -537,7 +2777,15 @@ virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully
          free(factory);
      }
  
-@@ -1165,9 +1335,23 @@
+@@ -1158,16 +1350,29 @@
+     FIXME("iface %p, width %u, height %u, format %#x, alpha_mode %#x, surface %p semi-stub!\n", iface,
+             width, height, pixel_format, alpha_mode, surface);
+ 
+-    return create_surface(factory, width, height, pixel_format, alpha_mode, surface);
++    return create_surface(factory, width, height, pixel_format, alpha_mode, FALSE, surface);
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE factory_CreateVirtualSurface(IDCompositionSurfaceFactory *iface,
          UINT width, UINT height, DXGI_FORMAT pixel_format, DXGI_ALPHA_MODE alpha_mode,
          IDCompositionVirtualSurface **surface)
  {
@@ -554,16 +2802,15 @@ virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully
 +    if (!surface)
 +        return E_INVALIDARG;
 +    *surface = NULL;
-+    if (FAILED(hr = create_surface(factory, width, height, pixel_format, alpha_mode, &plain)))
++    if (FAILED(hr = create_surface(factory, width, height, pixel_format, alpha_mode, TRUE, &plain)))
 +        return hr;
 +    impl = impl_from_IDCompositionSurfaceUnknown((IDCompositionSurfaceUnknown *)plain);
-+    impl->is_virtual = TRUE;
 +    *surface = &impl->IDCompositionVirtualSurface_iface;
 +    return S_OK;
  }
  
  static const struct IDCompositionSurfaceFactoryVtbl factory_vtbl =
-@@ -1216,6 +1400,24 @@
+@@ -1216,6 +1421,24 @@
      factory->ref = 1;
      factory->rendering_device = IsEqualGUID(iid, &IID_IDXGIDevice) ? (IUnknown *)dxgi_device : (IUnknown *)d2d_device;
      factory->rendering_device_iid = *iid;
@@ -588,3 +2835,121 @@ virtual surfaces. Verified 2026-09-26, HALion Sonic 7.5 standalone renders fully
      factory->device = &device->IDCompositionDevice_iface;
      IDCompositionDevice_AddRef(&device->IDCompositionDevice_iface);
  
+diff -ruN a/dlls/dcomp/visual.c b/dlls/dcomp/visual.c
+--- a/dlls/dcomp/visual.c	2026-09-26 17:27:27.759680314 -0500
++++ b/dlls/dcomp/visual.c	2026-09-26 17:37:20.294620709 -0500
+@@ -95,8 +95,8 @@
+ static HRESULT STDMETHODCALLTYPE visual_SetOffsetXAnimation(IDCompositionVisualUnknown *iface,
+         IDCompositionAnimation *animation)
+ {
+-    FIXME("iface %p, animation %p stub!\n", iface, animation);
+-    return E_NOTIMPL;
++    FIXME("iface %p, animation %p semi-stub, accepted but not applied.\n", iface, animation);
++    return S_OK;
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE visual_SetOffsetX(IDCompositionVisualUnknown *iface, float offset_x)
+@@ -112,42 +112,58 @@
+ static HRESULT STDMETHODCALLTYPE visual_SetOffsetYAnimation(IDCompositionVisualUnknown *iface,
+         IDCompositionAnimation *animation)
+ {
+-    FIXME("iface %p, animation %p stub!\n", iface, animation);
+-    return E_NOTIMPL;
++    FIXME("iface %p, animation %p semi-stub, accepted but not applied.\n", iface, animation);
++    return S_OK;
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE visual_SetOffsetY(IDCompositionVisualUnknown *iface, float offset_y)
+ {
+-    FIXME("iface %p, offset_y %f stub!\n", iface, offset_y);
+-    return E_NOTIMPL;
++    struct composition_visual *visual = impl_from_IDCompositionVisualUnknown(iface);
++
++    TRACE("iface %p, offset_y %f.\n", iface, offset_y);
++
++    visual->offset_y = offset_y;
++    return S_OK;
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE visual_SetTransformObject(IDCompositionVisualUnknown *iface,
+         IDCompositionTransform *transform)
+ {
+-    FIXME("iface %p, transform %p stub!\n", iface, transform);
+-    return E_NOTIMPL;
++    FIXME("iface %p, transform %p semi-stub, accepted but not applied.\n", iface, transform);
++    return S_OK;
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE visual_SetTransform(IDCompositionVisualUnknown *iface,
+         const D2D_MATRIX_3X2_F *matrix)
+ {
+-    FIXME("iface %p, matrix %p stub!\n", iface, matrix);
+-    return E_NOTIMPL;
++    struct composition_visual *visual = impl_from_IDCompositionVisualUnknown(iface);
++
++    TRACE("iface %p, matrix %p.\n", iface, matrix);
++
++    if (!matrix)
++    {
++        visual->has_transform = FALSE;
++        return S_OK;
++    }
++    visual->transform = *matrix;
++    visual->has_transform = TRUE;
++    if (matrix->_12 != 0.0f || matrix->_21 != 0.0f)
++        FIXME("Rotation and skew are not applied by the compositor.\n");
++    return S_OK;
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE visual_SetTransformParent(IDCompositionVisualUnknown *iface,
+         IDCompositionVisual *visual)
+ {
+-    FIXME("iface %p, visual %p stub!\n", iface, visual);
+-    return E_NOTIMPL;
++    FIXME("iface %p, visual %p semi-stub, accepted but not applied.\n", iface, visual);
++    return S_OK;
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE visual_SetEffect(IDCompositionVisualUnknown *iface,
+         IDCompositionEffect *effect)
+ {
+-    FIXME("iface %p, effect %p stub!\n", iface, effect);
+-    return E_NOTIMPL;
++    FIXME("iface %p, effect %p semi-stub, accepted but not applied.\n", iface, effect);
++    return S_OK;
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE visual_SetBitmapInterpolationMode(IDCompositionVisualUnknown *iface,
+@@ -185,15 +201,15 @@
+ static HRESULT STDMETHODCALLTYPE visual_SetClipObject(IDCompositionVisualUnknown *iface,
+         IDCompositionClip *clip)
+ {
+-    FIXME("iface %p, clip %p stub!\n", iface, clip);
+-    return E_NOTIMPL;
++    FIXME("iface %p, clip %p semi-stub, accepted but not applied.\n", iface, clip);
++    return S_OK;
+ }
+ 
+ /* C++ method: SetClip(THIS_ const D2D_RECT_F &rect).  Use pointer instead of reference */
+ static HRESULT STDMETHODCALLTYPE visual_SetClip(IDCompositionVisualUnknown *iface, const D2D_RECT_F *rect)
+ {
+-    FIXME("iface %p, rect %p stub!\n", iface, rect);
+-    return E_NOTIMPL;
++    FIXME("iface %p, rect %p semi-stub, accepted but not applied.\n", iface, rect);
++    return S_OK;
+ }
+ 
+ static HRESULT STDMETHODCALLTYPE visual_SetContent(IDCompositionVisualUnknown *iface, IUnknown *content)
+@@ -236,8 +252,10 @@
+             {
+                 iid = &IID_IDCompositionSurface;
+ 
+-                hr = IDXGISurface_GetDevice((IDXGISurface *)dcomp_surface->physical_surface,
+-                        &IID_IDXGIDevice, (void **)&dxgi_device);
++                /* From the factory rather than the backing surface: a virtual surface
++                 * may not have one yet. */
++                dxgi_device = impl_from_IDCompositionSurfaceFactory(dcomp_surface->factory)->dxgi_device;
++                hr = dxgi_device ? (IDXGIDevice_AddRef(dxgi_device), S_OK) : E_FAIL;
+                 IDCompositionSurface_Release(suface);
+                 if (FAILED(hr))
+                 {
