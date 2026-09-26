@@ -22,12 +22,18 @@ Java runtime. Two things break under Wine (found with SDA 1.40.1, 2026-09-25):
   IPC. The host browser needs a handler for that scheme (urlschemes.py); the
   page's "Try Again" then completes the login.
 
-Steinberg's products (HALion Sonic and the rest) draw their GUIs with VSTGUI
-through Direct2D, which is the same Wine-on-DXVK failure as (1) above; the
-standalone dies at start with a fatal-exit abort (c0000409). So every
-Steinberg program gets the same per-application built-in D3D override
-(after_install / repair). Their VST3 GUIs run inside a DAW's yabridge host,
-which this override does not reach; that is still open.
+Steinberg's current products (HALion Sonic 7 and, by the same library,
+Cubase and Dorico of that generation) do NOT run: their GUI library
+graphics2d.dll draws through DirectComposition, which no Wine implements
+(11.17, staging and Proton all stop at stubs; a device is created and the
+first CreateSurface fails, and the program aborts with c0000409). A dcomp.dll
+that refuses to create a device only changes the abort into Steinberg's
+"serious graphic driver related issue" dialog, so there is no fallback path
+(verified 2026-09-26). Every Steinberg program still gets the per-application
+built-in D3D override (after_install / repair) for the parts that do work
+through Direct2D, and programs whose files import dcomp.dll are refused at
+launch with that reason (cannot_run) instead of crashing; Health lists them.
+Their VST3 GUIs would fail the same way inside a DAW's yabridge host.
 
 SDA installs its runtime components (Activation Manager, Library Manager,
 built-in ASIO driver, MediaBay) and every product through the Steinberg
@@ -45,7 +51,7 @@ from pathlib import Path
 
 from .. import Vendor, Product, Check, UrlScheme
 from ...progress import null_reporter
-from ... import mono
+from ... import mono, pe
 from ...installers import steinberg as pkg
 from ...wine import Prefix
 
@@ -77,6 +83,7 @@ SCHEME = "net-steinberg-sda"
 # page opens net-steinberg-activation-manager://…, which the prefix registers as
 # `SteinbergActivationManager.exe --redirect "%1"`.
 SAM_SCHEME = "net-steinberg-activation-manager"
+RUNTIME_COMPONENTS = ("activation manager", "library manager", "mediabay", "install assistant", "asio driver", "download assistant")
 SAM_EXE = r"C:\Program Files\Steinberg\Activation Manager\SteinbergActivationManager.exe"
 
 JVM_OPTIONS = ("-Dprism.lcdtext=false",)     # grey text masks: see the module docstring
@@ -176,6 +183,25 @@ class Steinberg(Vendor):
         return [UrlScheme(SCHEME, f"{MANAGER} login callback", lambda p: [str(p.build.wine), str(p.to_host(self._exe(p)))]),
                 UrlScheme(SAM_SCHEME, "Steinberg Activation Manager login callback",
                           lambda p: [str(p.build.wine), str(p.to_host(SAM_EXE)), "--redirect"])]
+    def needs_dcomp(self, p, install_dir: str) -> list[str]:
+        """Files of a program that import DirectComposition (dcomp.dll)."""
+        try: d = p.to_host(install_dir)
+        except Exception: return []
+        if not d.is_dir(): return []
+        return sorted(f.name for f in d.iterdir() if f.suffix.lower() in (".dll", ".exe") and "dcomp.dll" in pe.imports(f))
+    def is_runtime_component(self, prog) -> bool:
+        """SDA's own tooling: Activation Manager, Library Manager, MediaBay server,
+        Install Assistant, built-in ASIO driver. Several import dcomp.dll (Qt does,
+        conditionally) but run fine; the limit is Steinberg's products' GUIs."""
+        n = prog.name.lower()
+        return self.is_manager_program(prog) or any(k in n for k in RUNTIME_COMPONENTS)
+    def cannot_run(self, p, prog):
+        if self.is_runtime_component(prog) or not prog.install_dir: return None
+        files = [f for f in self.needs_dcomp(p, prog.install_dir) if f.lower() == "graphics2d.dll"]
+        if not files: return None
+        return (f"it draws through DirectComposition ({', '.join(files[:3])} import dcomp.dll), which Wine does not implement; "
+                "it would abort at start, and its plugin GUI would too. Older Steinberg versions (before their graphics2d library "
+                "moved to DirectComposition) do not have this limit.")
     def program_exes(self, p) -> list[str]:
         """Exe names of Steinberg-published programs other than the Download Assistant."""
         from ... import programs
@@ -210,6 +236,10 @@ class Steinberg(Vendor):
             has = mono.installed(p)
             c.append(Check("Wine Mono (.NET) for the Steinberg Install Assistant", has, "" if has else "runtime components and products fail to install without it",
                            fix="vstenv manager steinberg repair"))
+            from ... import programs
+            blocked = [x.name for x in programs.installed(p) if self.publisher.search(x.publisher or "") and self.cannot_run(p, x)]
+            c.append(Check("Steinberg programs that Wine can run", not blocked,
+                           "" if not blocked else ", ".join(blocked) + ": need DirectComposition, which no Wine implements (they abort at start; refused at launch with the reason)"))
             missing = [e for e in self.program_exes(p) if not program_fix_applied(p, e)]
             c.append(Check("Steinberg programs run (built-in Direct3D 11)", not missing, ", ".join(missing), fix="vstenv manager steinberg repair"))
             left = pkg.staged(p)

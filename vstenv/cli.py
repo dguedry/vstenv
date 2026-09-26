@@ -95,7 +95,9 @@ def cmd_programs(a):
 
 def cmd_run(a):
     p = _prefix(); r = ConsoleReporter()
-    prog = programs.find(p, a.name); proc = programs.run(p, prog, r)
+    prog = programs.find(p, a.name)
+    try: proc = programs.run(p, prog, r)
+    except RuntimeError as e: sys.exit(str(e))
     if a.wait:
         proc.wait(); setup.after_change(p, r)           # the program may have installed plugins
 

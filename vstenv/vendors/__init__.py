@@ -95,6 +95,10 @@ class Vendor:
     def content_dirs(self, p: "Prefix") -> list[str]: return []   # Windows paths of libraries, maybe outside the prefix
     def quirks(self) -> dict[str, list[Quirk]]: return {}     # program name (substring) -> quirks
     def launch_args(self) -> dict[str, list[str]]: return {}  # program name (substring) -> extra argv
+    def cannot_run(self, p: "Prefix", prog: "Program") -> str | None:
+        """Why this program cannot run under Wine at all, or None. Said plainly
+        instead of crashing (design rule: what cannot work is stated, not hidden)."""
+        return None
     def url_schemes(self, p: "Prefix") -> list[UrlScheme]: return []
     def logs(self, p: "Prefix") -> dict[str, Path]: return {} # name -> log file, for diagnostic reports
 

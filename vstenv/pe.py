@@ -90,3 +90,31 @@ def icon(exe: Path) -> bytes | None:
         return bytes(out)
     except (struct.error, IndexError, ValueError):
         return None
+
+
+def imports(exe: Path) -> list[str]:
+    """Names of the DLLs a PE file imports (its static import table), lower-cased;
+    [] for anything that is not a PE or has no imports."""
+    try: d = Path(exe).read_bytes()
+    except OSError: return []
+    if d[:2] != b"MZ" or len(d) < 0x40: return []
+    pe = struct.unpack_from("<I", d, 0x3c)[0]
+    if d[pe:pe + 4] != b"PE\0\0": return []
+    nsec = struct.unpack_from("<H", d, pe + 6)[0]; opt_size = struct.unpack_from("<H", d, pe + 20)[0]
+    opt = pe + 24; magic = struct.unpack_from("<H", d, opt)[0]
+    dirs = opt + (112 if magic == 0x20B else 96)
+    imp_rva, imp_size = struct.unpack_from("<II", d, dirs + 1 * 8)     # entry 1: import table
+    if not imp_rva: return []
+    secs = []
+    for i in range(nsec):
+        s_ = opt + opt_size + 40 * i
+        vsize, vaddr, rsize, raw = struct.unpack_from("<IIII", d, s_ + 8); secs.append((vaddr, max(vsize, rsize), raw))
+    out = []
+    off = _offset(secs, imp_rva)
+    while off is not None and off + 20 <= len(d):
+        name_rva = struct.unpack_from("<I", d, off + 12)[0]
+        if not name_rva: break
+        noff = _offset(secs, name_rva)
+        if noff is None: break
+        end = d.find(b"\0", noff); out.append(d[noff:end].decode("latin1").lower()); off += 20
+    return out

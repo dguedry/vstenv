@@ -241,6 +241,8 @@ def run(p: Prefix, prog: Program, reporter=None):
     v = vendors.for_program(prog)
     if v is not None and "vendor" in prog.sources and v.is_manager_program(prog):
         return v.launch_manager(p, r)          # the vendor's manager has its own launch fixes
+    why = v.cannot_run(p, prog) if v is not None else None
+    if why: raise RuntimeError(f"{prog.name} cannot run here: {why}")
     if not prog.exe: raise RuntimeError(f"{prog.name} has no known launcher (only an uninstaller)")
     if prog.install_dir: quirks.apply(p, prog.name, prog.install_dir, r)
     r.step(f"Starting {prog.name}")

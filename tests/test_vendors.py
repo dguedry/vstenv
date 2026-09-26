@@ -82,3 +82,18 @@ class SteinbergTest(unittest.TestCase):
     def test_declares_the_login_callback_scheme(self):
         v = vendors.get("steinberg")
         self.assertEqual([s.scheme for s in v.url_schemes(None)], ["net-steinberg-sda", "net-steinberg-activation-manager"])
+
+
+class SteinbergCannotRunTest(unittest.TestCase):
+    def test_programs_importing_dcomp_are_refused_with_a_reason(self):
+        from unittest import mock
+        v = vendors.get("steinberg"); p = mock.Mock(); prog = Program(name="Steinberg HALion Sonic 7", publisher="Steinberg Media Technologies GmbH", exe=r"C:\\x\\HALion Sonic.exe", install_dir=r"C:\\x")
+        with mock.patch.object(v, "needs_dcomp", return_value=["graphics2d.dll"]):
+            self.assertIn("DirectComposition", v.cannot_run(p, prog))
+        with mock.patch.object(v, "needs_dcomp", return_value=[]):
+            self.assertIsNone(v.cannot_run(p, prog))
+        self.assertIsNone(v.cannot_run(p, Program(name="Steinberg Download Assistant", exe="x.exe", install_dir=r"C:\\y")))
+        with mock.patch.object(v, "needs_dcomp", return_value=["graphics2d.dll"]):
+            self.assertIsNone(v.cannot_run(p, Program(name="Steinberg MediaBay", exe="s.exe", install_dir=r"C:\\m")), "runtime components run despite importing dcomp")
+        with mock.patch.object(v, "needs_dcomp", return_value=["Qt6Gui.dll"]):
+            self.assertIsNone(v.cannot_run(p, Program(name="Some Steinberg Tool", exe="t.exe", install_dir=r"C:\\t")), "only Steinberg's graphics2d is the tell")
