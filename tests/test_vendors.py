@@ -88,8 +88,10 @@ class SteinbergCannotRunTest(unittest.TestCase):
     def test_programs_importing_dcomp_are_refused_with_a_reason(self):
         from unittest import mock
         v = vendors.get("steinberg"); p = mock.Mock(); prog = Program(name="Steinberg HALion Sonic 7", publisher="Steinberg Media Technologies GmbH", exe=r"C:\\x\\HALion Sonic.exe", install_dir=r"C:\\x")
-        with mock.patch.object(v, "needs_dcomp", return_value=["graphics2d.dll"]):
+        with mock.patch.object(v, "needs_dcomp", return_value=["graphics2d.dll"]), mock.patch.object(v, "dcomp_ready", return_value=False):
             self.assertIn("DirectComposition", v.cannot_run(p, prog))
+        with mock.patch.object(v, "needs_dcomp", return_value=["graphics2d.dll"]), mock.patch.object(v, "dcomp_ready", return_value=True):
+            self.assertIsNone(v.cannot_run(p, prog), "with the patched dcomp.dll in the Wine build they run")
         with mock.patch.object(v, "needs_dcomp", return_value=[]):
             self.assertIsNone(v.cannot_run(p, prog))
         self.assertIsNone(v.cannot_run(p, Program(name="Steinberg Download Assistant", exe="x.exe", install_dir=r"C:\\y")))

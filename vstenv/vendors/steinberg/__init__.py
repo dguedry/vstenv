@@ -23,17 +23,21 @@ Java runtime. Two things break under Wine (found with SDA 1.40.1, 2026-09-25):
   page's "Try Again" then completes the login.
 
 Steinberg's current products (HALion Sonic 7 and, by the same library,
-Cubase and Dorico of that generation) do NOT run: their GUI library
-graphics2d.dll draws through DirectComposition, which no Wine implements
-(11.17, staging and Proton all stop at stubs; a device is created and the
-first CreateSurface fails, and the program aborts with c0000409). A dcomp.dll
-that refuses to create a device only changes the abort into Steinberg's
-"serious graphic driver related issue" dialog, so there is no fallback path
-(verified 2026-09-26). Every Steinberg program still gets the per-application
-built-in D3D override (after_install / repair) for the parts that do work
-through Direct2D, and programs whose files import dcomp.dll are refused at
-launch with that reason (cannot_run) instead of crashing; Health lists them.
-Their VST3 GUIs would fail the same way inside a DAW's yabridge host.
+Cubase and Dorico of that generation) draw through DirectComposition in
+their GUI library graphics2d.dll. Stock Wine implements it as stubs (11.17,
+staging and Proton alike: a device is created, the first CreateSurface fails,
+and the program aborts with c0000409; a dcomp.dll that refuses to create a
+device only turns that into Steinberg's "serious graphic driver related issue"
+dialog, so there is no fallback path). vstenv therefore ships a patched
+dcomp.dll (winefixes.py: wine-staging's DirectComposition plus the pieces
+Steinberg hits, built by CI from patches/wine/) and installs it into its Wine
+build; with it in place HALion Sonic 7 renders fully (verified 2026-09-26).
+Every Steinberg program also gets the per-application built-in D3D override
+(after_install / repair): Direct2D on DXVK draws blobs, and DXVK's swap chain
+for composition is not implemented. Until the patched DLL is installed,
+programs whose graphics2d imports dcomp.dll are refused at launch with that
+reason (cannot_run) instead of crashing; Health lists them. Their VST3 GUIs
+inside a DAW's yabridge host use the same Wine build, so they follow suit.
 
 SDA installs its runtime components (Activation Manager, Library Manager,
 built-in ASIO driver, MediaBay) and every product through the Steinberg
@@ -195,13 +199,17 @@ class Steinberg(Vendor):
         conditionally) but run fine; the limit is Steinberg's products' GUIs."""
         n = prog.name.lower()
         return self.is_manager_program(prog) or any(k in n for k in RUNTIME_COMPONENTS)
+    def dcomp_ready(self, p) -> bool:
+        """The patched dcomp.dll is in the Wine build (winefixes)."""
+        from ... import winefixes
+        return winefixes.has(getattr(p, "build", None), "dcomp.dll")
     def cannot_run(self, p, prog):
         if self.is_runtime_component(prog) or not prog.install_dir: return None
         files = [f for f in self.needs_dcomp(p, prog.install_dir) if f.lower() == "graphics2d.dll"]
-        if not files: return None
-        return (f"it draws through DirectComposition ({', '.join(files[:3])} import dcomp.dll), which Wine does not implement; "
-                "it would abort at start, and its plugin GUI would too. Older Steinberg versions (before their graphics2d library "
-                "moved to DirectComposition) do not have this limit.")
+        if not files or self.dcomp_ready(p): return None
+        return (f"it draws through DirectComposition ({', '.join(files[:3])} import dcomp.dll), which stock Wine does not implement; "
+                "it would abort at start, and its plugin GUI would too. Run setup: it installs this app's patched dcomp.dll "
+                "into its Wine (vstenv wine-fixes install), after which these programs run.")
     def program_exes(self, p) -> list[str]:
         """Exe names of Steinberg-published programs other than the Download Assistant."""
         from ... import programs
@@ -239,7 +247,8 @@ class Steinberg(Vendor):
             from ... import programs
             blocked = [x.name for x in programs.installed(p) if self.publisher.search(x.publisher or "") and self.cannot_run(p, x)]
             c.append(Check("Steinberg programs that Wine can run", not blocked,
-                           "" if not blocked else ", ".join(blocked) + ": need DirectComposition, which no Wine implements (they abort at start; refused at launch with the reason)"))
+                           "" if not blocked else ", ".join(blocked) + ": need DirectComposition; the patched dcomp.dll is not in this app's Wine (refused at launch with the reason)",
+                           fix="vstenv wine-fixes install"))
             missing = [e for e in self.program_exes(p) if not program_fix_applied(p, e)]
             c.append(Check("Steinberg programs run (built-in Direct3D 11)", not missing, ", ".join(missing), fix="vstenv manager steinberg repair"))
             left = pkg.staged(p)

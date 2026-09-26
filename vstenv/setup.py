@@ -1,7 +1,7 @@
 """Setting the environment up and keeping it consistent: the core steps, then
 every vendor module's own, in one idempotent pass."""
 from pathlib import Path
-from . import runtime, dxvk, yabridge, menu, urlschemes, vendors, tools
+from . import runtime, dxvk, yabridge, menu, urlschemes, vendors, tools, winefixes
 from .progress import null_reporter
 from .wine import Prefix
 
@@ -11,10 +11,11 @@ def _guarded(r, title, fn):
 
 def prepare(p: Prefix, reporter=None):
     """Everything that does not need a vendor's manager: prefix, fonts, C runtime,
-    DXVK, yabridge, then each vendor's own prerequisites. Safe to re-run."""
+    patched Wine DLLs, DXVK, yabridge, then each vendor's own prerequisites. Safe to re-run."""
     r = null_reporter(reporter)
     _guarded(r, "7-Zip", lambda: tools.ensure(r))
     p.create(r); p.declare_wine(r); p.refresh_builtins(r); runtime.install(p, r)
+    _guarded(r, "Wine fixes (patched DLLs)", lambda: winefixes.install(p.build, r))   # dcomp for Steinberg; needs the release asset
     _guarded(r, "Installing DXVK", lambda: dxvk.install(p, r))     # skipped without a hardware Vulkan driver
     p.wait_idle()
     _guarded(r, "Installing yabridge", lambda: yabridge.install(r))

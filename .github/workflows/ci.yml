@@ -175,17 +175,41 @@ jobs:
             out/wine-*.tar.xz
           if-no-files-found: error
 
+  wine-fixes:
+    name: Build the patched Wine DLLs for the pinned Wine
+    needs: [auto-tag]
+    if: always() && (needs.auto-tag.result == 'success' || needs.auto-tag.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.auto-tag.outputs.sha || github.sha }}
+      - run: sudo apt-get update -q && sudo apt-get install -y -q gcc-mingw-w64-x86-64 flex bison autoconf perl make curl xz-utils
+      # dcomp.dll from the pinned Wine's sources + wine-staging + patches/wine/:
+      # DirectComposition for Steinberg's current products (winefixes.py installs it).
+      - name: Build
+        run: |
+          set -euo pipefail
+          v="$(python3 -c 'from vstenv.winefixes import wine_version; print(wine_version())')"
+          scripts/build-wine-fixes.sh "$v" "$PWD/out"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wine-fixes
+          path: out/wine-fixes-*.tar.gz
+          if-no-files-found: error
+
   # Publish the bundle to a GitHub release when either: (a) a v* tag was pushed
   # directly (manual scripts/release.sh path), or (b) the auto-tag job cut a new
   # version in this run.
   release:
     name: Publish bundle to the GitHub release
-    needs: [auto-tag, python, flatpak, yabridge]
+    needs: [auto-tag, python, flatpak, yabridge, wine-fixes]
     if: >-
       always()
       && needs.python.result == 'success'
       && needs.flatpak.result == 'success'
       && needs.yabridge.result == 'success'
+      && needs.wine-fixes.result == 'success'
       && (startsWith(github.ref, 'refs/tags/v') || needs.auto-tag.outputs.version != '')
     runs-on: ubuntu-latest
     permissions:
@@ -197,6 +221,9 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: yabridge-build
+      - uses: actions/download-artifact@v4
+        with:
+          name: wine-fixes
       - name: Create or update the release and attach the bundle
         env:
           GH_TOKEN: ${{ github.token }}
@@ -209,5 +236,5 @@ jobs:
           fi
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "vstenv $TAG" --generate-notes
-          gh release upload "$TAG" vstenv.flatpak yabridge-*.tar.gz wine-*.tar.xz --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload "$TAG" vstenv.flatpak yabridge-*.tar.gz wine-*.tar.xz wine-fixes-*.tar.gz --repo "$GITHUB_REPOSITORY" --clobber
           echo "published $TAG"

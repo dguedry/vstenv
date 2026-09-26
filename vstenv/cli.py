@@ -131,6 +131,20 @@ def cmd_mono(a):
         st = mono.status(p); print(f"wine mono: {'installed' if st['installed'] else 'not installed'} (this wine wants {st['required']})"); return
     r = ConsoleReporter(); mono.install(p, r); _fail_if(r)
 
+def cmd_wine_fixes(a):
+    from . import winefixes
+    b = wine.installed_build()
+    if b is None: print("no wine build: run setup first"); sys.exit(1)
+    if a.action == "status":
+        st = winefixes.status(b); m = st["marker"] or {}
+        print(f"patched DLLs: {', '.join(st['files']) if st['files'] else 'none'}" + (f" (from {m.get('source', '?')}, {m.get('installed', '?')})" if st["files"] else ""))
+        if st["missing"]: print(f"missing: {', '.join(st['missing'])} -- vstenv wine-fixes install")
+        return
+    r = ConsoleReporter()
+    if a.action == "remove": winefixes.remove(b, r)
+    else: winefixes.install(b, r, force=a.force)
+    _fail_if(r)
+
 def cmd_dxvk(a):
     from . import dxvk
     p = _prefix()
@@ -206,6 +220,8 @@ def main(argv=None):
     sp.add_parser("status", help="yabridge status").set_defaults(f=cmd_status)
     s = sp.add_parser("mono", help=".NET runtime (Wine Mono) for programs that need it: install | status")
     s.add_argument("action", nargs="?", default="install", choices=["install", "status"]); s.set_defaults(f=cmd_mono)
+    s = sp.add_parser("wine-fixes", help="patched Wine DLLs this app ships (DirectComposition for Steinberg): install | status | remove")
+    s.add_argument("action", nargs="?", default="install", choices=["install", "status", "remove"]); s.add_argument("--force", action="store_true"); s.set_defaults(f=cmd_wine_fixes)
     s = sp.add_parser("dxvk", help="Direct3D on Vulkan for plugin GUIs that Wine draws wrong")
     s.add_argument("action", nargs="?", default="install", choices=["install", "remove", "status"]); s.add_argument("--force", action="store_true"); s.set_defaults(f=cmd_dxvk)
     sp.add_parser("prefixes", help="which vstenv prefixes exist, who owns a vendor daemon, what yabridge points at").set_defaults(f=cmd_prefixes)
