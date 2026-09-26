@@ -1,9 +1,25 @@
 # Wine patches vstenv ships
 
 Patched DLLs that go over the pinned Wine build (see `vstenv/winefixes.py`).
-CI builds them with `scripts/build-wine-fixes.sh <wine version>` and attaches
-`wine-fixes-<version>.tar.gz` to every release; setup installs the DLLs into
-`lib/wine/x86_64-windows/` of the app's Wine, keeping the originals as `.orig`.
+CI builds them with `scripts/build-wine-fixes.sh <wine version>`, which applies
+every `*-<version>.patch` here on top of the full wine-staging set and builds
+the DLLs it lists, and attaches `wine-fixes-<version>.tar.gz` to every
+release; setup installs the DLLs into `lib/wine/x86_64-windows/` of the app's
+Wine, keeping the originals as `.orig`.
+
+## advapi32-credential-attributes-<version>.patch
+
+Credential Manager attributes. Wine's `CredWriteW` stored everything but
+`Attributes` (a `FIXME`), and `CredReadW` / `CredEnumerateW` returned
+`AttributeCount = 0`. Steinberg's License Engine writes its refresh token as a
+generic credential with one attribute (its format marker); reading it back
+without the attribute made it log "1.1 Format refresh token detecting --
+resetting" at every restart, delete the token, and sign the user out, after
+which every product start made the engine pop the Activation Manager up to ask
+for a sign-in. The patch stores each attribute as a `Attribute<n>` binary
+value (flags, value size, keyword, value) and reads them back into the
+credential's buffer, pointer-aligned. Verified with a round-trip test
+(2026-09-26); a candidate for upstreaming as is.
 
 ## dcomp-steinberg-<version>.patch
 

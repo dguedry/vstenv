@@ -1,19 +1,26 @@
 """Patched Wine DLLs installed over the pinned Wine build.
 
-The pinned Wine is used as upstream ships it, with one exception: DLLs that
-vstenv patches because a vendor's programs need what Wine lacks. Today that is
-dcomp.dll (DirectComposition). Steinberg's current products draw through it
-(their graphics2d.dll: HALion Sonic 7, and the same library in Cubase and
-Dorico of that generation); Wine's dcomp is stubs, and they abort at the first
-CreateSurface. wine-staging carries a near-complete DirectComposition; the
-patch in patches/wine/ adds what Steinberg still hit (surfaces created from
-the device, virtual surfaces, a Direct2D device as rendering device). CI
-builds the DLL from those sources (scripts/build-wine-fixes.sh) and attaches
-wine-fixes-<wine version>.tar.gz to every release; this module installs it
-into the Wine build's PE directory, keeping the original next to it as .orig.
+The pinned Wine is used as upstream ships it, with a few exceptions: DLLs that
+vstenv patches because a vendor's programs need what Wine lacks (the patches
+live in patches/wine/, with a README). Today:
 
-The DLL lands in the build, not the prefix, so everything that runs this
-Wine gets it: standalone programs and the yabridge plugin hosts alike.
+- dcomp.dll: DirectComposition. Steinberg's current products draw through it
+  (their graphics2d.dll: HALion Sonic 7, and the same library in Cubase and
+  Dorico of that generation); Wine's dcomp is stubs and they abort at start.
+- advapi32.dll: Credential Manager attributes. Steinberg's License Engine
+  stores its sign-in (the refresh token) with a credential attribute; Wine
+  dropped attributes, so every restart of the engine found an "old format"
+  token, reset it, and the user was "signed out automatically".
+
+CI builds the DLLs from the Wine sources with those patches
+(scripts/build-wine-fixes.sh) and attaches wine-fixes-<wine version>.tar.gz to
+every release; this module installs them into the Wine build's PE directory,
+keeping the originals next to them as .orig. Wine loads a builtin DLL from the
+build directory even though the prefix's system32 holds a copy, so nothing in
+the prefix needs touching.
+
+The DLLs land in the build, not the prefix, so everything that runs this
+Wine gets them: standalone programs and the yabridge plugin hosts alike.
 """
 import hashlib, json, os, re, shutil, tarfile, tempfile
 from datetime import date
@@ -25,7 +32,8 @@ from .progress import null_reporter
 RELEASE_REPO = wine.RELEASE_REPO
 PE_DIR = "lib/wine/x86_64-windows"
 MARKER_NAME = "vstenv-wine-fixes.json"
-FIXES = {"dcomp.dll": "DirectComposition (Steinberg's graphics2d: HALion Sonic 7, Cubase, Dorico)"}
+FIXES = {"dcomp.dll": "DirectComposition (Steinberg's graphics2d: HALion Sonic 7, Cubase, Dorico)",
+         "advapi32.dll": "credential attributes (Steinberg's License Engine keeps its sign-in)"}
 
 def wine_version(build=None) -> str:
     """The pinned Wine's version number, from the build's directory name."""

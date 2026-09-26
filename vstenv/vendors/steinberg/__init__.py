@@ -39,6 +39,16 @@ programs whose graphics2d imports dcomp.dll are refused at launch with that
 reason (cannot_run) instead of crashing; Health lists them. Their VST3 GUIs
 inside a DAW's yabridge host use the same Wine build, so they follow suit.
 
+The Activation Manager's sign-in is kept by the License Engine as a Windows
+credential with an attribute; stock Wine drops credential attributes, so the
+engine found an "old format" token at every restart, reset it ("You were
+signed out automatically"), and then popped the Activation Manager up whenever
+a product asked for a license. The patched advapi32.dll that ships with the
+app (winefixes) keeps attributes. Another Wine-only nuisance: the Activation
+Manager ignores clicks for the seconds during which the engine is busy with a
+product that just started (HALion connecting), so a click on "Sign In" right
+then does nothing; a second click a moment later works.
+
 SDA installs its runtime components (Activation Manager, Library Manager,
 built-in ASIO driver, MediaBay) and every product through the Steinberg
 Install Assistant and its Install Helper, which are .NET executables: with

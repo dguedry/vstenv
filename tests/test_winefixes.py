@@ -7,13 +7,16 @@ from vstenv import winefixes, wine
 def _fake_build(tmp: Path) -> wine.WineBuild:
     root = tmp / "wine-11.17-staging-amd64-wow64"
     (root / winefixes.PE_DIR).mkdir(parents=True); (root / "bin").mkdir()
-    (root / winefixes.PE_DIR / "dcomp.dll").write_bytes(b"stock dcomp")
+    for name in winefixes.FIXES: (root / winefixes.PE_DIR / name).write_bytes(b"stock " + name.encode())
     return wine.WineBuild(root)
 
 def _tarball(tmp: Path, version="11.17", payload=b"patched dcomp") -> Path:
-    pkg = tmp / "wine-fixes"; pkg.mkdir()
-    (pkg / "dcomp.dll").write_bytes(payload)
-    (pkg / "manifest.json").write_text(json.dumps({"wine_version": version, "files": {"dcomp.dll": hashlib.sha256(payload).hexdigest()}, "patches": ["x.patch"]}))
+    """A release tarball carrying every DLL the app expects (FIXES), dcomp with `payload`."""
+    pkg = tmp / "wine-fixes"; pkg.mkdir(); files = {}
+    for name in winefixes.FIXES:
+        data = payload if name == "dcomp.dll" else b"patched " + name.encode()
+        (pkg / name).write_bytes(data); files[name] = hashlib.sha256(data).hexdigest()
+    (pkg / "manifest.json").write_text(json.dumps({"wine_version": version, "files": files, "patches": ["x.patch"]}))
     tgz = tmp / f"wine-fixes-{version}.tar.gz"
     with tarfile.open(tgz, "w:gz") as t: t.add(pkg, arcname="wine-fixes")
     return tgz
@@ -26,19 +29,19 @@ class WineFixesTest(unittest.TestCase):
             tmp = Path(d); b = _fake_build(tmp); tgz = _tarball(tmp)
             self.assertFalse(winefixes.status(b)["installed"])
             with mock.patch.dict("os.environ", {"VSTENV_WINE_FIXES": str(tgz)}):
-                self.assertEqual(list(winefixes.install(b)), ["dcomp.dll"])
+                self.assertEqual(sorted(winefixes.install(b)), sorted(winefixes.FIXES))
             dll = b.root / winefixes.PE_DIR / "dcomp.dll"
-            self.assertEqual(dll.read_bytes(), b"patched dcomp"); self.assertEqual(dll.with_suffix(".dll.orig").read_bytes(), b"stock dcomp")
+            self.assertEqual(dll.read_bytes(), b"patched dcomp"); self.assertEqual(dll.with_suffix(".dll.orig").read_bytes(), b"stock dcomp.dll")
             self.assertTrue(winefixes.has(b, "dcomp.dll")); self.assertTrue(winefixes.status(b)["installed"])
             dll.write_bytes(b"stock dcomp")                      # a re-extracted Wine put the stock file back
             self.assertFalse(winefixes.has(b, "dcomp.dll"), "the marker alone does not count")
-            self.assertEqual(winefixes.remove(b), ["dcomp.dll"]); self.assertFalse((b.root / winefixes.MARKER_NAME).exists())
+            self.assertEqual(sorted(winefixes.remove(b)), sorted(winefixes.FIXES)); self.assertFalse((b.root / winefixes.MARKER_NAME).exists())
     def test_install_refuses_a_tarball_for_another_wine(self):
         with tempfile.TemporaryDirectory() as d:
             tmp = Path(d); b = _fake_build(tmp); tgz = _tarball(tmp, version="10.0")
             with mock.patch.dict("os.environ", {"VSTENV_WINE_FIXES": str(tgz)}):
                 self.assertEqual(winefixes.install(b), {})
-            self.assertEqual((b.root / winefixes.PE_DIR / "dcomp.dll").read_bytes(), b"stock dcomp")
+            self.assertEqual((b.root / winefixes.PE_DIR / "dcomp.dll").read_bytes(), b"stock dcomp.dll")
     def test_offline_install_fails_softly_and_keeps_what_is_in_place(self):
         with tempfile.TemporaryDirectory() as d:
             tmp = Path(d); b = _fake_build(tmp); tgz = _tarball(tmp)
@@ -46,7 +49,7 @@ class WineFixesTest(unittest.TestCase):
                 self.assertEqual(winefixes.install(b), {})
             with mock.patch.dict("os.environ", {"VSTENV_WINE_FIXES": str(tgz)}): winefixes.install(b)
             with mock.patch.dict("os.environ", {"VSTENV_WINE_FIXES": ""}), mock.patch.object(winefixes, "text", side_effect=OSError("offline")):
-                self.assertEqual(list(winefixes.install(b)), ["dcomp.dll"], "offline: the installed set stays")
+                self.assertEqual(sorted(winefixes.install(b)), sorted(winefixes.FIXES), "offline: the installed set stays")
     def test_a_newer_release_replaces_the_installed_set(self):
         with tempfile.TemporaryDirectory() as d:
             tmp = Path(d); b = _fake_build(tmp)
@@ -63,6 +66,6 @@ class WineFixesTest(unittest.TestCase):
                 p3, p4 = release("v0.2.1", b"second")
                 with p3, p4: winefixes.install(b)
                 self.assertEqual((b.root / winefixes.PE_DIR / "dcomp.dll").read_bytes(), b"second"); self.assertEqual(winefixes.marker(b)["release"], "v0.2.1")
-                self.assertEqual((b.root / winefixes.PE_DIR / "dcomp.dll.orig").read_bytes(), b"stock dcomp", "the stock file stays the original")
+                self.assertEqual((b.root / winefixes.PE_DIR / "dcomp.dll.orig").read_bytes(), b"stock dcomp.dll", "the stock file stays the original")
 
 if __name__ == "__main__": unittest.main()

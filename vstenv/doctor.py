@@ -31,8 +31,8 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
         if b is None: return c
         p = wine.Prefix(paths.PREFIX, b)
     wf = winefixes.status(b)
-    c.append(Check("patched Wine DLLs (DirectComposition for Steinberg)", wf["installed"],
-                   ", ".join(wf["files"]) if wf["installed"] else f"{', '.join(wf['missing'])} not installed: Steinberg's current products (HALion Sonic 7, ...) are refused at launch",
+    c.append(Check("patched Wine DLLs (Steinberg: DirectComposition, sign-in persistence)", wf["installed"],
+                   ", ".join(wf["files"]) if wf["installed"] else f"{', '.join(wf['missing'])} not installed: Steinberg's current products are refused at launch, or their sign-in is forgotten",
                    fix="vstenv wine-fixes install (fetches this app's build from its release)"))
     ok, detail = wine.module_libs_check(wine.missing_module_libs(b))
     c.append(Check("Wine modules find their host libraries", ok, detail, fix="install the named libraries with your package manager (optional modules only lose that feature)"))
