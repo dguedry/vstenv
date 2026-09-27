@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.3" date="2026-09-27">
+      <description>
+        <p>Steinberg support: HALion runs, sign-in persists, dialogs have text; per-plugin Direct3D; plugin crash log; new icon</p>
+      </description>
+    </release>
     <release version="0.1.2" date="2026-09-25">
       <description>
         <p>Add the package __main__ (python -m vstenv)</p>
