@@ -21,6 +21,12 @@ value (flags, value size, keyword, value) and reads them back into the
 credential's buffer, pointer-aligned. Verified with a round-trip test
 (2026-09-26); a candidate for upstreaming as is.
 
+The same patch exports `CloseThreadWaitChainSession` (a no-op, as the
+session `OpenThreadWaitChainSession` hands out is NULL). Wine left it as a
+commented-out stub, so HALion Sonic, which closes its wait-chain session on
+exit, raised a stub exception instead of quitting and showed its crash
+reporter on every close.
+
 ## dcomp-steinberg-<version>.patch
 
 DirectComposition for Steinberg's current products. Their GUI library

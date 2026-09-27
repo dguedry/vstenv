@@ -49,6 +49,11 @@ Manager ignores clicks for the seconds during which the engine is busy with a
 product that just started (HALion connecting), so a click on "Sign In" right
 then does nothing; a second click a moment later works.
 
+Steinberg's dialogs (quit confirmation, crash reporter, notices) draw their
+text with DirectWrite in "Segoe UI". GDI substitutes do not reach DirectWrite,
+so without a family of that name the dialogs came up with blank buttons and no
+message; fontalias installs Selawik under that name (runtime.install).
+
 SDA installs its runtime components (Activation Manager, Library Manager,
 built-in ASIO driver, MediaBay) and every product through the Steinberg
 Install Assistant and its Install Helper, which are .NET executables: with

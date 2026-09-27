@@ -11,6 +11,7 @@ from .download import fetch
 from . import tools
 from .progress import null_reporter
 from .wine import Prefix
+from . import fontalias
 
 # winetricks ucrtbase2019 source: last VC2019 redist that still ships ucrtbase.dll
 UCRT_URL = "https://download.visualstudio.microsoft.com/download/pr/85d47aa9-69ae-4162-8300-e6b7e4bf3cf3/52B196BBE9016488C735E7B41805B651261FFA5D7AA86EB6A1D0095BE83687B2/VC_redist.x64.exe"
@@ -100,21 +101,28 @@ def registry(p: Prefix, reporter=None):
     noto_sym = (fdir / "NotoSansSymbols-Regular.ttf").exists()
     noto_sym2 = (fdir / "NotoSansSymbols2-Regular.ttf").exists()
     noto_emoji = (fdir / "NotoColorEmoji.ttf").exists()
+    # With the Segoe UI alias faces installed (fontalias), GDI uses them too: the
+    # substitutes only cover what the alias lacks.
+    segoe = fontalias.status(p)["installed"]
     subs = {
-        "Segoe UI": "DejaVu Sans", "Segoe UI Light": "DejaVu Sans", "Segoe UI Semibold": "DejaVu Sans",
-        "Segoe UI Semilight": "DejaVu Sans", "Segoe UI Black": "DejaVu Sans",
+        "Segoe UI Black": "Segoe UI" if segoe else "DejaVu Sans",
+    }
+    aliased = ("Segoe UI", "Segoe UI Light", "Segoe UI Semibold", "Segoe UI Semilight")
+    if not segoe: subs.update({k: "DejaVu Sans" for k in aliased})
+    subs.update({
         "Segoe UI Symbol": "Noto Sans Symbols" if noto_sym else "DejaVu Sans",
         "Segoe UI Emoji": "Noto Color Emoji" if noto_emoji else "DejaVu Sans",
         "Segoe MDL2 Assets": "Noto Sans Symbols2" if noto_sym2 else "DejaVu Sans",
         "Segoe Fluent Icons": "Noto Sans Symbols2" if noto_sym2 else "DejaVu Sans",
         "Tahoma": "DejaVu Sans", "Verdana": "DejaVu Sans", "Microsoft Sans Serif": "DejaVu Sans",
         "Calibri": "Liberation Sans", "Cambria": "Liberation Serif", "Consolas": "DejaVu Sans Mono",
-    }
+    })
     dlls = ["ucrtbase", "msvcp140", "msvcp140_1", "msvcp140_2", "msvcp140_atomic_wait", "msvcp140_codecvt_ids",
             "vcruntime140", "vcruntime140_1", "concrt140", "vcomp140"]
     reg = ["Windows Registry Editor Version 5.00", "",
            r"[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\FontSubstitutes]"]
     reg += [f'"{k}"="{v}"' for k, v in subs.items()]
+    if segoe: reg += [f'"{k}"=-' for k in aliased]           # a substitute would hide the alias faces from GDI
     reg += ["", r"[HKEY_CURRENT_USER\Software\Wine\DllOverrides]"] + [f'"{d}"="native,builtin"' for d in dlls] + [""]
     rc = p.reg_import("\r\n".join(reg), "vstenv-setup.reg")
     if rc != 0: r.fail(f"regedit exit {rc}")
@@ -154,12 +162,17 @@ def vc_runtime(p: Prefix, reporter=None):
         r.ok(f"{n} DLLs")
 
 def install(p: Prefix, reporter=None):
-    fonts(p, reporter); vc_runtime(p, reporter); registry(p, reporter)
+    fonts(p, reporter)
+    try: fontalias.install(p, reporter)          # needs the network once; dialogs stay blank without it
+    except Exception as e:
+        r = null_reporter(reporter); r.step("Segoe UI font family for DirectWrite (dialog text)"); r.fail(str(e)[:100])
+    vc_runtime(p, reporter); registry(p, reporter)
 
 def status(p: Prefix) -> dict:
     s32 = p.drive_c / "windows/system32"
     st = {"fonts": (p.drive_c / "windows/Fonts/DejaVuSans.ttf").exists(),
           "ucrtbase": (s32 / "ucrtbase.dll.wine-builtin.bak").exists(),
-          "vc_runtime": (s32 / "vcruntime140.dll.bak").exists()}
+          "vc_runtime": (s32 / "vcruntime140.dll.bak").exists(),
+          "segoe": fontalias.status(p)["installed"]}
     st["prepared"] = st["fonts"] and st["vc_runtime"]
     return st
