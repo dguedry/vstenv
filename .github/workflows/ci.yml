@@ -215,6 +215,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.auto-tag.outputs.sha || github.sha }}
+          fetch-depth: 0          # every tag: the notes link the previous release
       - uses: actions/download-artifact@v4
         with:
           name: vstenv-flatpak
@@ -234,7 +238,10 @@ jobs:
           else
             TAG="${GITHUB_REF_NAME}"
           fi
+          # The page says what to download and install, and what the other files
+          # are; the change note comes from the metainfo entry for this version.
+          scripts/release-notes.sh "$TAG" > release-notes.md
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
-            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "vstenv $TAG" --generate-notes
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "vstenv $TAG" --notes-file release-notes.md
           gh release upload "$TAG" vstenv.flatpak yabridge-*.tar.gz wine-*.tar.xz wine-fixes-*.tar.gz --repo "$GITHUB_REPOSITORY" --clobber
           echo "published $TAG"
