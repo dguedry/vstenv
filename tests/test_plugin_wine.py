@@ -79,7 +79,7 @@ class PluginWineTest(unittest.TestCase):
     def run_host(self, wineprefix=None, **extra):
         """Start the launcher the way libyabridge does: WINEPREFIX already set to the
         prefix it detected from the plugin's location, the DAW's PATH otherwise."""
-        env = {"HOME": str(self.home), "PATH": str(self.hostbin), **extra}
+        env = {"HOME": str(self.home), "PATH": f"{self.hostbin}:/usr/bin:/bin", **extra}   # the launcher needs mkdir, tee, mkfifo
         if wineprefix is not None: env["WINEPREFIX"] = str(wineprefix)
         cp = subprocess.run([str(self.launcher), "--version"], env=env, capture_output=True, text=True, timeout=30)
         return cp.returncode, cp.stdout.strip(), cp.stderr.strip()
@@ -119,6 +119,18 @@ class PluginWineTest(unittest.TestCase):
         # not activated: upstream behaviour, byte for byte
         rc, out, _ = self.run_host(self.prefix.path)
         self.assertTrue(out.startswith("host wine"), out); self.assertIn("fsync=unset", out)
+
+    def test_host_stderr_is_copied_to_the_log_and_still_reaches_the_daw(self):
+        self.activate()
+        _fake_wine(self.prefix.build.root / "bin/wine", "app wine")
+        (self.prefix.build.root / "bin/wine").write_text('#!/bin/sh\necho "app wine prefix=$WINEPREFIX fsync=${WINEFSYNC-unset} args=$*"\necho "wine: Unhandled page fault on read access to 0000000000000010 at address 0000000105996612" >&2\n')
+        rc, out, err = self.run_host(self.prefix.path)
+        self.assertEqual(rc, 0); self.assertIn("Unhandled page fault", err, "the DAW still sees the host's stderr")
+        log = self.home / ".local/share/vstenv/logs/plugin-host.log"
+        self.assertTrue(log.exists(), "a copy lands in the app's log directory")
+        text = log.read_text()
+        self.assertIn("Unhandled page fault", text); self.assertIn("== ", text, "each host start is headed with its time and arguments")
+        self.assertIn("--version", text)
 
     # ---- the launcher patch -----------------------------------------------------------------
     def test_patch_is_idempotent_and_keeps_the_mode(self):

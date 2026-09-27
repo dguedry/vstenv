@@ -304,16 +304,43 @@ if [ ! -x "$WINELOADER" ] && [ -n "$WINEPREFIX" ] && [ -r "$WINEPREFIX/{Prefix.W
 fi
 {_UPSTREAM_LOADER}'''
 
+# Wine prints its crash report ("Unhandled exception ... at address ...") on the
+# plugin host's stderr, which yabridge relays to the DAW's stderr, i.e. usually
+# nowhere the user can see. The launcher tees that stream into the app's log
+# directory (bounded), so a plugin crash always leaves a trace to read.
+LAUNCHER_LOG_MARK = "# vstenv: keep a copy of the plugin host's stderr (Wine's crash report goes there)"
+_UPSTREAM_EXEC = 'exec "$WINELOADER" "$apppath" "$@"\n'
+_OUR_LOG = f'''{LAUNCHER_LOG_MARK}
+_vstenv_logdir="$HOME/.local/share/vstenv/logs"
+if [ -n "$HOME" ] && mkdir -p "$_vstenv_logdir" 2>/dev/null && [ -w "$_vstenv_logdir" ]; then
+    _vstenv_log="$_vstenv_logdir/plugin-host.log"
+    if [ "$(wc -c < "$_vstenv_log" 2>/dev/null || echo 0)" -gt 4000000 ]; then mv -f "$_vstenv_log" "$_vstenv_log.1"; fi
+    _vstenv_fifo="$(mktemp -u "${{TMPDIR:-/tmp}}/vstenv-host.XXXXXX")"
+    if mkfifo -m 600 "$_vstenv_fifo" 2>/dev/null; then
+        printf '\\n== %s pid %s: %s\\n' "$(date '+%F %T')" "$$" "$*" >> "$_vstenv_log"
+        tee -a "$_vstenv_log" < "$_vstenv_fifo" >&2 &
+        exec 2> "$_vstenv_fifo"
+        rm -f "$_vstenv_fifo"
+    fi
+fi
+{_UPSTREAM_EXEC}'''
+
 def host_launchers() -> list[Path]:
     return [YAB_DIR / n for n in HOST_LAUNCHERS if (YAB_DIR / n).exists()]
 
 def patch_host_launcher(script: Path) -> str:
-    """'patched' | 'already' | 'unrecognised'. Same-directory atomic replace, mode kept."""
-    txt = script.read_text(errors="replace")
-    if any(m in txt for m in KNOWN_MARKS): return "already"
-    if txt.count(_UPSTREAM_LOADER) != 1: return "unrecognised"
+    """'patched' | 'already' | 'unrecognised'. Same-directory atomic replace, mode kept.
+    Two edits: the wineloader record (essential) and the stderr copy (added to a
+    launcher that only has the first, when its exec line is the upstream one)."""
+    txt = script.read_text(errors="replace"); orig = txt
+    if not any(m in txt for m in KNOWN_MARKS):
+        if txt.count(_UPSTREAM_LOADER) != 1: return "unrecognised"
+        txt = txt.replace(_UPSTREAM_LOADER, _OUR_LOADER, 1)
+    if LAUNCHER_LOG_MARK not in txt and txt.count(_UPSTREAM_EXEC) == 1:
+        txt = txt.replace(_UPSTREAM_EXEC, _OUR_LOG, 1)
+    if txt == orig: return "already"
     tmp = script.with_name(f".{script.name}.new")
-    tmp.write_text(txt.replace(_UPSTREAM_LOADER, _OUR_LOADER, 1)); tmp.chmod(script.stat().st_mode)
+    tmp.write_text(txt); tmp.chmod(script.stat().st_mode)
     tmp.replace(script)
     return "patched"
 
@@ -341,7 +368,9 @@ def plugin_wine_status(p: Prefix) -> tuple[str, str]:
     if not ls: return "missing", "yabridge is not installed"
     plain = [l.name for l in ls if not any(m in l.read_text(errors="replace") for m in KNOWN_MARKS)]
     if plain: return "missing", f"{', '.join(plain)} would run plugins with the host's wine (an upstream yabridge installed over ours?)"
-    return "active", f"yabridge's host launcher reads {p.wineloader_file.name} and runs {p.build.root.name}; other prefixes keep their own wine"
+    logged = all(LAUNCHER_LOG_MARK in l.read_text(errors="replace") for l in ls)
+    return "active", (f"yabridge's host launcher reads {p.wineloader_file.name} and runs {p.build.root.name}; other prefixes keep their own wine"
+                      + ("; plugin crashes are logged to logs/plugin-host.log" if logged else "; (no plugin-host.log copy: launcher predates it, run setup)"))
 
 def broken_bundles() -> list[Path]:
     """yabridge VST3 bundles whose Windows plugin link no longer resolves (the
