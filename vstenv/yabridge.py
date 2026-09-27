@@ -325,6 +325,32 @@ if [ -n "$HOME" ] && mkdir -p "$_vstenv_logdir" 2>/dev/null && [ -w "$_vstenv_lo
 fi
 {_UPSTREAM_EXEC}'''
 
+# Per-plugin DLL overrides: vendors name plugins (by a path substring) whose host
+# must run with specific WINEDLLOVERRIDES (Steinberg: Wine's Direct3D instead of
+# DXVK). The launcher reads this file at every host start.
+PLUGIN_OVERRIDES_FILE = paths.DATA / "plugin-dll-overrides"
+LAUNCHER_OVERRIDES_MARK = "# vstenv: DLL overrides some plugins need in their host (plugin-dll-overrides: <path substring>|<WINEDLLOVERRIDES>)"
+_OUR_OVERRIDES = f'''{LAUNCHER_OVERRIDES_MARK}
+_vstenv_ovr="$HOME/.local/share/vstenv/plugin-dll-overrides"
+if [ -n "$HOME" ] && [ -r "$_vstenv_ovr" ]; then
+    while IFS='|' read -r _vstenv_pat _vstenv_val; do
+        case "$_vstenv_pat" in ''|'#'*) continue;; esac
+        case "$*" in *"$_vstenv_pat"*)
+            if [ -n "$WINEDLLOVERRIDES" ]; then WINEDLLOVERRIDES="$WINEDLLOVERRIDES;$_vstenv_val"; else WINEDLLOVERRIDES="$_vstenv_val"; fi
+            export WINEDLLOVERRIDES;;
+        esac
+    done < "$_vstenv_ovr"
+fi
+'''
+
+def write_plugin_overrides(entries: list[tuple[str, str]]) -> Path:
+    """Write the per-plugin overrides file the launcher reads (one `pattern|value` per line)."""
+    PLUGIN_OVERRIDES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["# written by vstenv: <plugin path substring>|<WINEDLLOVERRIDES for its yabridge host>"]
+    lines += [f"{pat}|{val}" for pat, val in entries if "|" not in pat and pat]
+    PLUGIN_OVERRIDES_FILE.write_text("\n".join(lines) + "\n")
+    return PLUGIN_OVERRIDES_FILE
+
 def host_launchers() -> list[Path]:
     return [YAB_DIR / n for n in HOST_LAUNCHERS if (YAB_DIR / n).exists()]
 
@@ -338,6 +364,8 @@ def patch_host_launcher(script: Path) -> str:
         txt = txt.replace(_UPSTREAM_LOADER, _OUR_LOADER, 1)
     if LAUNCHER_LOG_MARK not in txt and txt.count(_UPSTREAM_EXEC) == 1:
         txt = txt.replace(_UPSTREAM_EXEC, _OUR_LOG, 1)
+    if LAUNCHER_OVERRIDES_MARK not in txt and txt.count(_UPSTREAM_EXEC) == 1:
+        txt = txt.replace(_UPSTREAM_EXEC, _OUR_OVERRIDES + _UPSTREAM_EXEC, 1)
     if txt == orig: return "already"
     tmp = script.with_name(f".{script.name}.new")
     tmp.write_text(txt); tmp.chmod(script.stat().st_mode)
@@ -368,7 +396,7 @@ def plugin_wine_status(p: Prefix) -> tuple[str, str]:
     if not ls: return "missing", "yabridge is not installed"
     plain = [l.name for l in ls if not any(m in l.read_text(errors="replace") for m in KNOWN_MARKS)]
     if plain: return "missing", f"{', '.join(plain)} would run plugins with the host's wine (an upstream yabridge installed over ours?)"
-    logged = all(LAUNCHER_LOG_MARK in l.read_text(errors="replace") for l in ls)
+    logged = all(LAUNCHER_LOG_MARK in l.read_text(errors="replace") and LAUNCHER_OVERRIDES_MARK in l.read_text(errors="replace") for l in ls)
     return "active", (f"yabridge's host launcher reads {p.wineloader_file.name} and runs {p.build.root.name}; other prefixes keep their own wine"
                       + ("; plugin crashes are logged to logs/plugin-host.log" if logged else "; (no plugin-host.log copy: launcher predates it, run setup)"))
 

@@ -19,6 +19,7 @@ def prepare(p: Prefix, reporter=None):
     _guarded(r, "Installing DXVK", lambda: dxvk.install(p, r))     # skipped without a hardware Vulkan driver
     p.wait_idle()
     _guarded(r, "Installing yabridge", lambda: yabridge.install(r))
+    _guarded(r, "Plugin DLL overrides", lambda: yabridge.write_plugin_overrides([e for v in vendors.all() for e in v.plugin_dll_overrides(p)]))
     for v in vendors.all():
         _guarded(r, f"{v.name}: preparing", lambda v=v: v.prepare(p, r))
     _guarded(r, "URL handlers", lambda: urlschemes.register_all(p, r))
@@ -44,6 +45,7 @@ def after_change(p: Prefix, reporter=None) -> dict:
     r = null_reporter(reporter)
     for v in vendors.all():
         _guarded(r, f"{v.name}: after install", lambda v=v: v.after_install(p, r))
+    _guarded(r, "Plugin DLL overrides", lambda: yabridge.write_plugin_overrides([e for v in vendors.all() for e in v.plugin_dll_overrides(p)]))
     res = yabridge.sync(p, r)
     _guarded(r, "Desktop menu entries", lambda: menu.sync(p, r))
     return res

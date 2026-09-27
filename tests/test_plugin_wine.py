@@ -51,7 +51,7 @@ def _exe(path: Path, text: str):
     path.write_text(text); path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 def _fake_wine(path: Path, name: str):
-    _exe(path, f'#!/bin/sh\necho "{name} prefix=$WINEPREFIX fsync=${{WINEFSYNC-unset}} args=$*"\n')
+    _exe(path, f'#!/bin/sh\necho "{name} prefix=$WINEPREFIX fsync=${{WINEFSYNC-unset}} dll=${{WINEDLLOVERRIDES-unset}} args=$*"\n')
 
 class PluginWineTest(unittest.TestCase):
     def setUp(self):
@@ -131,6 +131,20 @@ class PluginWineTest(unittest.TestCase):
         text = log.read_text()
         self.assertIn("Unhandled page fault", text); self.assertIn("== ", text, "each host start is headed with its time and arguments")
         self.assertIn("--version", text)
+
+    def test_plugin_overrides_apply_to_matching_plugins_only(self):
+        self.activate()
+        with mock.patch.object(yabridge, "PLUGIN_OVERRIDES_FILE", self.home / ".local/share/vstenv/plugin-dll-overrides"):
+            yabridge.write_plugin_overrides([("/Steinberg/", "d3d11,dxgi=b")])
+        rc, out, _ = self.run_host(self.prefix.path)      # "--version": no plugin path
+        self.assertIn("dll=unset", out)
+        env = {"HOME": str(self.home), "PATH": f"{self.hostbin}:/usr/bin:/bin", "WINEPREFIX": str(self.prefix.path)}
+        cp = subprocess.run([str(self.launcher), "VST3", "/x/Common Files/VST3/Steinberg/HALion Sonic.vst3"], env=env, capture_output=True, text=True, timeout=30)
+        self.assertIn("dll=d3d11,dxgi=b", cp.stdout)
+        cp = subprocess.run([str(self.launcher), "VST3", "/x/Common Files/VST3/Kontakt 8.vst3"], env={**env, "WINEDLLOVERRIDES": "winemenubuilder.exe=d"}, capture_output=True, text=True, timeout=30)
+        self.assertIn("dll=winemenubuilder.exe=d args", cp.stdout, "other plugins keep the DAW's overrides untouched")
+        cp = subprocess.run([str(self.launcher), "VST3", "/x/Steinberg/y.vst3"], env={**env, "WINEDLLOVERRIDES": "winemenubuilder.exe=d"}, capture_output=True, text=True, timeout=30)
+        self.assertIn("dll=winemenubuilder.exe=d;d3d11,dxgi=b", cp.stdout, "appended to what the DAW set")
 
     # ---- the launcher patch -----------------------------------------------------------------
     def test_patch_is_idempotent_and_keeps_the_mode(self):

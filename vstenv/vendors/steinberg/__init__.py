@@ -231,6 +231,13 @@ class Steinberg(Vendor):
         return sorted({x.exe.rsplit("\\", 1)[-1] for x in programs.installed(p)
                        if x.exe and self.publisher.search(x.publisher or "") and not self.is_manager_program(x)})
     def after_install(self, p, r=None): apply_program_fixes(p, self.program_exes(p), r)
+    def plugin_dll_overrides(self, p):
+        """Steinberg's plugins draw like its programs (Direct2D, DirectComposition):
+        on DXVK the host's d3d11 worker thread crashes once the GUI redraws fast
+        (playing), so their yabridge host gets Wine's own Direct3D too. The VST3
+        bundles live under a "Steinberg" directory (Common Files/VST3/Steinberg,
+        Program Files/Steinberg/<product>/VST3)."""
+        return [("/Steinberg/", ",".join(PRODUCT_OVERRIDES) + "=b")]
     def logs(self, p):
         d = p.user_dir / "AppData/Local/Steinberg Download Assistant/logs"
         latest = max(d.glob("*.log"), key=lambda f: f.stat().st_mtime, default=None) if d.is_dir() else None

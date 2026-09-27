@@ -113,6 +113,11 @@ class Vendor:
     def finish_installs(self, p: "Prefix", r: "Reporter | None" = None) -> list[dict]: return []
     def after_install(self, p: "Prefix", r: "Reporter | None" = None):
         """After anything was installed or removed (e.g. register libraries)."""
+    def plugin_dll_overrides(self, p: "Prefix") -> list[tuple[str, str]]:
+        """(plugin path substring, WINEDLLOVERRIDES) pairs for bridged plugins: the
+        yabridge host applies them when the plugin it loads matches. Per-program
+        registry overrides do not reach plugins, which all run in yabridge-host.exe."""
+        return []
 
     # -- health and reports -------------------------------------------------------------------
     def checks(self, p: "Prefix") -> list[Check]: return []
