@@ -51,7 +51,7 @@ def _exe(path: Path, text: str):
     path.write_text(text); path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 def _fake_wine(path: Path, name: str):
-    _exe(path, f'#!/bin/sh\necho "{name} prefix=$WINEPREFIX fsync=${{WINEFSYNC-unset}} dll=${{WINEDLLOVERRIDES-unset}} args=$*"\n')
+    _exe(path, f'#!/bin/sh\necho "{name} prefix=$WINEPREFIX fsync=${{WINEFSYNC-unset}} dll=${{WINEDLLOVERRIDES-unset}} debug=${{WINEDEBUG-unset}} args=$*"\n')
 
 class PluginWineTest(unittest.TestCase):
     def setUp(self):
@@ -142,9 +142,18 @@ class PluginWineTest(unittest.TestCase):
         cp = subprocess.run([str(self.launcher), "VST3", "/x/Common Files/VST3/Steinberg/HALion Sonic.vst3"], env=env, capture_output=True, text=True, timeout=30)
         self.assertIn("dll=d3d11,dxgi=b", cp.stdout)
         cp = subprocess.run([str(self.launcher), "VST3", "/x/Common Files/VST3/Kontakt 8.vst3"], env={**env, "WINEDLLOVERRIDES": "winemenubuilder.exe=d"}, capture_output=True, text=True, timeout=30)
-        self.assertIn("dll=winemenubuilder.exe=d args", cp.stdout, "other plugins keep the DAW's overrides untouched")
+        self.assertIn("dll=winemenubuilder.exe=d ", cp.stdout, "other plugins keep the DAW's overrides untouched"); self.assertNotIn("d3d11", cp.stdout)
         cp = subprocess.run([str(self.launcher), "VST3", "/x/Steinberg/y.vst3"], env={**env, "WINEDLLOVERRIDES": "winemenubuilder.exe=d"}, capture_output=True, text=True, timeout=30)
         self.assertIn("dll=winemenubuilder.exe=d;d3d11,dxgi=b", cp.stdout, "appended to what the DAW set")
+
+    def test_host_is_quiet_unless_the_daw_asks_for_debug_output(self):
+        self.activate()
+        rc, out, _ = self.run_host(self.prefix.path)
+        self.assertIn("debug=fixme-all", out)
+        rc, out, _ = self.run_host(self.prefix.path, WINEDEBUG="+dcomp")
+        self.assertIn("debug=+dcomp", out, "an explicit WINEDEBUG wins")
+        rc, out, _ = self.run_host(self.prefix.path, WINEDEBUG="")
+        self.assertIn("debug= ", out, "an explicitly empty WINEDEBUG is respected too")
 
     # ---- the launcher patch -----------------------------------------------------------------
     def test_patch_is_idempotent_and_keeps_the_mode(self):

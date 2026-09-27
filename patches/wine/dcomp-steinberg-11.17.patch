@@ -1,24 +1,28 @@
 diff -ruN a/dlls/dcomp/dcomp_private.h b/dlls/dcomp/dcomp_private.h
 --- a/dlls/dcomp/dcomp_private.h	2026-09-26 17:39:17.219369287 -0500
-+++ b/dlls/dcomp/dcomp_private.h	2026-09-26 17:37:20.293357460 -0500
-@@ -20,7 +20,7 @@
++++ b/dlls/dcomp/dcomp_private.h	2026-09-27 11:06:23.140338635 -0500
+@@ -20,8 +20,8 @@
  
  #include "dcomp.h"
  #include "dcomp_private_iface.h"
 -#include "d2d1_1.h"
+-#include <d3d11.h>
 +#include "d2d1_3.h"
- #include <d3d11.h>
++#include <d3d11_1.h>
  #include "wine/list.h"
  
-@@ -29,6 +29,7 @@
+ struct composition_device
+@@ -29,6 +29,9 @@
      IDCompositionDevice IDCompositionDevice_iface;
      IDCompositionDeviceUnknown IDCompositionDeviceUnknown_iface;
      IDCompositionSurfaceUnknown *drawing_surface;
 +    IUnknown *rendering_device;   /* the DXGI/D2D device the composition device was created with */
++    ID3DDeviceContextState *context_state;   /* the compositor's, made once (a new one per frame recompiles shaders) */
++    BOOL multithread_set;
      struct list targets;
      HANDLE thread;
      BOOL exit_thread;
-@@ -43,17 +44,22 @@
+@@ -43,17 +46,22 @@
      IDCompositionDevice *device;
      IUnknown *rendering_device;
      GUID rendering_device_iid;
@@ -41,7 +45,15 @@ diff -ruN a/dlls/dcomp/dcomp_private.h b/dlls/dcomp/dcomp_private.h
      UINT width;
      UINT height;
      DXGI_FORMAT pixel_format;
-@@ -84,6 +90,9 @@
+@@ -78,12 +86,17 @@
+     IDCompositionVisualUnknown IDCompositionVisualUnknown_iface;
+     ID2D1GdiInteropRenderTarget *interop;
+     ID2D1DeviceContext *device_context;
++    ID2D1Bitmap1 *blit_bitmap;     /* the compositor's copy of the content, kept while the size holds */
++    UINT blit_width, blit_height;
+     IUnknown *content;
+     GUID content_iid;
+     enum DCOMPOSITION_BITMAP_INTERPOLATION_MODE interpolation_mode;
      enum DCOMPOSITION_BORDER_MODE border_mode;
      enum DCOMPOSITION_BACKFACE_VISIBILITY visibility;
      float offset_x;
@@ -51,7 +63,7 @@ diff -ruN a/dlls/dcomp/dcomp_private.h b/dlls/dcomp/dcomp_private.h
      struct list child_visuals; /* visuals closer to head are lower in z-order */
      struct list entry;
      struct composition_visual *parent;
-@@ -139,11 +148,25 @@
+@@ -139,11 +152,25 @@
  void dcomp_lock(void);
  void dcomp_unlock(void);
  HRESULT create_surface(struct composition_surface_factory *factory, UINT width, UINT height,
@@ -80,26 +92,92 @@ diff -ruN a/dlls/dcomp/dcomp_private.h b/dlls/dcomp/dcomp_private.h
  
 diff -ruN a/dlls/dcomp/device.c b/dlls/dcomp/device.c
 --- a/dlls/dcomp/device.c	2026-09-26 17:39:17.219614317 -0500
-+++ b/dlls/dcomp/device.c	2026-09-26 17:37:20.294257849 -0500
-@@ -117,6 +117,8 @@
++++ b/dlls/dcomp/device.c	2026-09-27 11:05:58.016563810 -0500
+@@ -117,6 +117,10 @@
              WaitForSingleObject(device->thread, INFINITE);
              CloseHandle(device->thread);
          }
++        if (device->context_state)
++            ID3DDeviceContextState_Release(device->context_state);
 +        if (device->rendering_device)
 +            IUnknown_Release(device->rendering_device);
          free(device);
      }
  
-@@ -407,7 +409,7 @@
+@@ -406,10 +410,11 @@
+ }
  
  static void do_composite_dxgi_surface(const struct composition_target *target,
-                                       const struct composition_visual *visual,
+-                                      const struct composition_visual *visual,
 -                                      IDXGISurface *dxgi_surface)
++                                      struct composition_visual *visual,
 +                                      IDXGISurface *dxgi_surface, float x, float y, float sx, float sy)
  {
-     ID3DDeviceContextState *state = NULL, *old_state = NULL;
+-    ID3DDeviceContextState *state = NULL, *old_state = NULL;
++    struct composition_device *device = impl_from_IDCompositionDevice(target->device);
++    ID3DDeviceContextState *old_state = NULL;
      ID3D11DeviceContext1 *d3d11_device_context1 = NULL;
-@@ -553,7 +555,8 @@
+     ID3D11DeviceContext *d3d11_device_context = NULL;
+     ID3D11Multithread *multithread = NULL;
+@@ -471,18 +476,23 @@
+         goto done;
+     }
+ 
+-    ID3D11Multithread_SetMultithreadProtected(multithread, TRUE);
++    /* once per device: Wine's d3d11 answers this with a fixme every call */
++    if (!device->multithread_set)
++    {
++        ID3D11Multithread_SetMultithreadProtected(multithread, TRUE);
++        device->multithread_set = TRUE;
++    }
+     ID3D11Multithread_Enter(multithread);
+ 
+-    /* Is this really necessary? anyway, just to be safe */
+-    if (FAILED(hr = ID3D11Device1_CreateDeviceContextState(d3d11_device, 0, feature_levels,
+-                                                           ARRAY_SIZE(feature_levels), D3D11_SDK_VERSION,
+-                                                           &IID_ID3D11Device1, NULL, &state)))
++    /* The compositor's own context state, so the program's bindings are left alone.
++     * Made once: a fresh state every frame had wined3d linking new GLSL programs at frame rate. */
++    if (!device->context_state && FAILED(hr = ID3D11Device1_CreateDeviceContextState(d3d11_device, 0, feature_levels,
++            ARRAY_SIZE(feature_levels), D3D11_SDK_VERSION, &IID_ID3D11Device1, NULL, &device->context_state)))
+     {
+         ERR("Failed to create device context state, hr %#lx.\n", hr);
+         goto done;
+     }
+-    ID3D11DeviceContext1_SwapDeviceContextState(d3d11_device_context1, state, &old_state);
++    ID3D11DeviceContext1_SwapDeviceContextState(d3d11_device_context1, device->context_state, &old_state);
+ 
+     if (FAILED(hr = IDXGISurface_GetDesc(dxgi_surface, &surface_desc)))
+     {
+@@ -517,12 +527,23 @@
+     bitmap_desc.colorContext = NULL;
+ 
+     assert(visual->device_context);
+-    if (FAILED(hr = ID2D1DeviceContext_CreateBitmap(visual->device_context, size, NULL, 0,
+-            &bitmap_desc, &target_bitmap)))
++    if (visual->blit_bitmap && (visual->blit_width != size.width || visual->blit_height != size.height))
+     {
+-        ERR("Failed to create a bitmap, hr %#lx.\n", hr);
+-        goto done;
++        ID2D1Bitmap1_Release(visual->blit_bitmap);
++        visual->blit_bitmap = NULL;
++    }
++    if (!visual->blit_bitmap)
++    {
++        if (FAILED(hr = ID2D1DeviceContext_CreateBitmap(visual->device_context, size, NULL, 0,
++                &bitmap_desc, &visual->blit_bitmap)))
++        {
++            ERR("Failed to create a bitmap, hr %#lx.\n", hr);
++            goto done;
++        }
++        visual->blit_width = size.width;
++        visual->blit_height = size.height;
+     }
++    target_bitmap = visual->blit_bitmap;
+ 
+     if (FAILED(hr = ID2D1DeviceContext_CreateSharedBitmap(visual->device_context, &IID_IDXGISurface,
+             dxgi_surface, NULL, &src_bitmap)))
+@@ -553,7 +574,8 @@
      if (!target->topmost)
          style |= DCX_CLIPCHILDREN;
      dst_dc = GetDCEx(target->hwnd, 0, style);
@@ -109,7 +187,23 @@ diff -ruN a/dlls/dcomp/device.c b/dlls/dcomp/device.c
      ReleaseDC(target->hwnd, dst_dc);
  
      ID2D1GdiInteropRenderTarget_ReleaseDC(visual->interop, NULL);
-@@ -607,17 +610,31 @@
+@@ -566,15 +588,11 @@
+         IDXGISurface_Release(bgra_surface);
+     if (src_bitmap)
+         ID2D1Bitmap_Release(src_bitmap);
+-    if (target_bitmap)
+-        ID2D1Bitmap1_Release(target_bitmap);
+     if (d3d11_device_context1 && old_state)
+     {
+         ID3D11DeviceContext1_SwapDeviceContextState(d3d11_device_context1, old_state, NULL);
+         ID3DDeviceContextState_Release(old_state);
+     }
+-    if (state)
+-        ID3DDeviceContextState_Release(state);
+     if (multithread)
+     {
+         ID3D11Multithread_Leave(multithread);
+@@ -607,17 +625,31 @@
      return visual;
  }
  
@@ -144,7 +238,7 @@ diff -ruN a/dlls/dcomp/device.c b/dlls/dcomp/device.c
      }
  
      /* Render content */
-@@ -667,7 +684,12 @@
+@@ -667,7 +699,12 @@
              }
  
              surface_impl = impl_from_IDCompositionSurface(surface);
@@ -158,7 +252,7 @@ diff -ruN a/dlls/dcomp/device.c b/dlls/dcomp/device.c
              {
                  dxgi_surface = (IDXGISurface *)surface_impl->physical_surface;
                  IDXGISurface_AddRef(dxgi_surface);
-@@ -687,13 +709,16 @@
+@@ -687,13 +724,16 @@
              return E_FAIL;
          }
  
@@ -178,7 +272,7 @@ diff -ruN a/dlls/dcomp/device.c b/dlls/dcomp/device.c
      }
  
      return S_OK;
-@@ -733,7 +758,7 @@
+@@ -733,7 +773,7 @@
                  continue;
  
              visual = impl_from_IDCompositionVisual(target->root);
@@ -187,7 +281,16 @@ diff -ruN a/dlls/dcomp/device.c b/dlls/dcomp/device.c
                  count++;
          }
  
-@@ -789,11 +814,29 @@
+@@ -761,7 +801,7 @@
+     struct composition_device *device = impl_from_IDCompositionDevice(iface);
+     HRESULT hr = S_OK;
+ 
+-    FIXME("iface %p semi-stub!\n", iface);
++    TRACE("iface %p.\n", iface);
+ 
+     dcomp_lock();
+ 
+@@ -789,11 +829,29 @@
      return E_NOTIMPL;
  }
  
@@ -219,7 +322,7 @@ diff -ruN a/dlls/dcomp/device.c b/dlls/dcomp/device.c
  }
  
  static HRESULT STDMETHODCALLTYPE device_CreateTargetForHwnd(IDCompositionDevice *iface,
-@@ -814,22 +857,72 @@
+@@ -814,22 +872,72 @@
      return create_visual(1, &IID_IDCompositionVisual, (void **)visual);
  }
  
@@ -296,7 +399,7 @@ diff -ruN a/dlls/dcomp/device.c b/dlls/dcomp/device.c
  }
  
  static HRESULT STDMETHODCALLTYPE device_CreateSurfaceFromHandle(IDCompositionDevice *iface,
-@@ -849,110 +942,114 @@
+@@ -849,110 +957,114 @@
  static HRESULT STDMETHODCALLTYPE device_CreateTranslateTransform(IDCompositionDevice *iface,
          IDCompositionTranslateTransform **transform)
  {
@@ -441,7 +544,7 @@ diff -ruN a/dlls/dcomp/device.c b/dlls/dcomp/device.c
  }
  
  static const struct IDCompositionDeviceVtbl device_vtbl =
-@@ -1034,8 +1131,8 @@
+@@ -1034,8 +1146,8 @@
  static HRESULT STDMETHODCALLTYPE desktop_device_GetFrameStatistics(IDCompositionDeviceUnknown *iface,
          DCOMPOSITION_FRAME_STATISTICS *statistics)
  {
@@ -452,7 +555,7 @@ diff -ruN a/dlls/dcomp/device.c b/dlls/dcomp/device.c
  }
  
  static HRESULT STDMETHODCALLTYPE desktop_device_CreateVisual(IDCompositionDeviceUnknown *iface,
-@@ -1060,119 +1157,125 @@
+@@ -1060,119 +1172,125 @@
          UINT width, UINT height, DXGI_FORMAT pixel_format, DXGI_ALPHA_MODE alpha_mode,
          IDCompositionSurface **surface)
  {
@@ -610,7 +713,7 @@ diff -ruN a/dlls/dcomp/device.c b/dlls/dcomp/device.c
  }
  
  static HRESULT STDMETHODCALLTYPE desktop_device_CreateTargetForHwnd(IDCompositionDeviceUnknown *iface,
-@@ -1990,7 +2093,7 @@
+@@ -1990,7 +2108,7 @@
      desktop_device_Unknown99,
  };
  
@@ -619,7 +722,7 @@ diff -ruN a/dlls/dcomp/device.c b/dlls/dcomp/device.c
  {
      struct composition_device *device;
      HRESULT hr;
-@@ -2006,6 +2109,8 @@
+@@ -2006,6 +2124,8 @@
      device->IDCompositionDevice_iface.lpVtbl = &device_vtbl;
      device->IDCompositionDeviceUnknown_iface.lpVtbl = &desktop_device_vtbl;
      device->version = version;
@@ -628,7 +731,7 @@ diff -ruN a/dlls/dcomp/device.c b/dlls/dcomp/device.c
      device->ref = 1;
      hr = IDCompositionDevice_QueryInterface(&device->IDCompositionDevice_iface, iid, out);
      IDCompositionDevice_Release(&device->IDCompositionDevice_iface);
-@@ -2019,7 +2124,7 @@
+@@ -2019,7 +2139,7 @@
      if (!IsEqualIID(iid, &IID_IDCompositionDevice))
          return E_NOINTERFACE;
  
@@ -637,7 +740,7 @@ diff -ruN a/dlls/dcomp/device.c b/dlls/dcomp/device.c
  }
  
  HRESULT WINAPI DCompositionCreateDevice2(IUnknown *rendering_device, REFIID iid, void **device)
-@@ -2030,7 +2135,7 @@
+@@ -2030,7 +2150,7 @@
              && !IsEqualIID(iid, &IID_IDCompositionDesktopDevice))
          return E_NOINTERFACE;
  
@@ -646,7 +749,7 @@ diff -ruN a/dlls/dcomp/device.c b/dlls/dcomp/device.c
  }
  
  HRESULT WINAPI DCompositionCreateDevice3(IUnknown *rendering_device, REFIID iid, void **device)
-@@ -2041,7 +2146,7 @@
+@@ -2041,7 +2161,7 @@
              && !IsEqualIID(iid, &IID_IDCompositionDesktopDevice))
          return E_NOINTERFACE;
  
@@ -2837,8 +2940,17 @@ diff -ruN a/dlls/dcomp/surface.c b/dlls/dcomp/surface.c
  
 diff -ruN a/dlls/dcomp/visual.c b/dlls/dcomp/visual.c
 --- a/dlls/dcomp/visual.c	2026-09-26 17:27:27.759680314 -0500
-+++ b/dlls/dcomp/visual.c	2026-09-26 17:37:20.294620709 -0500
-@@ -95,8 +95,8 @@
++++ b/dlls/dcomp/visual.c	2026-09-27 11:05:58.016236576 -0500
+@@ -68,6 +68,8 @@
+ 
+     if (!ref)
+     {
++        if (visual->blit_bitmap)
++            ID2D1Bitmap1_Release(visual->blit_bitmap);
+         if (visual->interop)
+             ID2D1GdiInteropRenderTarget_Release(visual->interop);
+         if (visual->device_context)
+@@ -95,8 +97,8 @@
  static HRESULT STDMETHODCALLTYPE visual_SetOffsetXAnimation(IDCompositionVisualUnknown *iface,
          IDCompositionAnimation *animation)
  {
@@ -2849,7 +2961,7 @@ diff -ruN a/dlls/dcomp/visual.c b/dlls/dcomp/visual.c
  }
  
  static HRESULT STDMETHODCALLTYPE visual_SetOffsetX(IDCompositionVisualUnknown *iface, float offset_x)
-@@ -112,42 +112,58 @@
+@@ -112,42 +114,58 @@
  static HRESULT STDMETHODCALLTYPE visual_SetOffsetYAnimation(IDCompositionVisualUnknown *iface,
          IDCompositionAnimation *animation)
  {
@@ -2920,7 +3032,7 @@ diff -ruN a/dlls/dcomp/visual.c b/dlls/dcomp/visual.c
  }
  
  static HRESULT STDMETHODCALLTYPE visual_SetBitmapInterpolationMode(IDCompositionVisualUnknown *iface,
-@@ -185,15 +201,15 @@
+@@ -185,15 +203,15 @@
  static HRESULT STDMETHODCALLTYPE visual_SetClipObject(IDCompositionVisualUnknown *iface,
          IDCompositionClip *clip)
  {
@@ -2940,7 +3052,7 @@ diff -ruN a/dlls/dcomp/visual.c b/dlls/dcomp/visual.c
  }
  
  static HRESULT STDMETHODCALLTYPE visual_SetContent(IDCompositionVisualUnknown *iface, IUnknown *content)
-@@ -236,8 +252,10 @@
+@@ -236,8 +254,10 @@
              {
                  iid = &IID_IDCompositionSurface;
  

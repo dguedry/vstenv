@@ -343,6 +343,15 @@ if [ -n "$HOME" ] && [ -r "$_vstenv_ovr" ]; then
 fi
 '''
 
+# Wine prints a "fixme" for every unimplemented detail it meets, and a plugin
+# GUI meets the same ones sixty times a second: the DAW's output and the host
+# log drown in them. Unless the DAW set WINEDEBUG itself, the host runs with the
+# fixme class off; err (and Wine's crash report) still print.
+LAUNCHER_QUIET_MARK = "# vstenv: no per-frame fixme chatter from the host (set WINEDEBUG yourself to see it)"
+_OUR_QUIET = f'''{LAUNCHER_QUIET_MARK}
+if [ -z "${{WINEDEBUG+x}}" ]; then WINEDEBUG=fixme-all; export WINEDEBUG; fi
+'''
+
 def write_plugin_overrides(entries: list[tuple[str, str]]) -> Path:
     """Write the per-plugin overrides file the launcher reads (one `pattern|value` per line)."""
     PLUGIN_OVERRIDES_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -366,6 +375,8 @@ def patch_host_launcher(script: Path) -> str:
         txt = txt.replace(_UPSTREAM_EXEC, _OUR_LOG, 1)
     if LAUNCHER_OVERRIDES_MARK not in txt and txt.count(_UPSTREAM_EXEC) == 1:
         txt = txt.replace(_UPSTREAM_EXEC, _OUR_OVERRIDES + _UPSTREAM_EXEC, 1)
+    if LAUNCHER_QUIET_MARK not in txt and txt.count(_UPSTREAM_EXEC) == 1:
+        txt = txt.replace(_UPSTREAM_EXEC, _OUR_QUIET + _UPSTREAM_EXEC, 1)
     if txt == orig: return "already"
     tmp = script.with_name(f".{script.name}.new")
     tmp.write_text(txt); tmp.chmod(script.stat().st_mode)
