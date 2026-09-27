@@ -9,11 +9,25 @@ desktop's application menu like any other app.
 
 Vendor support lives in **modules**. Native Instruments (Native Access, Kontakt,
 the NTK daemon, library registration), IK Multimedia (IK Product Manager) and
-Steinberg (Download Assistant) are built in; a separate package can add another
-vendor without touching the core.
+Steinberg (Download Assistant, Activation Manager, Library Manager, HALion) are
+built in; a separate package can add another vendor without touching the core.
 vstenv is the vendor-modular successor to [nilinux](https://github.com/dguedry/nilinux).
 
-Not affiliated with or endorsed by Native Instruments GmbH or IK Multimedia Production srl.
+Not affiliated with or endorsed by Native Instruments GmbH, IK Multimedia Production srl or Steinberg Media Technologies GmbH.
+
+## Tested
+
+Verified end to end on this setup: Ubuntu 24.04 and Fedora 43 hosts, the pinned
+Wine 11.17 build, plugins loaded in a Linux DAW through yabridge.
+
+| Vendor | Manager | Verified |
+|---|---|---|
+| Native Instruments | Native Access 3.26 | Sign-in through the browser callback, product installs, library registration; Kontakt 8 standalone and VST3, with its libraries in a DAW |
+| IK Multimedia | IK Product Manager 1.1.15 | Sign-in, product installs; IK plugin GUIs draw through DXVK |
+| Steinberg | Download Assistant 1.40, Activation Manager 1.9, Library Manager 3.2 | Sign-in that survives restarts, downloads, installs through the Install Assistant, VST Sound library registration; HALion Sonic 7 standalone and VST3 in a DAW, playing and loading libraries, quitting cleanly |
+| Arturia (no module: plain Windows installer) | Arturia Software Center 2.12 | Analog Lab V VST3 and VST2 bridged and playing |
+
+Health lists every check behind these; when one fails it names the fix.
 
 ## Install
 
@@ -32,7 +46,7 @@ From source (Python 3.10+, GTK4/libadwaita for the GUI; 7-Zip is fetched if the 
 
 ```sh
 pip install -e .
-vstenv setup                                          # prefix, fonts, C runtime, DXVK, yabridge, vendor prerequisites
+vstenv setup                                          # prefix, fonts, C runtime, patched Wine DLLs, DXVK, yabridge, vendor prerequisites
 vstenv manager ni install ~/Downloads/Native-Access-latest.exe
 vstenv manager ni launch                              # sign in, install products; plugins are bridged as they appear
 vstenv doctor                                         # every fix and prerequisite, with repair hints
@@ -114,13 +128,31 @@ launches with `--disable-gpu`. IK's JUCE plugin GUIs draw through Direct3D and
 need DXVK to repaint; the app installs DXVK when the machine has a real Vulkan
 driver and says so in Health when it does not.
 
+### Steinberg module
+
+The Download Assistant (JavaFX) gets its text back with the built-in Direct3D
+for that program and `-Dprism.lcdtext=false`, and its `net-steinberg-sda://`
+and `net-steinberg-activation-manager://` sign-in callbacks are registered with
+the desktop. Its Install Assistant is .NET, so Wine Mono is installed on demand;
+when the Install Assistant refuses a package (its signed PowerShell step cannot
+be trusted under Wine), the app unpacks the package and runs its MSIs itself.
+The Activation Manager keeps its sign-in only because the app's patched
+advapi32.dll stores credential attributes, which Wine drops. HALion Sonic 7 and
+that generation of Cubase and Dorico draw through DirectComposition, which Wine
+does not implement: the app ships a patched dcomp.dll (wine-staging's work plus
+what Steinberg's graphics library still needs) and installs it into its Wine
+(`vstenv wine-fixes`), gives Steinberg programs and their bridged plugins Wine's
+own Direct3D, and installs a "Segoe UI" font family (Microsoft's open-source
+Selawik, renamed) so their dialogs have text. The patches are under
+`patches/wine/` and are built by CI for the pinned Wine.
+
 ## Command line
 
 ```
 vstenv setup [--installer FILE]     vstenv vendors            vstenv manager <vendor> install|launch|repair|status
 vstenv products [--vendor V]        vstenv install FILE       vstenv sync [DIR...]
 vstenv programs | run NAME | uninstall NAME | menu [update|remove]
-vstenv doctor | report | rescue-install | finish-installs | dxvk | prefixes | url-handlers
+vstenv doctor | report | rescue-install | finish-installs | dxvk | wine-fixes | mono | prefixes | url-handlers
 ```
 
 ## Development
