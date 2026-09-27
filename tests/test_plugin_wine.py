@@ -155,6 +155,16 @@ class PluginWineTest(unittest.TestCase):
         rc, out, _ = self.run_host(self.prefix.path, WINEDEBUG="")
         self.assertIn("debug= ", out, "an explicitly empty WINEDEBUG is respected too")
 
+    def test_plugins_in_use_are_read_from_the_running_hosts(self):
+        procs = [(1, "/home/u/.local/share/yabridge/yabridge-host.exe.so VST3 /home/u/.local/share/vstenv/prefix/drive_c/Program Files/Common Files/VST3/Analog Lab V.vst3 /run/user/1000/yabridge-Analog Lab V-2OVXZeij 3777787"),
+                 (2, "/home/u/.local/share/yabridge/yabridge-host.exe.so VST3 /home/u/.local/share/vstenv/prefix/drive_c/Program Files/Common Files/VST3/Steinberg/HALion Sonic.vst3/Contents/x86_64-win/HALion Sonic.vst3 /run/user/1000/yabridge-HALion Sonic-7IQijmqv 3686182"),
+                 (3, "/home/u/.local/share/yabridge/yabridge-host.exe.so VST2 /home/u/.local/share/vstenv/prefix/drive_c/Program Files/Steinberg/VstPlugins/Analog Lab V.dll /run/user/1000/yabridge-x 1"),
+                 (4, "/home/u/.local/share/yabridge/yabridge-host.exe.so VST3 /home/u/.local/share/vstenv/prefix/drive_c/Program Files/Common Files/VST3/Analog Lab V.vst3 /run/user/1000/yabridge-Analog Lab V-second 42")]
+        with mock.patch.object(self.prefix, "processes", return_value=procs):
+            self.assertEqual(yabridge.plugins_in_use(self.prefix), ["Analog Lab V.vst3", "HALion Sonic.vst3", "Analog Lab V.dll"])
+        with mock.patch.object(self.prefix, "processes", return_value=[]):
+            self.assertEqual(yabridge.plugins_in_use(self.prefix), [])
+
     # ---- the launcher patch -----------------------------------------------------------------
     def test_patch_is_idempotent_and_keeps_the_mode(self):
         self.assertEqual(yabridge.patch_host_launcher(self.launcher), "patched")

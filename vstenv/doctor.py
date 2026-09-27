@@ -83,6 +83,10 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
     foreign_dirs = prefixes.foreign_yabridge_dirs(p, ystat)
     c.append(Check("yabridge lists only this prefix", not foreign_dirs,
                    "" if not foreign_dirs else f"{len(foreign_dirs)} plugin directories of other vstenv prefixes are registered", fix="vstenv sync"))
+    in_use = yabridge.plugins_in_use(p)
+    c.append(Check("no plugin loaded by a DAW right now", not in_use,
+                   "" if not in_use else "loaded: " + ", ".join(in_use) + " -- vendor installers and updates of these fail with 'files in use' until the DAW unloads them",
+                   fix="close the DAW (or remove the plugin from its session) before installing or updating it"))
     broken = yabridge.broken_bundles()
     c.append(Check("bridged plugins point at existing files", not broken,
                    "" if not broken else "missing target for: " + ", ".join(b.name for b in broken) + " (uninstalled, or an update that did not finish)",

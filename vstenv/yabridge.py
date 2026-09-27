@@ -411,6 +411,19 @@ def plugin_wine_status(p: Prefix) -> tuple[str, str]:
     return "active", (f"yabridge's host launcher reads {p.wineloader_file.name} and runs {p.build.root.name}; other prefixes keep their own wine"
                       + ("; plugin crashes are logged to logs/plugin-host.log" if logged else "; (no plugin-host.log copy: launcher predates it, run setup)"))
 
+def plugins_in_use(p: Prefix) -> list[str]:
+    """Names of the prefix's plugins a DAW has loaded right now (their yabridge
+    hosts are running). Installers and updaters refuse to touch files a running
+    host has mapped: Arturia's "Cannot start installation. Files are in use.",
+    Inno Setup's "access denied", InstallAware's silent failure."""
+    names = []
+    for _, cmd in p.processes("yabridge-host"):
+        m = re.search(r"\b(?:VST2|VST3|CLAP)\s+(.+?\.(?:vst3|dll|clap))(?=\s+/|\s*$)", cmd, re.I)
+        if m:
+            name = Path(m.group(1)).name
+            if name not in names: names.append(name)
+    return names
+
 def broken_bundles() -> list[Path]:
     """yabridge VST3 bundles whose Windows plugin link no longer resolves (the
     plugin was uninstalled, or an update removed it and did not finish)."""
