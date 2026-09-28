@@ -411,6 +411,34 @@ def plugin_wine_status(p: Prefix) -> tuple[str, str]:
     return "active", (f"yabridge's host launcher reads {p.wineloader_file.name} and runs {p.build.root.name}; other prefixes keep their own wine"
                       + ("; plugin crashes are logged to logs/plugin-host.log" if logged else "; (no plugin-host.log copy: launcher predates it, run setup)"))
 
+# nilinux, this app's predecessor, made DAWs use its Wine by putting a `wine`
+# shim first on PATH and a WINELOADER in environment.d. That reached every Wine
+# process on the machine, so plugins in the user's other prefixes ran with the
+# wrong Wine and broke. vstenv scopes its Wine to its own prefix through the
+# launcher record instead; a leftover shim would still redirect everything.
+NILINUX_SHIM_MARK = "# nilinux:"
+def nilinux_leftovers() -> list[Path]:
+    out = []
+    shim = Path.home() / ".local/bin/wine"
+    try:
+        if shim.is_file() and NILINUX_SHIM_MARK in shim.read_text(errors="replace")[:400]: out.append(shim)
+    except OSError: pass
+    conf = Path.home() / ".config/environment.d/50-nilinux.conf"
+    if conf.exists(): out.append(conf)
+    return out
+
+def remove_nilinux_leftovers(reporter=None) -> list[Path]:
+    r = null_reporter(reporter)
+    left = nilinux_leftovers()
+    if not left: return []
+    r.step("Removing nilinux's machine-wide Wine redirection")
+    gone = []
+    for f in left:
+        try: f.unlink(); gone.append(f)
+        except OSError as e: r.log(f"{f}: {e}")
+    (r.ok if len(gone) == len(left) else r.fail)(", ".join(str(f) for f in gone) + (" (log out and in for environment.d to forget it)" if any(f.name.endswith(".conf") for f in gone) else ""))
+    return gone
+
 def plugins_in_use(p: Prefix) -> list[str]:
     """Names of the prefix's plugins a DAW has loaded right now (their yabridge
     hosts are running). Installers and updaters refuse to touch files a running

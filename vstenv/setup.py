@@ -19,6 +19,7 @@ def prepare(p: Prefix, reporter=None):
     _guarded(r, "Installing DXVK", lambda: dxvk.install(p, r))     # skipped without a hardware Vulkan driver
     p.wait_idle()
     _guarded(r, "Installing yabridge", lambda: yabridge.install(r))
+    _guarded(r, "nilinux leftovers", lambda: yabridge.remove_nilinux_leftovers(r))
     _guarded(r, "Plugin DLL overrides", lambda: yabridge.write_plugin_overrides([e for v in vendors.all() for e in v.plugin_dll_overrides(p)]))
     for v in vendors.all():
         _guarded(r, f"{v.name}: preparing", lambda v=v: v.prepare(p, r))

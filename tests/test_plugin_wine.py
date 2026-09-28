@@ -165,6 +165,17 @@ class PluginWineTest(unittest.TestCase):
         with mock.patch.object(self.prefix, "processes", return_value=[]):
             self.assertEqual(yabridge.plugins_in_use(self.prefix), [])
 
+    def test_nilinux_shim_and_env_are_removed_but_a_users_own_shim_is_kept(self):
+        with mock.patch("pathlib.Path.home", return_value=self.home):
+            binp = self.home / ".local/bin"; binp.mkdir(parents=True, exist_ok=True)
+            shim = binp / "wine"; shim.write_text("#!/bin/sh\n# nilinux: DAWs run yabridge plugins with the app wine\nexec /x/wine \"$@\"\n")
+            conf = self.home / ".config/environment.d/50-nilinux.conf"; conf.parent.mkdir(parents=True); conf.write_text("WINELOADER=/x/wine\n")
+            self.assertEqual(sorted(yabridge.nilinux_leftovers()), sorted([shim, conf]))
+            self.assertEqual(len(yabridge.remove_nilinux_leftovers()), 2)
+            self.assertFalse(shim.exists()); self.assertFalse(conf.exists()); self.assertEqual(yabridge.nilinux_leftovers(), [])
+            shim.write_text("#!/bin/sh\nexec /opt/wine-tkg/bin/wine \"$@\"\n")      # the user's own wrapper: not ours to remove
+            self.assertEqual(yabridge.nilinux_leftovers(), []); self.assertTrue(shim.exists())
+
     # ---- the launcher patch -----------------------------------------------------------------
     def test_patch_is_idempotent_and_keeps_the_mode(self):
         self.assertEqual(yabridge.patch_host_launcher(self.launcher), "patched")

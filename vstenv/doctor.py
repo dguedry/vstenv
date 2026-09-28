@@ -102,6 +102,10 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
     if yv is not None:
         yok, ydetail = yabridge.compatibility()
         c.append(Check("yabridge matches this wine", yok, ydetail, fix="vstenv sync (installs the build for this wine)"))
+    left = yabridge.nilinux_leftovers()
+    c.append(Check("no machine-wide Wine redirection left by nilinux", not left,
+                   "" if not left else ", ".join(str(f) for f in left) + " sends every Wine process on this machine, including plugins in your other prefixes, to one Wine",
+                   fix="vstenv setup (removes it)"))
     st, detail = yabridge.plugin_wine_status(p)
     c.append(Check("plugin hosts run this prefix with this wine", st == "active", detail, fix="vstenv setup"))
     entries = menu.ours()
