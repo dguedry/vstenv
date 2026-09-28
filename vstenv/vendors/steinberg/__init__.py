@@ -233,20 +233,21 @@ class Steinberg(Vendor):
     def after_install(self, p, r=None): apply_program_fixes(p, self.program_exes(p), r)
     def product_notes(self, p):
         dcomp = self.dcomp_ready(p)
-        gui = ("Steinberg rebuilt its GUI library on DirectComposition, Direct2D and DirectWrite at once, the one Windows graphics stack nobody "
-               "outside Microsoft implements, and it aborts before its window appears when any piece is missing. It runs only because this app "
-               "ships a patched dcomp.dll, forces Wine's own Direct3D for it and its bridged plugin, and installs a Segoe UI font family so its "
-               "dialogs have text.") if dcomp else \
-              ("Steinberg rebuilt its GUI library on DirectComposition, which Wine does not have, so it aborts before its window appears. "
+        gui = ("Steinberg rewrote its GUI library on DirectComposition, Direct2D and DirectWrite together, the one Windows graphics stack nobody "
+               "outside Redmond implements, and made it abort rather than fall back when any piece is missing: an instrument that cannot draw a "
+               "button without a desktop compositor. It runs here only because this app ships a patched dcomp.dll, forces Wine's own Direct3D "
+               "for it and its bridged plugin, and installs a Segoe UI font family so its dialogs are not blank.") if dcomp else \
+              ("Steinberg rewrote its GUI library on DirectComposition, which Wine does not have, and made it abort rather than fall back. "
                "This app's patched dcomp.dll is not installed, so it is refused at launch; run setup.")
-        return [Note(MANAGER, "patched", "Steinberg uses every technology Microsoft ever shipped, in one install chain: a Java 8 / JavaFX downloader "
-                     "drives a .NET Install Assistant, which runs PowerShell scripts signed for a trust check Wine cannot pass, so it refuses its own "
-                     "packages. This app fixes its unreadable text (Wine's own Direct3D and a JavaFX option), registers its browser sign-in link, "
-                     "installs Wine Mono for the .NET part, and unpacks the refused packages to run their MSIs directly."),
-                Note("Activation Manager", "patched", "A Qt 6 front end to a licence engine that talks nanomsg over named pipes and stores your sign-in as "
-                     "a Windows credential with an attribute Wine used to throw away, so it signed you out after every restart and reopened itself "
-                     "each time a product asked for a licence. This app's patched advapi32.dll keeps the attribute. It still ignores clicks for a "
-                     "few seconds whenever a product connects to the engine."),
+        return [Note(MANAGER, "patched", "Steinberg's installer chain is a museum of Microsoft technology: a Java 8 / JavaFX downloader starts a "
+                     ".NET Install Assistant that runs PowerShell scripts signed for a Windows trust check, and when that check fails it refuses to "
+                     "install Steinberg's own packages. Five runtimes to copy a file. This app fixes its unreadable text (Wine's own Direct3D "
+                     "and a JavaFX option), registers its browser sign-in link, installs Wine Mono for the .NET part, and unpacks the refused "
+                     "packages to run their MSIs directly."),
+                Note("Activation Manager", "patched", "A Qt 6 front end to a licence engine that talks nanomsg over named pipes to store one token, and "
+                     "stores it as a Windows credential with an attribute Wine used to throw away: so it forgot your sign-in on every restart, then "
+                     "opened itself in your face each time a plugin asked for a licence. This app's patched advapi32.dll keeps the attribute. "
+                     "It still ignores clicks for a few seconds whenever a product connects to the engine."),
                 Note("HALion", "patched" if dcomp else "cannot", gui), Note("Cubase", "patched" if dcomp else "cannot", gui), Note("Dorico", "patched" if dcomp else "cannot", gui),
                 Note("", "works", "Runs as is with the per-program Direct3D override.")]
     def plugin_dll_overrides(self, p):

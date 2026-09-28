@@ -34,29 +34,36 @@ Health lists every check behind these; when one fails it names the fix.
 The app is honest about this in its Plugins tab, and so is this README. None of
 it is Wine's fault.
 
-- **Native Access** is a web page wrapped in Electron, and NI broke it in five
-  places: an NSIS installer that dies under Wine, a Chromium GPU process that
-  crash-loops, a sandbox broker that cannot start its own children, a
-  self-updater that would undo every fix, and a helper daemon squatting on
-  fixed localhost ports. The app unpacks the installer itself, raises the stack
+- **Native Access.** A company that sells thousands of dollars of instruments
+  ships a storefront that is a web page in a browser it cannot keep running:
+  its own installer cannot install it, its GPU process crash-loops, its sandbox
+  cannot start its own children, its updater would re-break it, and its helper
+  daemon claims fixed localhost ports as if it owned the machine. Seven repairs
+  before it opens: the app unpacks the installer itself, raises the stack
   reserve, patches the bundle, starts it with `--disable-gpu --no-sandbox`,
   installs the daemon from NI's own files and wires the browser sign-in link.
-- **Kontakt** ships with an InstallAware setup that burns half a core doing
-  nothing until the app kills it and finishes the install from the unpacked
-  payload. Libraries the daemon forgets to register, the app registers.
-- **IK Product Manager** is another Electron product manager with the same
-  mistakes: its os-info module chokes on Wine's `ver` output and its GPU
-  process hangs the browser thread. Two edits to its bundle and `--disable-gpu`.
-- **Steinberg** uses every technology Microsoft ever shipped, in one install
-  chain: a Java 8 / JavaFX downloader drives a .NET Install Assistant, which
-  runs PowerShell scripts signed for a trust check Wine cannot pass, so it
-  refuses its own packages. Its Activation Manager is a Qt 6 front end to a
-  licence engine that stores your sign-in as a Windows credential with an
-  attribute Wine used to throw away, which signed you out after every restart.
-  And its current products rebuilt their GUI library on DirectComposition,
-  Direct2D and DirectWrite at once, the one Windows graphics stack nobody
-  outside Microsoft implements. Hence the Steinberg module's list of fixes,
-  two patched Wine DLLs, and a Segoe UI font family so its dialogs have text.
+- **Kontakt.** The flagship sampler arrives in an InstallAware wrapper that
+  unpacks its payload, then sits at half a core doing nothing, forever. The app
+  kills it and copies the files the installer already had. Libraries the daemon
+  cannot be bothered to register, the app registers.
+- **IK Product Manager.** IK copied NI's Electron storefront and its mistakes,
+  then added one of its own: it refuses to run because the output of `ver` does
+  not look like a Windows it has met. Two edits to its bundle and
+  `--disable-gpu`, and it behaves.
+- **Steinberg.** The installer chain is a museum of Microsoft technology: a
+  Java 8 / JavaFX downloader starts a .NET Install Assistant that runs
+  PowerShell scripts signed for a Windows trust check, and when that check
+  fails it refuses to install Steinberg's own packages. Five runtimes to copy a
+  file. The Activation Manager is a Qt 6 front end to a licence engine that
+  talks nanomsg over named pipes to store one token, and stores it with a
+  credential attribute Wine used to throw away, so it forgot your sign-in on
+  every restart and then opened itself in your face each time a plugin asked
+  for a licence. And the current products rewrote their GUI library on
+  DirectComposition, Direct2D and DirectWrite together, the one Windows
+  graphics stack nobody outside Redmond implements, and made it abort rather
+  than fall back: an instrument that cannot draw a button without a desktop
+  compositor. Hence the Steinberg module's list of fixes, two patched Wine
+  DLLs, and a Segoe UI font family so its dialogs are not blank.
 
 ## Install
 

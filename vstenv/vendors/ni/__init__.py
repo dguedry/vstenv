@@ -56,13 +56,14 @@ class NativeInstruments(Vendor):
         return [Product(name=x.name, vendor=self.id, kind=x.type, version=x.version, install_dir=x.install_dir,
                         content_dir=x.content_dir, registered=x.registered, licensed=x.licensed) for x in prod.installed(p)]
     def product_notes(self, p):
-        return [Note("Native Access", "patched", "NI wrapped a web page in Electron and broke it in five places: an NSIS installer that dies under Wine, "
-                     "a Chromium GPU process that crash-loops, a sandbox broker that cannot start its own children, a self-updater that would "
-                     "undo every fix, and a helper daemon squatting on fixed localhost ports. This app unpacks the installer itself, raises the "
-                     "stack reserve, patches the bundle, starts it with --disable-gpu --no-sandbox, installs the NTK daemon from NI's own files "
-                     "and wires the browser sign-in link. None of this should be necessary."),
-                Note("Kontakt", "patched", "Shipped with an InstallAware setup that burns half a core doing nothing until this app kills it and finishes "
-                     "the install from the unpacked payload. Libraries the daemon forgets to register, the app registers."),
+        return [Note("Native Access", "patched", "A company that sells thousands of dollars of instruments ships a storefront that is a web page in a "
+                     "browser it cannot keep running: its own installer cannot install it, its GPU process crash-loops, its sandbox cannot start "
+                     "its own children, its updater would re-break it, and its helper daemon claims fixed ports as if it owned the machine. "
+                     "Seven repairs before it opens: this app unpacks the installer itself, raises the stack reserve, patches the bundle, starts it "
+                     "with --disable-gpu --no-sandbox, installs the daemon from NI's own files and wires the browser sign-in link."),
+                Note("Kontakt", "patched", "The flagship sampler arrives in an InstallAware wrapper that unpacks its payload, then sits at half a core "
+                     "doing nothing, forever. This app kills it and copies the files the installer already had. Libraries the daemon "
+                     "cannot be bothered to register, the app registers."),
                 Note("", "works", "Installed by Native Access and bridged as is.")]
     def programs(self, p):
         out = prod.ni_programs(p)
