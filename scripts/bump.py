@@ -6,6 +6,7 @@ job (on push to main). Given a version and a one-line changelog, it edits:
   - vstenv/__init__.py  __version__
   - pyproject.toml       version
   - data/…metainfo.xml   new <release> entry (dated today, UTC)
+  - flatpak/…vstenv.yml  the git source's tag (the release being cut)
 
 Usage:  scripts/bump.py <version> "<changelog>"
         scripts/bump.py --next-patch          # print the next patch version and exit
@@ -18,6 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 INIT = ROOT / "vstenv/__init__.py"
 PYPROJECT = ROOT / "pyproject.toml"
 METAINFO = ROOT / "data/io.github.dguedry.vstenv.metainfo.xml"
+MANIFEST = ROOT / "flatpak/io.github.dguedry.vstenv.yml"
 
 def current() -> str:
     m = re.search(r'__version__ = "([^"]*)"', INIT.read_text())
@@ -46,6 +48,10 @@ def bump(ver: str, note: str):
              f'      </description>\n'
              f'    </release>\n')
     sub_one(METAINFO, r'(<releases>\n)', lambda m: m.group(1) + entry)
+    # The tag is created on the commit that carries this edit, so the manifest in
+    # the tagged tree names its own tag. No commit hash: it cannot be known before
+    # the commit exists (flatpak-builder-lint warns, but does not fail, on that).
+    sub_one(MANIFEST, r'(?m)^(        tag: )v\S+', lambda m: m.group(1) + f"v{ver}")
 
 if __name__ == "__main__":
     if len(sys.argv) == 2 and sys.argv[1] == "--next-patch":

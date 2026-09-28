@@ -15,6 +15,50 @@ vstenv is the vendor-modular successor to [nilinux](https://github.com/dguedry/n
 
 Not affiliated with or endorsed by Native Instruments GmbH, IK Multimedia Production srl or Steinberg Media Technologies GmbH.
 
+## Why this exists
+
+Wine runs most Windows programs. It does not run these, and that is not Wine's
+fault. Companies that charge the price of a used car for an instrument ship
+software that a first-year student would be marked down for, and every fix in
+this app exists because of a decision one of them made on purpose.
+
+- **Native Instruments** wrote its storefront, Native Access, as a web page
+  inside a browser it cannot keep alive. Its own installer cannot install it.
+  Its GPU process crash-loops. Its sandbox cannot start its own children. Its
+  updater would put all of that back. Its helper daemon grabs fixed localhost
+  ports as if nothing else had ever run on a computer. Seven repairs before the
+  window opens: the app unpacks the installer itself, raises the stack reserve,
+  patches the bundle, starts it with `--disable-gpu --no-sandbox`, installs the
+  daemon from NI's own files and wires the browser sign-in link.
+- **Kontakt**, the flagship sampler, arrives in an InstallAware wrapper that
+  unpacks its payload and then sits at half a core forever, doing nothing. The
+  app kills it and copies the files the installer already had. Libraries the
+  daemon cannot be bothered to register, the app registers.
+- **IK Multimedia** copied NI's Electron storefront, inherited its mistakes and
+  added one of its own: the Product Manager refuses to start because the output
+  of `ver` does not look like a Windows it has met. That is the whole check. Two
+  edits to its bundle and `--disable-gpu`, and it behaves.
+- **Steinberg** built an installer chain out of every Microsoft technology of
+  the last twenty years: a Java 8 / JavaFX downloader starts a .NET Install
+  Assistant that runs PowerShell scripts signed for a Windows trust check, and
+  when that check fails it refuses to install Steinberg's own packages. Five
+  runtimes to copy a file. The Activation Manager is a Qt 6 front end to a
+  licence engine that talks nanomsg over named pipes to store one token, and
+  stores it with a credential attribute Wine used to throw away, so it forgot
+  your sign-in on every restart and then opened itself in your face each time a
+  plugin asked for a licence. And the current HALion, Cubase and Dorico rewrote
+  their GUI library on DirectComposition, Direct2D and DirectWrite together,
+  the one Windows graphics stack nobody outside Redmond implements, and made it
+  abort rather than fall back: an instrument that cannot draw a button without
+  a desktop compositor. Hence two patched Wine DLLs and a Segoe UI font family
+  so its dialogs are not blank.
+
+It can be done properly. FabFilter's Total Bundle installs as a plain Windows
+program and every one of its plugins works untouched, which is what the vendors
+above should be embarrassed by. The app carries all of the rest so you never
+have to know it. Its Plugins tab labels every product that only works because
+something was patched, and says in one sentence what the vendor did.
+
 ## Tested
 
 Verified end to end on this setup: Ubuntu 24.04 and Fedora 43 hosts, the pinned
@@ -26,44 +70,9 @@ Wine 11.17 build, plugins loaded in a Linux DAW through yabridge.
 | IK Multimedia | IK Product Manager 1.1.15 | Sign-in, product installs; IK plugin GUIs draw through DXVK |
 | Steinberg | Download Assistant 1.40, Activation Manager 1.9, Library Manager 3.2 | Sign-in that survives restarts, downloads, installs through the Install Assistant, VST Sound library registration; HALion Sonic 7 standalone and VST3 in a DAW, playing and loading libraries, quitting cleanly |
 | Arturia (no module: plain Windows installer) | Arturia Software Center 2.12 | Analog Lab V VST3 and VST2 bridged and playing |
+| FabFilter (no module: plain Windows installer) | Total Bundle installer, run from the Install tab | All 14 plugins bridged as VST3 and VST2, working out of the box; nothing needed patching |
 
 Health lists every check behind these; when one fails it names the fix.
-
-## What needed patching, and why
-
-The app is honest about this in its Plugins tab, and so is this README. None of
-it is Wine's fault.
-
-- **Native Access.** A company that sells thousands of dollars of instruments
-  ships a storefront that is a web page in a browser it cannot keep running:
-  its own installer cannot install it, its GPU process crash-loops, its sandbox
-  cannot start its own children, its updater would re-break it, and its helper
-  daemon claims fixed localhost ports as if it owned the machine. Seven repairs
-  before it opens: the app unpacks the installer itself, raises the stack
-  reserve, patches the bundle, starts it with `--disable-gpu --no-sandbox`,
-  installs the daemon from NI's own files and wires the browser sign-in link.
-- **Kontakt.** The flagship sampler arrives in an InstallAware wrapper that
-  unpacks its payload, then sits at half a core doing nothing, forever. The app
-  kills it and copies the files the installer already had. Libraries the daemon
-  cannot be bothered to register, the app registers.
-- **IK Product Manager.** IK copied NI's Electron storefront and its mistakes,
-  then added one of its own: it refuses to run because the output of `ver` does
-  not look like a Windows it has met. Two edits to its bundle and
-  `--disable-gpu`, and it behaves.
-- **Steinberg.** The installer chain is a museum of Microsoft technology: a
-  Java 8 / JavaFX downloader starts a .NET Install Assistant that runs
-  PowerShell scripts signed for a Windows trust check, and when that check
-  fails it refuses to install Steinberg's own packages. Five runtimes to copy a
-  file. The Activation Manager is a Qt 6 front end to a licence engine that
-  talks nanomsg over named pipes to store one token, and stores it with a
-  credential attribute Wine used to throw away, so it forgot your sign-in on
-  every restart and then opened itself in your face each time a plugin asked
-  for a licence. And the current products rewrote their GUI library on
-  DirectComposition, Direct2D and DirectWrite together, the one Windows
-  graphics stack nobody outside Redmond implements, and made it abort rather
-  than fall back: an instrument that cannot draw a button without a desktop
-  compositor. Hence the Steinberg module's list of fixes, two patched Wine
-  DLLs, and a Segoe UI font family so its dialogs are not blank.
 
 ## Install
 
@@ -93,8 +102,8 @@ vstenv doctor                                         # every fix and prerequisi
 - **Plugins** — what each vendor's manager installed, and what is bridged for DAWs.
   Anything that only works because the app patched something carries a pill
   (*patched*, *limited*, *cannot run*) and expands to one sentence saying what
-  the vendor did and what the app does about it; "What needed patching, and
-  why" at the top gathers them.
+  the vendor did and what the app does about it; "Why this app exists" at the
+  top gathers them.
 - **Programs** — every Windows program in the prefix, run with the environment's
   own Wine (vendor launch fixes and per-program quirks applied); each also gets a
   desktop menu entry with its own icon (`vstenv menu`).

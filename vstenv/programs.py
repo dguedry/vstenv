@@ -136,11 +136,16 @@ def long_paths(p: Prefix, paths_: list[str]) -> dict[str, str]:
     shortcuts carry such targets, which nothing outside Wine can open."""
     short = [x for x in dict.fromkeys(paths_) if "~" in x]
     if not short: return {}
+    key = (str(p.path), tuple(short))
+    if key in _long_paths_cache: return _long_paths_cache[key]      # the GUI lists programs often; 8.3 names do not move
     try:
         cp = p.run(["winepath", "-l", *short], timeout=120)
         out = cp.stdout.splitlines()
     except Exception: return {}
-    return {s: (l.strip() or s) for s, l in zip(short, out)} if len(out) >= len(short) else {}
+    res = {s: (l.strip() or s) for s, l in zip(short, out)} if len(out) >= len(short) else {}
+    if res: _long_paths_cache[key] = res
+    return res
+_long_paths_cache: dict[tuple, dict[str, str]] = {}
 
 def shortcut_programs(p: Prefix) -> list[Program]:
     roots = [p.drive_c / "ProgramData/Microsoft/Windows/Start Menu/Programs",
@@ -296,12 +301,14 @@ def install(p: Prefix, installer: Path, reporter=None) -> int:
     installer = Path(installer)
     if not installer.is_file(): raise FileNotFoundError(f"installer not found: {installer}")
     r.step(f"Running installer: {installer.name}")
+    before = {(x.name, x.install_dir) for x in installed(p)}
     if installer.suffix.lower() == ".msi": argv = ["msiexec", "/i", str(installer)]
     else: argv = [str(installer)]
     cp = p.run(argv, timeout=7200, capture=False)
     (r.ok if cp.returncode == 0 else r.fail)(f"exit {cp.returncode}")
-    for prog in installed(p):                      # quirks for whatever just appeared
-        if not prog.install_dir: continue
+    for prog in installed(p):                      # quirks for what this installer added or replaced, not for
+        if not prog.install_dir: continue          # every program already in the prefix (a FabFilter install
+        if (prog.name, prog.install_dir) in before: continue   # is not the moment to talk about IK's bundle)
         done = quirks.apply(p, prog.name, prog.install_dir, r)
         # Installers offer "run it now" and start the program before this point:
         # that instance has neither the bundle edits nor the launch arguments

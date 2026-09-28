@@ -31,14 +31,16 @@ def setup(p: Prefix, reporter=None, installer: Path | None = None):
     re-apply every installed manager's fixes (repair)."""
     r = null_reporter(reporter)
     prepare(p, r)
+    changed = False
     if installer:
         v = vendors.for_manager_installer(installer)
         if v is None: raise LookupError(f"{Path(installer).name} is not a manager installer of any vendor module")
-        v.install_manager(p, Path(installer), r)
+        v.install_manager(p, Path(installer), r); changed = True
     else:
         for v in vendors.with_manager():
-            if v.manager_installed(p): _guarded(r, f"{v.manager_name}: repair", lambda v=v: v.repair_manager(p, r))
-    _guarded(r, "Desktop menu entries", lambda: menu.sync(p, r))
+            if v.manager_installed(p):
+                _guarded(r, f"{v.manager_name}: repair", lambda v=v: v.repair_manager(p, r)); changed = True
+    if changed: _guarded(r, "Desktop menu entries", lambda: menu.sync(p, r))   # prepare() already synced once
 
 def after_change(p: Prefix, reporter=None) -> dict:
     """The epilogue of every install or removal: vendor bookkeeping (libraries

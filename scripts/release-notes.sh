@@ -13,7 +13,8 @@ METAINFO="$HERE/data/io.github.dguedry.vstenv.metainfo.xml"
 NOTE="$(python3 - "$METAINFO" "$VERSION" <<'PY'
 import re, sys, html
 text = open(sys.argv[1], encoding="utf-8").read()
-m = re.search(r'<release version="%s"[^>]*>.*?<p>(.*?)</p>' % re.escape(sys.argv[2]), text, re.S)
+m = re.search(r'<release version="%s"[^>]*>(.*?)</release>' % re.escape(sys.argv[2]), text, re.S)
+m = m and re.search(r'<p>(.*?)</p>', m.group(1), re.S)
 print(html.unescape(m.group(1).strip()) if m else "")
 PY
 )"

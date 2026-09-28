@@ -132,7 +132,9 @@ class Vendor:
     def plugin_dll_overrides(self, p: "Prefix") -> list[tuple[str, str]]:
         """(plugin path substring, WINEDLLOVERRIDES) pairs for bridged plugins: the
         yabridge host applies them when the plugin it loads matches. Per-program
-        registry overrides do not reach plugins, which all run in yabridge-host.exe."""
+        registry overrides do not reach plugins, which all run in yabridge-host.exe.
+        Not applied to plugins the user put in a yabridge group (the path is not on
+        that host's command line)."""
         return []
 
     # -- health and reports -------------------------------------------------------------------

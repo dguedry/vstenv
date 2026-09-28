@@ -65,7 +65,9 @@ class ConsoleReporter(Reporter):
             step = 1 if self.out.isatty() else 25
             if pct // step != self._last_pct // step or pct == 100:
                 self._last_pct = pct
-                print(f"      {label} {pct:3d}%  ({done/1e6:.0f}/{total/1e6:.0f} MB)", end="\r", file=self.out, flush=True)
+                size = (f"{done/1e6:.0f}/{total/1e6:.0f} MB" if total >= 10e6 else
+                        f"{done/1e3:.0f}/{total/1e3:.0f} kB")    # small assets (wine-fixes) no longer read 0/0 MB
+                print(f"      {label} {pct:3d}%  ({size})", end="\r", file=self.out, flush=True)
                 if pct == 100: print(file=self.out)
 
 def null_reporter(r):

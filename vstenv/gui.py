@@ -206,7 +206,7 @@ class Window(Adw.ApplicationWindow):
         self.daw_banner = Adw.Banner(revealed=False); box.append(self.daw_banner)
         page = Adw.PreferencesPage(vexpand=True); box.append(page)
         self.compat_group = Adw.PreferencesGroup(title="Compatibility")
-        self.compat_row = Adw.ExpanderRow(title="What needed patching, and why", subtitle="Nothing installed yet")
+        self.compat_row = Adw.ExpanderRow(title="Why this app exists", subtitle="Nothing installed yet")
         self.compat_group.add(self.compat_row); page.add(self.compat_group); self._compat_rows = []
         self.product_groups = {}
         for v in vendors.all():

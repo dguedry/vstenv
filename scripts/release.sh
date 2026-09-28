@@ -31,12 +31,13 @@ ROOT="$(pwd)"
 INIT="vstenv/__init__.py"
 PYPROJECT="pyproject.toml"
 METAINFO="data/io.github.dguedry.vstenv.metainfo.xml"
+MANIFEST="flatpak/io.github.dguedry.vstenv.yml"
 
 # --- preflight ---------------------------------------------------------------
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 [ "$BRANCH" = "main" ] || die "not on main (on '$BRANCH'); release from main"
 if [ "$DRY" = 0 ]; then
-  git diff --quiet -- "$INIT" "$PYPROJECT" "$METAINFO" \
+  git diff --quiet -- "$INIT" "$PYPROJECT" "$METAINFO" "$MANIFEST" \
     || die "version/metainfo files have uncommitted changes; commit or stash first"
 fi
 git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null && die "tag v$VERSION already exists"
@@ -57,13 +58,13 @@ fi
 
 if [ "$DRY" = 1 ]; then
   echo "release: --dry-run, showing diff then reverting"
-  git --no-pager diff -- "$INIT" "$PYPROJECT" "$METAINFO"
-  git checkout -- "$INIT" "$PYPROJECT" "$METAINFO"
+  git --no-pager diff -- "$INIT" "$PYPROJECT" "$METAINFO" "$MANIFEST"
+  git checkout -- "$INIT" "$PYPROJECT" "$METAINFO" "$MANIFEST"
   exit 0
 fi
 
 # --- commit, tag, push -------------------------------------------------------
-git add "$INIT" "$PYPROJECT" "$METAINFO"
+git add "$INIT" "$PYPROJECT" "$METAINFO" "$MANIFEST"
 git commit -q -m "Release $VERSION
 
 $NOTE

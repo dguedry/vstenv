@@ -26,8 +26,10 @@ if [ -n "${WINE_FIXES_WORK:-}" ]; then WORK="$WINE_FIXES_WORK"; mkdir -p "$WORK"
 cd "$WORK"
 
 echo "== sources"
-curl -sSL -o wine.tar.xz "https://dl.winehq.org/wine/source/${VERSION%%.*}.x/wine-$VERSION.tar.xz"
-curl -sSL -o staging.tar.gz "https://github.com/wine-staging/wine-staging/archive/refs/tags/v$VERSION.tar.gz"
+# development releases live under source/<major>.x/, stable <major>.0 releases under source/<major>.0/
+case "$VERSION" in *.0) SRCDIR="${VERSION%%.*}.0";; *) SRCDIR="${VERSION%%.*}.x";; esac
+curl -fsSL -o wine.tar.xz "https://dl.winehq.org/wine/source/$SRCDIR/wine-$VERSION.tar.xz"
+curl -fsSL -o staging.tar.gz "https://github.com/wine-staging/wine-staging/archive/refs/tags/v$VERSION.tar.gz"
 tar -xJf wine.tar.xz && tar -xzf staging.tar.gz
 SRC="$WORK/wine-$VERSION"
 

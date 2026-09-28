@@ -56,7 +56,7 @@ jobs:
           NOTE="$SUBJECT"     # changelog = the push's commit subject
           python3 scripts/bump.py "$VERSION" "$NOTE"
 
-          git add vstenv/__init__.py pyproject.toml data/io.github.dguedry.vstenv.metainfo.xml
+          git add vstenv/__init__.py pyproject.toml data/io.github.dguedry.vstenv.metainfo.xml flatpak/io.github.dguedry.vstenv.yml
           # subject ENDS with [no-release] so this bump commit self-skips on its own push
           printf '%s\n\n%s\n' "Release $VERSION [no-release]" "$NOTE" | git commit -F -
           git tag -a "v$VERSION" -m "vstenv $VERSION"

@@ -143,6 +143,7 @@ def _install_tarball(tgz: Path, r):
         shutil.rmtree(staging, ignore_errors=True)
     (Path.home() / ".local/bin").mkdir(parents=True, exist_ok=True)
     link = Path.home() / ".local/bin/yabridgectl"
+    if link.is_symlink() and not link.exists(): link.unlink()      # dangling (an old install)
     if not link.exists(): link.symlink_to(YCTL)
 
 def install(reporter=None, force=False) -> str:
@@ -164,7 +165,7 @@ def _install(r, force) -> str:
     tgz, label = _find_build_tarball(pinned, r)
     if tgz is not None:
         _install_tarball(tgz, r)
-        if not MARKER.exists():
+        if not MARKER.exists() and not MARKER.with_name(LEGACY_MARKER_NAME).exists():
             MARKER.write_text(json.dumps({"yabridge_ref": "unknown", "yabridge_commit": "unknown", "wine_version": pinned}))
         r.ok(label); return installed() or "present"
     if YCTL.exists():
@@ -311,13 +312,16 @@ fi
 LAUNCHER_LOG_MARK = "# vstenv: keep a copy of the plugin host's stderr (Wine's crash report goes there)"
 _UPSTREAM_EXEC = 'exec "$WINELOADER" "$apppath" "$@"\n'
 _OUR_LOG = f'''{LAUNCHER_LOG_MARK}
-_vstenv_logdir="$HOME/.local/share/vstenv/logs"
+_vstenv_logdir="${{XDG_DATA_HOME:-$HOME/.local/share}}/vstenv/logs"
 if [ -n "$HOME" ] && mkdir -p "$_vstenv_logdir" 2>/dev/null && [ -w "$_vstenv_logdir" ]; then
     _vstenv_log="$_vstenv_logdir/plugin-host.log"
-    if [ "$(wc -c < "$_vstenv_log" 2>/dev/null || echo 0)" -gt 4000000 ]; then mv -f "$_vstenv_log" "$_vstenv_log.1"; fi
+    if [ -f "$_vstenv_log" ] && [ "$(wc -c 2>/dev/null < "$_vstenv_log" || echo 0)" -gt 4000000 ]; then mv -f "$_vstenv_log" "$_vstenv_log.1"; fi
     _vstenv_fifo="$(mktemp -u "${{TMPDIR:-/tmp}}/vstenv-host.XXXXXX")"
     if mkfifo -m 600 "$_vstenv_fifo" 2>/dev/null; then
         printf '\\n== %s pid %s: %s\\n' "$(date '+%F %T')" "$$" "$*" >> "$_vstenv_log"
+        # Every Wine process the host starts inherits fd 2 (a first client brings up
+        # wineserver and the prefix services), so this tee lives until the last of
+        # them exits and their stderr lands here too; WINEDEBUG keeps that small.
         tee -a "$_vstenv_log" < "$_vstenv_fifo" >&2 &
         exec 2> "$_vstenv_fifo"
         rm -f "$_vstenv_fifo"
@@ -327,11 +331,13 @@ fi
 
 # Per-plugin DLL overrides: vendors name plugins (by a path substring) whose host
 # must run with specific WINEDLLOVERRIDES (Steinberg: Wine's Direct3D instead of
-# DXVK). The launcher reads this file at every host start.
+# DXVK). The launcher reads this file at every host start and matches the plugin
+# path on its command line, so it does not reach a yabridge *group* host
+# (yabridge-host.exe group <name> <socket>): plugins in a group keep the default.
 PLUGIN_OVERRIDES_FILE = paths.DATA / "plugin-dll-overrides"
 LAUNCHER_OVERRIDES_MARK = "# vstenv: DLL overrides some plugins need in their host (plugin-dll-overrides: <path substring>|<WINEDLLOVERRIDES>)"
 _OUR_OVERRIDES = f'''{LAUNCHER_OVERRIDES_MARK}
-_vstenv_ovr="$HOME/.local/share/vstenv/plugin-dll-overrides"
+_vstenv_ovr="${{XDG_DATA_HOME:-$HOME/.local/share}}/vstenv/plugin-dll-overrides"
 if [ -n "$HOME" ] && [ -r "$_vstenv_ovr" ]; then
     while IFS='|' read -r _vstenv_pat _vstenv_val; do
         case "$_vstenv_pat" in ''|'#'*) continue;; esac
@@ -363,6 +369,20 @@ def write_plugin_overrides(entries: list[tuple[str, str]]) -> Path:
 def host_launchers() -> list[Path]:
     return [YAB_DIR / n for n in HOST_LAUNCHERS if (YAB_DIR / n).exists()]
 
+_BLOCKS = ((LAUNCHER_LOG_MARK, _OUR_LOG[:-len(_UPSTREAM_EXEC)]), (LAUNCHER_OVERRIDES_MARK, _OUR_OVERRIDES), (LAUNCHER_QUIET_MARK, _OUR_QUIET))
+
+def _refresh_blocks(txt: str) -> str:
+    """Replace a block an older app version wrote with the current text. A block
+    runs from its mark to the next block's mark or the exec line."""
+    for mark, body in _BLOCKS:
+        start = txt.find(mark)
+        if start < 0: continue
+        ends = [i for i in (txt.find(m, start + len(mark)) for m, _ in _BLOCKS) if i > start] + [txt.find(_UPSTREAM_EXEC, start)]
+        end = min(i for i in ends if i > start) if any(i > start for i in ends) else -1
+        if end < 0: continue
+        if txt[start:end] != body: txt = txt[:start] + body + txt[end:]
+    return txt
+
 def patch_host_launcher(script: Path) -> str:
     """'patched' | 'already' | 'unrecognised'. Same-directory atomic replace, mode kept.
     Two edits: the wineloader record (essential) and the stderr copy (added to a
@@ -377,6 +397,7 @@ def patch_host_launcher(script: Path) -> str:
         txt = txt.replace(_UPSTREAM_EXEC, _OUR_OVERRIDES + _UPSTREAM_EXEC, 1)
     if LAUNCHER_QUIET_MARK not in txt and txt.count(_UPSTREAM_EXEC) == 1:
         txt = txt.replace(_UPSTREAM_EXEC, _OUR_QUIET + _UPSTREAM_EXEC, 1)
+    txt = _refresh_blocks(txt)
     if txt == orig: return "already"
     tmp = script.with_name(f".{script.name}.new")
     tmp.write_text(txt); tmp.chmod(script.stat().st_mode)

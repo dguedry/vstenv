@@ -71,6 +71,15 @@ class PluginWineTest(unittest.TestCase):
         for p in self.patches: p.stop()
         self.tmp.cleanup()
 
+    def test_stale_blocks_from_an_older_app_are_refreshed(self):
+        self.assertEqual(yabridge.patch_host_launcher(self.launcher), "patched")
+        current = self.launcher.read_text()
+        old = current.replace("${XDG_DATA_HOME:-$HOME/.local/share}/vstenv", "$HOME/.local/share/vstenv")   # what 0.1.7 wrote
+        self.assertNotEqual(old, current); self.launcher.write_text(old)
+        self.assertEqual(yabridge.patch_host_launcher(self.launcher), "patched")
+        self.assertEqual(self.launcher.read_text(), current)
+        self.assertEqual(yabridge.patch_host_launcher(self.launcher), "already")
+
     def activate(self):
         self.assertTrue(self.prefix.declare_wine())
         self.assertTrue(yabridge.ensure_host_launchers())

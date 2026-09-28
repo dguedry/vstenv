@@ -117,20 +117,22 @@ def install(build: wine.WineBuild, reporter=None, force=False) -> dict[str, str]
         if man.get("wine_version") != wine_version(build):
             r.fail(f"{tgz.name} is for Wine {man.get('wine_version')}, this build is {wine_version(build)}"); return installed(build)
         done = {}
-        for name, sha in man.get("files", {}).items():
-            f = src / name
-            if not f.exists() or _sha(f) != sha: r.log(f"{name}: missing or hash mismatch in {tgz.name}; skipped"); continue
-            dst = build.root / PE_DIR / name
-            orig = dst.with_suffix(dst.suffix + ".orig")
-            if dst.exists() and not orig.exists() and _sha(dst) != sha: shutil.copy2(dst, orig)
-            if dst.exists() and _sha(dst) == sha: done[name] = sha; continue
-            tmpf = dst.with_name(f".{name}.new")
-            shutil.copy2(f, tmpf); tmpf.replace(dst)      # rename: a running program keeps its old mapping
-            done[name] = sha
-    m = marker(build) or {}
-    files = dict(m.get("files") or {}); files.update(done)
-    (build.root / MARKER_NAME).write_text(json.dumps({"wine_version": wine_version(build), "files": files, "source": label, "release": tag,
-                                                       "patches": man.get("patches", []), "installed": date.today().isoformat()}, indent=2))
+        try:
+            for name, sha in man.get("files", {}).items():
+                f = src / name
+                if not f.exists() or _sha(f) != sha: r.log(f"{name}: missing or hash mismatch in {tgz.name}; skipped"); continue
+                dst = build.root / PE_DIR / name
+                orig = dst.with_suffix(dst.suffix + ".orig")
+                if dst.exists() and not orig.exists() and _sha(dst) != sha: shutil.copy2(dst, orig)
+                if dst.exists() and _sha(dst) == sha: done[name] = sha; continue
+                tmpf = dst.with_name(f".{name}.new")
+                shutil.copy2(f, tmpf); tmpf.replace(dst)      # rename: a running program keeps its old mapping
+                done[name] = sha
+        finally:   # record what did land even if a later copy failed (disk full): status() must not deny a DLL that is in place
+            m = marker(build) or {}
+            files = dict(m.get("files") or {}); files.update(done)
+            (build.root / MARKER_NAME).write_text(json.dumps({"wine_version": wine_version(build), "files": files, "source": label, "release": tag,
+                                                               "patches": man.get("patches", []), "installed": date.today().isoformat()}, indent=2))
     (r.ok if done else r.fail)(", ".join(f"{n} ({FIXES.get(n, 'patched')})" for n in done) if done else "nothing usable in the tarball")
     return installed(build)
 

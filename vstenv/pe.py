@@ -94,7 +94,12 @@ def icon(exe: Path) -> bytes | None:
 
 def imports(exe: Path) -> list[str]:
     """Names of the DLLs a PE file imports (its static import table), lower-cased;
-    [] for anything that is not a PE or has no imports."""
+    [] for anything that is not a PE, has no imports, or is truncated or malformed
+    (a half-copied DLL from an interrupted install)."""
+    try: return _imports(exe)
+    except (struct.error, IndexError, ValueError): return []
+
+def _imports(exe: Path) -> list[str]:
     try: d = Path(exe).read_bytes()
     except OSError: return []
     if d[:2] != b"MZ" or len(d) < 0x40: return []

@@ -116,7 +116,7 @@ if __name__ == "__main__":
 class InstallerAutoLaunchTest(unittest.TestCase):
     """An installer's "run it now" starts the program before its quirks are
     applied; that instance must be replaced by one started with the fixes."""
-    def _install(self, running):
+    def _install(self, running, already_present=False):
         import subprocess, tempfile
         from unittest import mock
         from vstenv import quirks
@@ -125,20 +125,25 @@ class InstallerAutoLaunchTest(unittest.TestCase):
             p = Prefix(Path(tmp) / "prefix", WineBuild(Path(tmp) / "wine"))
             inst = Path(tmp) / "setup.exe"; inst.write_bytes(b"MZ")
             prog = programs.Program(name="IK Product Manager", exe=r"C:\Program Files\IK\IK Product Manager.exe", install_dir=r"C:\Program Files\IK")
+            before = [prog] if already_present else []      # installed() before the installer ran, then after
             with mock.patch.object(p, "run", return_value=subprocess.CompletedProcess([], 0)), \
-                 mock.patch.object(programs, "installed", return_value=[prog]), \
-                 mock.patch.object(quirks, "apply", return_value=["os-info patched"]), \
+                 mock.patch.object(programs, "installed", side_effect=[before, [prog]]), \
+                 mock.patch.object(quirks, "apply", return_value=["os-info patched"]) as apply, \
                  mock.patch.object(quirks, "launch_args", return_value=["--disable-gpu"]), \
                  mock.patch.object(p, "is_running", return_value=running), \
                  mock.patch.object(p, "kill_exe") as kill, mock.patch.object(programs, "run") as run:
                 programs.install(p, inst)
-                return kill, run
+                return kill, run, apply
     def test_auto_started_instance_is_replaced(self):
-        kill, run = self._install(running=True)
+        kill, run, _ = self._install(running=True)
         kill.assert_called_once_with("IK Product Manager.exe"); self.assertEqual(run.call_count, 1)
     def test_nothing_started_means_nothing_restarted(self):
-        kill, run = self._install(running=False)
+        kill, run, _ = self._install(running=False)
         kill.assert_not_called(); run.assert_not_called()
+    def test_programs_already_in_the_prefix_are_left_alone(self):
+        # installing a third-party plugin must not re-run (and re-report) another vendor's quirks
+        kill, run, apply = self._install(running=True, already_present=True)
+        apply.assert_not_called(); kill.assert_not_called(); run.assert_not_called()
 
 
 class ShortcutFilterTest(unittest.TestCase):

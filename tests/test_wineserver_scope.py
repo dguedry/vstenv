@@ -39,7 +39,7 @@ class LockHolders(unittest.TestCase):
             locks = (f"1: POSIX  ADVISORY  WRITE 111 {key} 0 EOF\n"
                      f"1: -> POSIX  ADVISORY  WRITE 222 {key} 0 EOF\n"      # a waiter, not a holder
                      f"2: POSIX  ADVISORY  WRITE 0 {key} 0 EOF\n"           # holder in another pid namespace
-                     f"3: FLOCK  ADVISORY  WRITE 333 {key[:-1]}9 0 EOF\n")  # some other file
+                     f"3: FLOCK  ADVISORY  WRITE 333 ff:ff:{st.st_ino} 0 EOF\n")  # some other file (same inode, another device)
             with mock.patch.object(host, "sh", lambda script, **kw: locks + "__locks_read__\n"):
                 self.assertEqual(p.lock_holders(), [111])
     def test_unreadable_proc_locks_is_none(self):
