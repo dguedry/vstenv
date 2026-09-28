@@ -233,13 +233,18 @@ class Steinberg(Vendor):
     def after_install(self, p, r=None): apply_program_fixes(p, self.program_exes(p), r)
     def product_notes(self, p):
         dcomp = self.dcomp_ready(p)
-        gui = ("Draws through DirectComposition, which Wine lacks: this app's patched dcomp.dll, Wine's own Direct3D for it "
-               "and its bridged plugin, and a Segoe UI font family for its dialogs make it run.") if dcomp else \
-              ("Draws through DirectComposition, which Wine lacks; the app's patched dcomp.dll is not installed, so it is refused at launch (run setup).")
-        return [Note(MANAGER, "patched", "Its JavaFX text needs Wine's own Direct3D and a launcher option; its browser sign-in link and its .NET Install Assistant "
-                     "(Wine Mono) are set up by the app, and packages it cannot install are unpacked and their MSIs run directly."),
-                Note("Activation Manager", "patched", "Keeps its sign-in only through this app's patched advapi32.dll (Wine drops credential attributes). "
-                     "Ignores clicks for a few seconds while a product is connecting to the licence engine."),
+        gui = ("Draws its GUI through DirectComposition, Direct2D and DirectWrite at once, the one Windows graphics stack Wine never implemented. "
+               "It runs on this app's patched dcomp.dll, Wine's own Direct3D for it and its bridged plugin, and a Segoe UI font family for its dialogs; "
+               "without the patch it aborts before its window appears.") if dcomp else \
+              ("Draws its GUI through DirectComposition, which Wine lacks, and aborts before its window appears; this app's patched dcomp.dll is not "
+               "installed, so it is refused at launch (run setup).")
+        return [Note(MANAGER, "patched", "Steinberg uses every technology Microsoft ever shipped: this is a Java 8 / JavaFX downloader that drives a "
+                     ".NET Install Assistant, which runs PowerShell scripts signed for a trust check Wine cannot pass. This app fixes its text "
+                     "(Wine's own Direct3D and a JavaFX option), registers its browser sign-in link, installs Wine Mono for the .NET part, "
+                     "and unpacks the packages it refuses to install to run their MSIs directly."),
+                Note("Activation Manager", "patched", "A Qt 6 front end to a licence engine that talks nanomsg over named pipes and keeps its sign-in as a "
+                     "Windows credential with an attribute Wine used to drop, which signed you out after every restart; this app's patched "
+                     "advapi32.dll keeps it. It also ignores clicks for a few seconds whenever a product is connecting to the engine."),
                 Note("HALion", "patched" if dcomp else "cannot", gui), Note("Cubase", "patched" if dcomp else "cannot", gui), Note("Dorico", "patched" if dcomp else "cannot", gui),
                 Note("", "works", "Runs as is with the per-program Direct3D override.")]
     def plugin_dll_overrides(self, p):

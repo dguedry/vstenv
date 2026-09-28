@@ -56,10 +56,12 @@ class NativeInstruments(Vendor):
         return [Product(name=x.name, vendor=self.id, kind=x.type, version=x.version, install_dir=x.install_dir,
                         content_dir=x.content_dir, registered=x.registered, licensed=x.licensed) for x in prod.installed(p)]
     def product_notes(self, p):
-        return [Note("Native Access", "patched", "Its installer is unpacked by hand, its stack reserve raised, self-update and GPU acceleration turned off, "
-                     "the NTK daemon installed from its own files, and the browser sign-in link registered with the desktop."),
-                Note("Kontakt", "patched", "Its InstallAware setup is driven silently and finished from the unpacked payload when it stalls; "
-                     "libraries the daemon forgets are registered by the app."),
+        return [Note("Native Access", "patched", "An Electron app that NI ships badly: an NSIS installer that dies under Wine, a Chromium GPU process that "
+                     "crash-loops, a sandbox broker that cannot spawn children, a self-updater that would undo every fix, and a helper daemon "
+                     "that binds fixed localhost ports. This app unpacks the installer itself, raises the stack reserve, patches the bundle, "
+                     "starts it with --disable-gpu --no-sandbox, installs the NTK daemon from NI's own files and wires the browser sign-in link."),
+                Note("Kontakt", "patched", "Its InstallAware setup spins at half a core with nothing to do until this app kills it and finishes the "
+                     "install from the unpacked payload; libraries the daemon forgets to register are registered by the app."),
                 Note("", "works", "Installed by Native Access and bridged as is.")]
     def programs(self, p):
         out = prod.ni_programs(p)
