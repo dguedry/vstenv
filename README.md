@@ -53,9 +53,10 @@ this app exists because of a decision one of them made on purpose.
   a desktop compositor. Hence two patched Wine DLLs and a Segoe UI font family
   so its dialogs are not blank.
 
-It can be done properly. FabFilter's Total Bundle installs as a plain Windows
-program and every one of its plugins works untouched, which is what the vendors
-above should be embarrassed by. The app carries all of the rest so you never
+It can be done properly. FabFilter's Total Bundle and Soundtoys 5.5, iLok
+licensing included, install as plain Windows programs and every one of their
+plugins works untouched, which is what the vendors above should be embarrassed
+by. The app carries all of the rest so you never
 have to know it. Its Plugins tab labels every product that only works because
 something was patched, and says in one sentence what the vendor did.
 
@@ -71,6 +72,7 @@ Wine 11.17 build, plugins loaded in a Linux DAW through yabridge.
 | Steinberg | Download Assistant 1.40, Activation Manager 1.9, Library Manager 3.2 | Sign-in that survives restarts, downloads, installs through the Install Assistant, VST Sound library registration; HALion Sonic 7 standalone and VST3 in a DAW, playing and loading libraries, quitting cleanly |
 | Arturia (no module: plain Windows installer) | Arturia Software Center 2.12 | Analog Lab V VST3 and VST2 bridged and playing |
 | FabFilter (no module: plain Windows installer) | Total Bundle installer, run from the Install tab | All 14 plugins bridged as VST3 and VST2, working out of the box; nothing needed patching |
+| Soundtoys (no module: plain Windows installer) | Soundtoys 5.5 bundle installer, iLok License Manager | Every effect bridged as VST3 and VST2, working out of the box; iLok licensing (PACE License Support 5.10) activates and runs unchanged |
 
 Health lists every check behind these; when one fails it names the fix.
 
