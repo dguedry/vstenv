@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .. import Vendor, Product, Check, UrlScheme
+from .. import Vendor, Product, Check, UrlScheme, Note
 from ...installers import installaware
 from ...programs import Program
 from ...wine import Prefix
@@ -55,6 +55,12 @@ class NativeInstruments(Vendor):
     def products(self, p):
         return [Product(name=x.name, vendor=self.id, kind=x.type, version=x.version, install_dir=x.install_dir,
                         content_dir=x.content_dir, registered=x.registered, licensed=x.licensed) for x in prod.installed(p)]
+    def product_notes(self, p):
+        return [Note("Native Access", "patched", "Its installer is unpacked by hand, its stack reserve raised, self-update and GPU acceleration turned off, "
+                     "the NTK daemon installed from its own files, and the browser sign-in link registered with the desktop."),
+                Note("Kontakt", "patched", "Its InstallAware setup is driven silently and finished from the unpacked payload when it stalls; "
+                     "libraries the daemon forgets are registered by the app."),
+                Note("", "works", "Installed by Native Access and bridged as is.")]
     def programs(self, p):
         out = prod.ni_programs(p)
         if self.manager_installed(p):

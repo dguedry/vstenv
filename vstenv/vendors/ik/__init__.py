@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .. import Vendor, Product, Check, Quirk
+from .. import Vendor, Product, Check, Quirk, Note
 from ... import asar, quirks
 from ...wine import Prefix
 
@@ -63,6 +63,14 @@ class IKMultimedia(Vendor):
     def is_manager_program(self, prog): return MANAGER.lower() in prog.name.lower()
 
     # -- content ------------------------------------------------------------------------------
+    def product_notes(self, p):
+        from ... import dxvk
+        try: gpu = dxvk.status(p)
+        except Exception: gpu = {"installed": False}
+        return [Note(MANAGER, "patched", "Two edits to its Electron bundle (accept Wine's version string; no GPU acceleration) and it starts with --disable-gpu."),
+                Note("", "works" if gpu["installed"] else "limited",
+                     "Its plugin GUIs draw through Direct3D and repaint through DXVK." if gpu["installed"] else
+                     "Its plugin GUIs draw through Direct3D and need DXVK to repaint: this machine has no usable Vulkan driver, so they may only repaint when resized.")]
     def products(self, p):
         """IK products register ordinary Uninstall entries; that is the inventory."""
         from ... import programs

@@ -37,6 +37,18 @@ class Product:
     licensed: bool | None = None   # None: this vendor does not expose licence state
 
 @dataclass
+class Note:
+    """How one of a vendor's products fares under Wine: the GUI's coloured pill and
+    the sentence behind it. `match` is a case-insensitive substring of the product
+    or program name; "" matches every product of the vendor (a fallback)."""
+    match: str
+    level: str                     # one of LEVELS
+    text: str                      # one sentence: what the app does for it, or what does not work
+
+LEVELS = ("works", "patched", "limited", "cannot")
+LEVEL_LABELS = {"works": "works", "patched": "patched", "limited": "limited", "cannot": "cannot run"}
+
+@dataclass
 class Check:
     """One health-check result (see doctor.py)."""
     name: str
@@ -113,6 +125,10 @@ class Vendor:
     def finish_installs(self, p: "Prefix", r: "Reporter | None" = None) -> list[dict]: return []
     def after_install(self, p: "Prefix", r: "Reporter | None" = None):
         """After anything was installed or removed (e.g. register libraries)."""
+    def product_notes(self, p: "Prefix") -> list[Note]:
+        """Compatibility notes for this vendor's products and programs, kept next
+        to the fixes they describe. Matched by name (see Note)."""
+        return []
     def plugin_dll_overrides(self, p: "Prefix") -> list[tuple[str, str]]:
         """(plugin path substring, WINEDLLOVERRIDES) pairs for bridged plugins: the
         yabridge host applies them when the plugin it loads matches. Per-program
@@ -177,3 +193,12 @@ def for_program(prog: "Program") -> Vendor | None:
 
 def with_manager() -> list[Vendor]:
     return [v for v in all() if v.manager_name]
+
+
+def note_for(name: str, notes: "list[Note]") -> "Note | None":
+    """The most specific note for a product or program name: a named match
+    first, then a vendor-wide fallback (match "")."""
+    low = name.lower()
+    named = [n for n in notes if n.match and n.match.lower() in low]
+    if named: return max(named, key=lambda n: len(n.match))
+    return next((n for n in notes if not n.match), None)

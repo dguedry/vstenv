@@ -68,7 +68,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .. import Vendor, Product, Check, UrlScheme
+from .. import Vendor, Product, Check, UrlScheme, Note
 from ...progress import null_reporter
 from ... import mono, pe
 from ...installers import steinberg as pkg
@@ -231,6 +231,17 @@ class Steinberg(Vendor):
         return sorted({x.exe.rsplit("\\", 1)[-1] for x in programs.installed(p)
                        if x.exe and self.publisher.search(x.publisher or "") and not self.is_manager_program(x)})
     def after_install(self, p, r=None): apply_program_fixes(p, self.program_exes(p), r)
+    def product_notes(self, p):
+        dcomp = self.dcomp_ready(p)
+        gui = ("Draws through DirectComposition, which Wine lacks: this app's patched dcomp.dll, Wine's own Direct3D for it "
+               "and its bridged plugin, and a Segoe UI font family for its dialogs make it run.") if dcomp else \
+              ("Draws through DirectComposition, which Wine lacks; the app's patched dcomp.dll is not installed, so it is refused at launch (run setup).")
+        return [Note(MANAGER, "patched", "Its JavaFX text needs Wine's own Direct3D and a launcher option; its browser sign-in link and its .NET Install Assistant "
+                     "(Wine Mono) are set up by the app, and packages it cannot install are unpacked and their MSIs run directly."),
+                Note("Activation Manager", "patched", "Keeps its sign-in only through this app's patched advapi32.dll (Wine drops credential attributes). "
+                     "Ignores clicks for a few seconds while a product is connecting to the licence engine."),
+                Note("HALion", "patched" if dcomp else "cannot", gui), Note("Cubase", "patched" if dcomp else "cannot", gui), Note("Dorico", "patched" if dcomp else "cannot", gui),
+                Note("", "works", "Runs as is with the per-program Direct3D override.")]
     def plugin_dll_overrides(self, p):
         """Steinberg's plugins draw like its programs (Direct2D, DirectComposition):
         on DXVK the host's d3d11 worker thread crashes once the GUI redraws fast

@@ -99,3 +99,28 @@ class SteinbergCannotRunTest(unittest.TestCase):
             self.assertIsNone(v.cannot_run(p, Program(name="Steinberg MediaBay", exe="s.exe", install_dir=r"C:\\m")), "runtime components run despite importing dcomp")
         with mock.patch.object(v, "needs_dcomp", return_value=["Qt6Gui.dll"]):
             self.assertIsNone(v.cannot_run(p, Program(name="Some Steinberg Tool", exe="t.exe", install_dir=r"C:\\t")), "only Steinberg's graphics2d is the tell")
+
+
+class ProductNotesTest(unittest.TestCase):
+    def test_every_builtin_vendor_notes_are_well_formed(self):
+        from unittest import mock
+        p = mock.Mock(); p.build = None
+        for v in vendors.all():
+            with mock.patch("vstenv.dxvk.status", return_value={"installed": True}):
+                notes = v.product_notes(p)
+            self.assertIsInstance(notes, list)
+            for n in notes:
+                self.assertIn(n.level, vendors.LEVELS); self.assertTrue(n.text.endswith("."), n.text)
+    def test_named_note_beats_the_vendor_fallback(self):
+        ni = vendors.get("ni").product_notes(None)
+        self.assertEqual(vendors.note_for("Kontakt 8", ni).level, "patched")
+        self.assertEqual(vendors.note_for("Massive X", ni).level, "works")
+        self.assertIsNone(vendors.note_for("anything", []))
+    def test_steinberg_gui_products_depend_on_the_patched_dcomp(self):
+        from unittest import mock
+        v = vendors.get("steinberg")
+        with mock.patch.object(v, "dcomp_ready", return_value=False):
+            self.assertEqual(vendors.note_for("Steinberg HALion Sonic 7", v.product_notes(None)).level, "cannot")
+        with mock.patch.object(v, "dcomp_ready", return_value=True):
+            self.assertEqual(vendors.note_for("Steinberg HALion Sonic 7", v.product_notes(None)).level, "patched")
+            self.assertEqual(vendors.note_for("Steinberg Library Manager", v.product_notes(None)).level, "works")

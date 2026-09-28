@@ -75,13 +75,51 @@ class TaskPage(Gtk.Box):
         self.logbuf.set_text(""); self.details.set_visible(False)
         if title: self.group.set_title(title)
 
-def _row(title, subtitle, icon, cb):
+def _row(title, subtitle, icon, cb, tooltip=None):
     r = Adw.ActionRow(title=title, subtitle=subtitle, activatable=True)
+    if tooltip: r.set_tooltip_text(tooltip)
     r.add_suffix(Gtk.Image(icon_name=icon)); r.connect("activated", lambda *_: cb()); return r
+
+PILL_CLASS = {"works": "success", "patched": "warning", "limited": "warning", "cannot": "error"}
+def _pill(level):
+    """A small coloured word on the right of a row: works / patched / limited / cannot run."""
+    return Gtk.Label(label=vendors.LEVEL_LABELS.get(level, level), valign=Gtk.Align.CENTER,
+                     css_classes=["caption", "pill", PILL_CLASS.get(level, "dim-label")], tooltip_text="Compatibility under Wine: click the row for the note")
+
+def _noted_row(title, subtitle, note, suffixes=()):
+    """An ActionRow, or, when there is a note, an ExpanderRow with the pill on the
+    right and the sentence inside. Takes no more height until expanded."""
+    if note is None:
+        r = Adw.ActionRow(title=title, subtitle=subtitle)
+        for w in suffixes: r.add_suffix(w)
+        return r
+    r = Adw.ExpanderRow(title=title, subtitle=subtitle)
+    for w in suffixes: r.add_suffix(w)
+    r.add_suffix(_pill(note.level))
+    inner = Adw.ActionRow(title=GLib.markup_escape_text(note.text), title_lines=0); inner.add_css_class("property")
+    r.add_row(inner)
+    return r
+
+def _menu_row(title, subtitle, icon, cb, items):
+    """A row with a "…" button opening a popover of the less common actions."""
+    r = _row(title, subtitle, icon, cb)
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, margin_top=6, margin_bottom=6, margin_start=6, margin_end=6)
+    pop = Gtk.Popover(child=box)
+    for label, fn in items:
+        b = Gtk.Button(label=label, css_classes=["flat"], halign=Gtk.Align.FILL); b.get_child().set_halign(Gtk.Align.START)
+        b.connect("clicked", lambda *_, fn=fn: (pop.popdown(), fn())); box.append(b)
+    r.add_suffix(Gtk.MenuButton(icon_name="view-more-symbolic", popover=pop, valign=Gtk.Align.CENTER, css_classes=["flat"], tooltip_text="More"))
+    return r
+
+_CSS = b"""
+label.pill { padding: 1px 8px; border-radius: 99px; background: alpha(currentColor, 0.12); font-weight: bold; }
+"""
 
 class Window(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title=TITLE, default_width=880, default_height=660)
+        css = Gtk.CssProvider(); css.load_from_data(_CSS)
+        Gtk.StyleContext.add_provider_for_display(self.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self.toasts = Adw.ToastOverlay(); self.set_content(self.toasts)
         self.busy = False; self._rows = {}
         tv = Adw.ToolbarView(); self.toasts.set_child(tv)
@@ -114,7 +152,7 @@ class Window(Adw.ApplicationWindow):
 
     # ---- state ------------------------------------------------------------------
     def is_ready(self): return self.prefix is not None and self.prefix.exists and runtime.status(self.prefix)["prepared"]
-    def toast(self, text): ui(lambda: self.toasts.add_toast(Adw.Toast(title=text, timeout=4)))
+    def toast(self, text, timeout=4): ui(lambda: self.toasts.add_toast(Adw.Toast(title=text, timeout=timeout)))
     def activity(self, kind, text):
         """Set (or clear with None) what the header indicator says for 'task' or 'manager'."""
         def go():
@@ -167,6 +205,9 @@ class Window(Adw.ApplicationWindow):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.daw_banner = Adw.Banner(revealed=False); box.append(self.daw_banner)
         page = Adw.PreferencesPage(vexpand=True); box.append(page)
+        self.compat_group = Adw.PreferencesGroup(title="Compatibility")
+        self.compat_row = Adw.ExpanderRow(title="What needed patching", subtitle="Nothing installed yet")
+        self.compat_group.add(self.compat_row); page.add(self.compat_group); self._compat_rows = []
         self.product_groups = {}
         for v in vendors.all():
             g = Adw.PreferencesGroup(title=f"{v.name} products", description=f"Installed through {v.manager_name}." if v.manager_name else "")
@@ -178,6 +219,11 @@ class Window(Adw.ApplicationWindow):
         if not self.is_ready(): return
         def work():
             prods = {v.id: v.products(self.prefix) for v in vendors.all()}
+            notes = {}
+            for v in vendors.all():
+                try: notes[v.id] = v.product_notes(self.prefix)
+                except Exception: notes[v.id] = []
+            progs = programs.installed(self.prefix)
             bridged = yabridge.bridged(self.prefix)
             state, detail = yabridge.plugin_wine_status(self.prefix)
             def show():
@@ -186,12 +232,28 @@ class Window(Adw.ApplicationWindow):
                 for vid, g in self.product_groups.items():
                     rows = []
                     for x in prods.get(vid, []):
-                        row = Adw.ActionRow(title=GLib.markup_escape_text(x.name), subtitle=GLib.markup_escape_text(f"{x.kind or '?'} {x.version}".strip()))
                         flags = [("registered" if x.registered else "not registered", x.registered)]
                         if x.licensed is not None: flags.append(("licensed" if x.licensed else "no license", x.licensed))
-                        for txt, ok in flags: row.add_suffix(Gtk.Label(label=txt, css_classes=["caption", "dim-label" if ok else "warning"]))
-                        rows.append(row)
+                        sfx = [Gtk.Label(label=txt, valign=Gtk.Align.CENTER, css_classes=["caption", "dim-label" if ok else "warning"]) for txt, ok in flags]
+                        note = vendors.note_for(x.name, notes.get(vid, []))
+                        if note is not None and note.level == "works": note = None      # a pill only where there is something to say
+                        rows.append(_noted_row(GLib.markup_escape_text(x.name), GLib.markup_escape_text(f"{x.kind or '?'} {x.version}".strip()), note, sfx))
                     g.set_visible(bool(rows)); self._fill(g, rows)
+                # the compatibility list: every installed product or program with a note that is not plain "works"
+                seen, crows, levels = set(), [], []
+                items = [(v.id, x.name) for v in vendors.all() for x in prods.get(v.id, [])]
+                items += [(v.id, x.name) for x in progs for v in [vendors.for_program(x)] if v is not None]
+                for vid, name in items:
+                    n = vendors.note_for(name, notes.get(vid, []))
+                    if n is None or n.level == "works" or name in seen: continue
+                    seen.add(name); levels.append(n.level)
+                    r = Adw.ActionRow(title=GLib.markup_escape_text(name), subtitle=GLib.markup_escape_text(n.text), subtitle_lines=0); r.add_suffix(_pill(n.level)); crows.append(r)
+                for r in self._compat_rows: self.compat_row.remove(r)
+                self._compat_rows = crows
+                for r in crows: self.compat_row.add_row(r)
+                parts = [f"{levels.count(k)} {vendors.LEVEL_LABELS[k]}" for k in ("patched", "limited", "cannot") if levels.count(k)]
+                self.compat_row.set_subtitle(", ".join(parts) if parts else "Everything installed runs as is")
+                self.compat_row.set_enable_expansion(bool(crows))
                 if not any(prods.values()):
                     g = next(iter(self.product_groups.values()), None)
                     if g: g.set_visible(True); self._fill(g, [Adw.ActionRow(title="Nothing installed yet", subtitle="Open a vendor's manager from the Install tab")])
@@ -206,26 +268,37 @@ class Window(Adw.ApplicationWindow):
         page = Adw.PreferencesPage()
         self.programs_group = Adw.PreferencesGroup(title="Installed programs", description="Everything with an installer record or a Start Menu shortcut in the prefix, plus the vendors' managers. Each also appears in your desktop's application menu.")
         page.add(self.programs_group)
-        g = Adw.PreferencesGroup(title="Install", description=programs.LIMITS)
-        g.add(_row("Install a Windows program", "Pick a .exe or .msi installer; its own window opens. Plugins it installs are bridged when it finishes.", "document-open-symbolic",
-                   lambda: self.pick_file("Choose installer (.exe or .msi)", self.install_program, downloads=True)))
-        g.add(_row("Refresh the list and the app menu", "", "view-refresh-symbolic", lambda: self.run_bg("Updating the app menu", lambda r: menu.sync(self.prefix, r))))
+        g = Adw.PreferencesGroup(title="Install")
+        g.add(_menu_row("Install a Windows program", "A .exe or .msi installer; its own window opens.", "document-open-symbolic",
+                        lambda: self.pick_file("Choose installer (.exe or .msi)", self.install_program, downloads=True),
+                        [("Refresh the list and the app menu", lambda: self.run_bg("Updating the app menu", lambda r: menu.sync(self.prefix, r)))]))
+        self._rows_limits = _row("What runs here", "Click for the limits of this environment.", "dialog-information-symbolic", lambda: self.toast(programs.LIMITS, 12))
+        g.add(self._rows_limits)
         page.add(g); return page
     def refresh_programs(self):
         if not self.is_ready(): return
         def work():
             progs = programs.installed(self.prefix)
+            notes = {}
+            for v in vendors.all():
+                try: notes[v.id] = v.product_notes(self.prefix)
+                except Exception: notes[v.id] = []
             def show():
                 rows = []
                 for x in progs:
-                    sub = " · ".join(s for s in (x.version, x.publisher, x.exe or "no launcher known (uninstall only)") if s)
-                    row = Adw.ActionRow(title=GLib.markup_escape_text(x.name), subtitle=GLib.markup_escape_text(sub))
+                    sub = " · ".join(s for s in (x.version, x.publisher) if s) or ("" if x.exe else "no launcher known (uninstall only)")
+                    sfx = []
                     if x.exe:
                         b = Gtk.Button(icon_name="media-playback-start-symbolic", valign=Gtk.Align.CENTER, tooltip_text="Run", css_classes=["flat"])
-                        b.connect("clicked", lambda *_, prog=x: self.run_program(prog)); row.add_suffix(b)
+                        b.connect("clicked", lambda *_, prog=x: self.run_program(prog)); sfx.append(b)
                     if x.uninstall:
                         b = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER, tooltip_text="Uninstall", css_classes=["flat"])
-                        b.connect("clicked", lambda *_, prog=x: self.uninstall_program(prog)); row.add_suffix(b)
+                        b.connect("clicked", lambda *_, prog=x: self.uninstall_program(prog)); sfx.append(b)
+                    v = vendors.for_program(x)
+                    note = vendors.note_for(x.name, notes.get(v.id, [])) if v is not None else None
+                    if note is not None and note.level == "works": note = None      # a pill only where there is something to say
+                    row = _noted_row(GLib.markup_escape_text(x.name), GLib.markup_escape_text(sub), note, sfx)
+                    if x.exe: row.set_tooltip_text(x.exe)
                     rows.append(row)
                 if not rows: rows.append(Adw.ActionRow(title="No programs found", subtitle="Install one below, or a vendor's manager from the Install tab"))
                 self._fill(self.programs_group, rows)
@@ -246,26 +319,33 @@ class Window(Adw.ApplicationWindow):
 
     # ---- install page -------------------------------------------------------------------
     def build_install(self):
-        page = Adw.PreferencesPage(); self.manager_rows = {}; self.open_rows = {}
+        page = Adw.PreferencesPage(); self.manager_rows = {}; self.open_rows = {}; self.get_rows = {}
         for v in vendors.with_manager():
-            g = Adw.PreferencesGroup(title=v.name, description=f"Products from your {v.name} account.")
-            # Shown only once the manager is installed (refresh_install)
-            o = _row(f"Open {v.manager_name}", "Sign in, install or update products. New plugins are bridged while it runs and when you close it.", "go-next-symbolic", lambda v=v: self.open_manager(v))
+            g = Adw.PreferencesGroup(title=v.name)
+            items = [(f"Get {v.manager_name} from {v.name}", lambda v=v: self.open_url(v.download_page)),
+                     (f"Update {v.manager_name} from a downloaded installer",
+                      lambda v=v: self.pick_file(f"Choose the {v.manager_name} installer", lambda f, v=v: self.install_manager(v, f), downloads=True))]
+            if type(v).install_product is not vendors.Vendor.install_product:
+                items.append((f"Install a {v.name} product from its installer",
+                              lambda v=v: self.pick_file(f"Choose a {v.name} product installer", lambda f, v=v: self.install_product(v, f))))
+            # Once the manager is installed this is the whole group: open it; the rest sits behind "…"
+            o = _menu_row(f"Open {v.manager_name}", "Sign in, install or update products; new plugins are bridged as they appear.", "go-next-symbolic",
+                          lambda v=v: self.open_manager(v), items)
             o.set_visible(False); self.open_rows[v.id] = o; g.add(o)
-            g.add(_row(f"Get {v.manager_name} from {v.name}", v.download_page or "", "web-browser-symbolic", lambda v=v: self.open_url(v.download_page)))
+            # Until then: get it, then install it
+            gr = _row(f"Get {v.manager_name} from {v.name}", v.download_page or "", "web-browser-symbolic", lambda v=v: self.open_url(v.download_page))
+            self.get_rows[v.id] = gr; g.add(gr)
             r = _row(f"Install {v.manager_name} from a downloaded installer", f"Pick {v.installer_hint}.", "document-open-symbolic",
                      lambda v=v: self.pick_file(f"Choose the {v.manager_name} installer", lambda f, v=v: self.install_manager(v, f), downloads=True))
             self.manager_rows[v.id] = r; g.add(r)
-            if type(v).install_product is not vendors.Vendor.install_product:
-                g.add(_row(f"Install a {v.name} product from its installer", f"When {v.manager_name}'s own install fails: the setup is driven silently and finished by hand if it stops.", "document-open-symbolic",
-                           lambda v=v: self.pick_file(f"Choose a {v.name} product installer", lambda f, v=v: self.install_product(v, f))))
             page.add(g)
-        g = Adw.PreferencesGroup(title="Other plugins", description="Any Windows VST2 / VST3 / CLAP installer.")
-        g.add(_row("Run a plugin installer", "The installer's own window opens; plugins are bridged when it finishes.", "document-open-symbolic", lambda: self.pick_file("Choose installer", self.install_program)))
-        g.add(_row("Add a plugin folder", "If an installer put VST2 .dlls somewhere unusual inside the prefix.", "folder-open-symbolic", self.pick_folder))
-        g.add(_row("Install the .NET runtime (Wine Mono)", "For installers and programs built on .NET; downloaded from WineHQ to match this Wine. Vendor modules that need it install it themselves.", "system-software-install-symbolic", self.install_mono))
-        g.add(_row("Bridge plugins now", "Re-scan the prefix and update the DAW-visible plugins.", "view-refresh-symbolic", self.sync))
-        g.add(_row("Finish interrupted installs", "Complete an install a vendor's manager started but did not finish (Health lists them).", "emblem-synchronizing-symbolic", self.finish_installs))
+        g = Adw.PreferencesGroup(title="Other plugins")
+        g.add(_menu_row("Run a plugin installer", "Any Windows VST2 / VST3 / CLAP installer; plugins are bridged when it finishes.", "document-open-symbolic",
+                        lambda: self.pick_file("Choose installer", self.install_program),
+                        [("Add a plugin folder", self.pick_folder),
+                         ("Bridge plugins now", self.sync),
+                         ("Finish interrupted installs", self.finish_installs),
+                         ("Install the .NET runtime (Wine Mono)", self.install_mono)]))
         page.add(g); return page
     def open_url(self, url):
         if url: Gtk.UriLauncher(uri=url).launch(self, None, lambda l, res: l.launch_finish(res))
@@ -393,8 +473,9 @@ class Window(Adw.ApplicationWindow):
         for v in vendors.with_manager():
             installed = ready and v.manager_installed(self.prefix)
             self.open_rows[v.id].set_visible(installed)
+            self.get_rows[v.id].set_visible(not installed); self.manager_rows[v.id].set_visible(not installed)
             ver = (v.manager_version(self.prefix) or "") if installed else ""
-            self.manager_rows[v.id].set_title(f"{'Update' if installed else 'Install'} {v.manager_name}{' ' + ver if ver else ''} from a downloaded installer")
+            self.open_rows[v.id].set_subtitle(f"{ver} · sign in, install or update products; new plugins are bridged as they appear." if ver else "Sign in, install or update products; new plugins are bridged as they appear.")
     def refresh_all(self): self.refresh_install(); self.refresh_plugins(); self.refresh_programs(); self.refresh_health(); self.refresh_notices()
 
 class App(Adw.Application):
