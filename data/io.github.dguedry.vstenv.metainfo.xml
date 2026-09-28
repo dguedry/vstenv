@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.7" date="2026-09-28">
+      <description>
+        <p>Remove nilinux's machine-wide Wine redirection when found</p>
+      </description>
+    </release>
     <release version="0.1.6" date="2026-09-28">
       <description>
         <p>Compatibility notes: a little more shame, still no profanity</p>
