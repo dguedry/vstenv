@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.8" date="2026-09-28">
+      <description>
+        <p>Deep-dive fixes, upfront vendor notes, FabFilter tested; quirks only for what an installer added</p>
+      </description>
+    </release>
     <release version="0.1.7" date="2026-09-28">
       <description>
         <p>Remove nilinux's machine-wide Wine redirection when found</p>
