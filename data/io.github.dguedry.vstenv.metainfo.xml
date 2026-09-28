@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.4" date="2026-09-28">
+      <description>
+        <p>Compatibility pills and notes in the app, a leaner Install page, release pages that say what to download</p>
+      </description>
+    </release>
     <release version="0.1.3" date="2026-09-27">
       <description>
         <p>Steinberg support: HALion runs, sign-in persists, dialogs have text; per-plugin Direct3D; plugin crash log; new icon</p>
