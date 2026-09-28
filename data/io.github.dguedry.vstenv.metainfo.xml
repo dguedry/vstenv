@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.5" date="2026-09-28">
+      <description>
+        <p>Blunter compatibility notes in the app and the README</p>
+      </description>
+    </release>
     <release version="0.1.4" date="2026-09-28">
       <description>
         <p>Compatibility pills and notes in the app, a leaner Install page, release pages that say what to download</p>
