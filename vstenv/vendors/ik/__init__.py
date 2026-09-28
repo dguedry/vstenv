@@ -67,8 +67,8 @@ class IKMultimedia(Vendor):
         from ... import dxvk
         try: gpu = dxvk.status(p)
         except Exception: gpu = {"installed": False}
-        return [Note(MANAGER, "patched", "Another Electron product manager. Its os-info module refuses Wine's `ver` output and its GPU process wedges "
-                     "the browser thread; two edits to its bundle and --disable-gpu make it usable."),
+        return [Note(MANAGER, "patched", "Another Electron product manager, and the same mistakes: its os-info module chokes on Wine's `ver` output and "
+                     "its GPU process hangs the browser thread. Two edits to its bundle and --disable-gpu make it usable."),
                 Note("", "works" if gpu["installed"] else "limited",
                      "JUCE plugin GUIs that draw through Direct3D; they repaint through DXVK here." if gpu["installed"] else
                      "JUCE plugin GUIs that draw through Direct3D and need DXVK to repaint; this machine has no usable Vulkan driver, "

@@ -233,18 +233,20 @@ class Steinberg(Vendor):
     def after_install(self, p, r=None): apply_program_fixes(p, self.program_exes(p), r)
     def product_notes(self, p):
         dcomp = self.dcomp_ready(p)
-        gui = ("Draws its GUI through DirectComposition, Direct2D and DirectWrite at once, the one Windows graphics stack Wine never implemented. "
-               "It runs on this app's patched dcomp.dll, Wine's own Direct3D for it and its bridged plugin, and a Segoe UI font family for its dialogs; "
-               "without the patch it aborts before its window appears.") if dcomp else \
-              ("Draws its GUI through DirectComposition, which Wine lacks, and aborts before its window appears; this app's patched dcomp.dll is not "
-               "installed, so it is refused at launch (run setup).")
-        return [Note(MANAGER, "patched", "Steinberg uses every technology Microsoft ever shipped: this is a Java 8 / JavaFX downloader that drives a "
-                     ".NET Install Assistant, which runs PowerShell scripts signed for a trust check Wine cannot pass. This app fixes its text "
-                     "(Wine's own Direct3D and a JavaFX option), registers its browser sign-in link, installs Wine Mono for the .NET part, "
-                     "and unpacks the packages it refuses to install to run their MSIs directly."),
-                Note("Activation Manager", "patched", "A Qt 6 front end to a licence engine that talks nanomsg over named pipes and keeps its sign-in as a "
-                     "Windows credential with an attribute Wine used to drop, which signed you out after every restart; this app's patched "
-                     "advapi32.dll keeps it. It also ignores clicks for a few seconds whenever a product is connecting to the engine."),
+        gui = ("Steinberg rebuilt its GUI library on DirectComposition, Direct2D and DirectWrite at once, the one Windows graphics stack nobody "
+               "outside Microsoft implements, and it aborts before its window appears when any piece is missing. It runs only because this app "
+               "ships a patched dcomp.dll, forces Wine's own Direct3D for it and its bridged plugin, and installs a Segoe UI font family so its "
+               "dialogs have text.") if dcomp else \
+              ("Steinberg rebuilt its GUI library on DirectComposition, which Wine does not have, so it aborts before its window appears. "
+               "This app's patched dcomp.dll is not installed, so it is refused at launch; run setup.")
+        return [Note(MANAGER, "patched", "Steinberg uses every technology Microsoft ever shipped, in one install chain: a Java 8 / JavaFX downloader "
+                     "drives a .NET Install Assistant, which runs PowerShell scripts signed for a trust check Wine cannot pass, so it refuses its own "
+                     "packages. This app fixes its unreadable text (Wine's own Direct3D and a JavaFX option), registers its browser sign-in link, "
+                     "installs Wine Mono for the .NET part, and unpacks the refused packages to run their MSIs directly."),
+                Note("Activation Manager", "patched", "A Qt 6 front end to a licence engine that talks nanomsg over named pipes and stores your sign-in as "
+                     "a Windows credential with an attribute Wine used to throw away, so it signed you out after every restart and reopened itself "
+                     "each time a product asked for a licence. This app's patched advapi32.dll keeps the attribute. It still ignores clicks for a "
+                     "few seconds whenever a product connects to the engine."),
                 Note("HALion", "patched" if dcomp else "cannot", gui), Note("Cubase", "patched" if dcomp else "cannot", gui), Note("Dorico", "patched" if dcomp else "cannot", gui),
                 Note("", "works", "Runs as is with the per-program Direct3D override.")]
     def plugin_dll_overrides(self, p):
