@@ -29,6 +29,35 @@ Wine 11.17 build, plugins loaded in a Linux DAW through yabridge.
 
 Health lists every check behind these; when one fails it names the fix.
 
+## What needed patching, and why
+
+The app is honest about this in its Plugins tab, and so is this README. None of
+it is Wine's fault.
+
+- **Native Access** is a web page wrapped in Electron, and NI broke it in five
+  places: an NSIS installer that dies under Wine, a Chromium GPU process that
+  crash-loops, a sandbox broker that cannot start its own children, a
+  self-updater that would undo every fix, and a helper daemon squatting on
+  fixed localhost ports. The app unpacks the installer itself, raises the stack
+  reserve, patches the bundle, starts it with `--disable-gpu --no-sandbox`,
+  installs the daemon from NI's own files and wires the browser sign-in link.
+- **Kontakt** ships with an InstallAware setup that burns half a core doing
+  nothing until the app kills it and finishes the install from the unpacked
+  payload. Libraries the daemon forgets to register, the app registers.
+- **IK Product Manager** is another Electron product manager with the same
+  mistakes: its os-info module chokes on Wine's `ver` output and its GPU
+  process hangs the browser thread. Two edits to its bundle and `--disable-gpu`.
+- **Steinberg** uses every technology Microsoft ever shipped, in one install
+  chain: a Java 8 / JavaFX downloader drives a .NET Install Assistant, which
+  runs PowerShell scripts signed for a trust check Wine cannot pass, so it
+  refuses its own packages. Its Activation Manager is a Qt 6 front end to a
+  licence engine that stores your sign-in as a Windows credential with an
+  attribute Wine used to throw away, which signed you out after every restart.
+  And its current products rebuilt their GUI library on DirectComposition,
+  Direct2D and DirectWrite at once, the one Windows graphics stack nobody
+  outside Microsoft implements. Hence the Steinberg module's list of fixes,
+  two patched Wine DLLs, and a Segoe UI font family so its dialogs have text.
+
 ## Install
 
 Download `vstenv.flatpak` from the [latest release](https://github.com/dguedry/vstenv/releases/latest), then:
@@ -55,6 +84,10 @@ vstenv doctor                                         # every fix and prerequisi
 ## What you get
 
 - **Plugins** — what each vendor's manager installed, and what is bridged for DAWs.
+  Anything that only works because the app patched something carries a pill
+  (*patched*, *limited*, *cannot run*) and expands to one sentence saying what
+  the vendor did and what the app does about it; "What needed patching, and
+  why" at the top gathers them.
 - **Programs** — every Windows program in the prefix, run with the environment's
   own Wine (vendor launch fixes and per-program quirks applied); each also gets a
   desktop menu entry with its own icon (`vstenv menu`).
