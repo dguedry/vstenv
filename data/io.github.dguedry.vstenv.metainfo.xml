@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.12" date="2026-09-29">
+      <description>
+        <p>IK Product Manager: keep its own in-app links in the window, not a browser tab</p>
+      </description>
+    </release>
     <release version="0.1.11" date="2026-09-29">
       <description>
         <p>JUCE 8 GUIs, crash-looping installer cleanup, Wine focus, IK installer handoff</p>
