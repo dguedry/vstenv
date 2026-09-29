@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.16" date="2026-09-29">
+      <description>
+        <p>Stop Wine windows raising to the front on Cinnamon (focus-new-windows=strict)</p>
+      </description>
+    </release>
     <release version="0.1.15" date="2026-09-29">
       <description>
         <p>IK plugins: filter storefront/content-scan URLs so they stop spraying browser tabs</p>
