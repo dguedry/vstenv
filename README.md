@@ -69,8 +69,9 @@ work and states what it was.
 
 ## Tested
 
-Verified end to end on this setup: Ubuntu 24.04 and Fedora 43 hosts, the pinned
-Wine 11.17 build, plugins loaded in a Linux DAW through yabridge.
+Verified end to end on this setup: Ubuntu 24.04, Linux Mint 22.3 (Cinnamon) and
+Fedora 43 hosts, the pinned Wine 11.17 build, plugins loaded in a Linux DAW
+through yabridge, including [Performer](https://github.com/dguedry/linux-performer).
 
 | Vendor | Manager | Verified |
 |---|---|---|
