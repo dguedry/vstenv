@@ -1,9 +1,11 @@
 """Desktop menu entries for the Windows programs in the prefix.
 
 Wine's own menu builder is disabled here (installers would spam the menu with
-uninstallers, readmes and helper tools). Instead, every program the prefix
-knows a launcher for gets one curated entry, started through `vstenv run` so
-the vendor's launch fixes and quirks apply exactly as from the Programs page.
+uninstallers, readmes and helper tools). Instead, every runnable program the
+prefix knows a launcher for gets one curated entry, started through `vstenv run`
+so the vendor's launch fixes and quirks apply exactly as from the Programs page.
+Vendor managers and installers are excluded: they have to run through the app so
+their fixes apply, and a raw shortcut would start them without those.
 Icons are pulled from the exe's own resources. Entries are ours by file name;
 stale ones (the program is gone) are removed on every sync.
 """
@@ -80,10 +82,12 @@ def exec_resolves(desktop: Path) -> bool:
 
 def sync(p: Prefix, reporter=None) -> dict:
     """Write an entry per runnable program, remove entries for programs that are gone."""
-    from . import programs
+    from . import programs, vendors
     r = null_reporter(reporter)
     r.step("Desktop menu entries for the prefix's programs")
-    progs = [x for x in programs.installed(p) if x.runnable]
+    # No shortcut for a vendor manager/installer: it has to run through the app so
+    # its launch fixes apply (a raw shortcut would start it without them).
+    progs = [x for x in programs.installed(p) if x.runnable and not vendors.run_through_app(x)]
     want = {desktop_path(x.name): x for x in progs}
     written = removed = 0
     try:

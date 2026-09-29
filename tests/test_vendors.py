@@ -254,3 +254,19 @@ class IKOpenExternalQuirkTest(unittest.TestCase):
         v = vendors.get("ik")
         whats = [q.what for q in v.quirks()[v.manager_name]]
         self.assertTrue(any("keep IK's own in-app links" in w for w in whats))
+
+
+class RunThroughAppTest(unittest.TestCase):
+    """Vendor managers/installers must run through the app, not a desktop shortcut."""
+    def _prog(self, name, publisher=""):
+        from vstenv import programs
+        return programs.Program(name=name, publisher=publisher, exe=rf"C:\\x\\{name}.exe", install_dir=r"C:\\x")
+    def test_managers_and_wrapped_installers_run_through_app(self):
+        for name in ("Native Access", "IK Product Manager", "Steinberg Download Assistant",
+                     "Steinberg Install Assistant", "Product Portal", "Arturia Software Center 2.12.0"):
+            self.assertTrue(vendors.run_through_app(self._prog(name)), name)
+    def test_instruments_and_services_get_a_shortcut(self):
+        for name in ("Kontakt 8", "Steinberg HALion Sonic 7", "Analog Lab V 5.12.5", "Spitfire Audio version 3.4.18",
+                     "Ozone 9 Advanced", "iLok License Manager", "PACE License Support Win64", "Bonjour",
+                     "Steinberg Activation Manager", "Steinberg Library Manager", "Steinberg MediaBay"):
+            self.assertFalse(vendors.run_through_app(self._prog(name)), name)

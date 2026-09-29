@@ -127,7 +127,11 @@ vstenv doctor                                         # every fix and prerequisi
   the top gathers them.
 - **Programs** — every Windows program in the prefix, run with the environment's
   own Wine (vendor launch fixes and per-program quirks applied); each also gets a
-  desktop menu entry with its own icon (`vstenv menu`).
+  desktop menu entry with its own icon (`vstenv menu`), except the vendor
+  managers and installers (Native Access, the IK Product Manager, the Steinberg
+  Download and Install Assistants, the iZotope Product Portal, the Arturia
+  Software Center), which have no shortcut because they must be launched from the
+  app so their fixes apply.
 - **Install** — per vendor: open the manager, get it from the vendor, install or
   update it from a downloaded installer, and (NI, IK) install a product from its
   own installer when the manager cannot. Plus any third-party plugin installer,

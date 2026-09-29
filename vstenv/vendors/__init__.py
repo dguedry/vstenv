@@ -197,6 +197,25 @@ def with_manager() -> list[Vendor]:
     return [v for v in all() if v.manager_name]
 
 
+# Managers and installers that must be launched through vstenv (their launch fixes,
+# bundle patches or install rescue), not from a raw desktop shortcut. Covers the
+# built-in vendors' managers (is_manager_program) plus the no-module storefront/
+# installer apps vstenv still has to work around by name. Instruments, licensing
+# tools (iLok, PACE) and background services (Bonjour) are not included.
+_NO_MODULE_MANAGERS = (
+    "arturia software center",       # its installer trips "files in use"; run via the app
+    "product portal",                # iZotope's Electron manager vstenv stops crash-looping
+    "install assistant",             # Steinberg's .NET installer vstenv drives and rescues
+)
+
+def run_through_app(prog: "Program") -> bool:
+    """True if this program is a vendor manager/installer that vstenv wraps, so it
+    should be started from the app rather than given a desktop menu shortcut."""
+    if any(v.is_manager_program(prog) for v in all()): return True
+    n = prog.name.lower()
+    return any(k in n for k in _NO_MODULE_MANAGERS)
+
+
 def note_for(name: str, notes: "list[Note]") -> "Note | None":
     """The most specific note for a product or program name: a named match
     first, then a vendor-wide fallback (match "")."""
