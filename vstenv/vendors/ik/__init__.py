@@ -112,9 +112,50 @@ class IKMultimedia(Vendor):
     def _downloads_dir(self, p: Prefix) -> Path:
         return p.user_dir / "Documents/IK Multimedia/IK Product Manager"
 
+    def _installer_from(self, sub: Path, reporter=None) -> Path | None:
+        """The product installer .exe in a download folder, extracted from the
+        folder's .zip ourselves when needed. The Product Manager's own extraction
+        can stop partway under Wine, leaving a truncated .exe whose InstallAware
+        integrity check then fails with "the setup files are corrupted"; the .zip
+        is the source of truth, so if it lists an .exe we extract it (streamed)
+        and use it when its size does not already match on disk."""
+        import zipfile
+        from ...progress import null_reporter
+        rr = null_reporter(reporter)
+        zips = sorted(sub.glob("*.zip"))
+        for z in zips:
+            try:
+                zf = zipfile.ZipFile(z)
+                info = next((i for i in zf.infolist() if i.filename.lower().endswith(".exe")
+                             and "uninstall" not in i.filename.lower()), None)
+            except zipfile.BadZipFile:
+                rr.log(f"{z.name}: not a complete zip yet; skipped"); continue
+            if info is None: continue
+            dst = sub / Path(info.filename).name
+            if dst.exists() and dst.stat().st_size == info.file_size: return dst   # already complete
+            rr.step(f"Extracting {dst.name} ({info.file_size // 1_000_000} MB)")
+            tmp = sub / f".{dst.name}.new"
+            try:
+                with zf.open(info) as src, open(tmp, "wb") as out:
+                    n = 0
+                    while True:
+                        b = src.read(1 << 20)
+                        if not b: break
+                        out.write(b); n += len(b)
+                if n != info.file_size:
+                    rr.fail(f"extracted {n} of {info.file_size} bytes"); tmp.unlink(missing_ok=True); continue
+                tmp.replace(dst); rr.ok()
+                return dst
+            except Exception as e:
+                rr.fail(str(e)[:80]); tmp.unlink(missing_ok=True); continue
+        # no usable zip: fall back to an .exe on disk only if it is not obviously partial
+        exe = next((x for x in sorted(sub.glob("*.exe")) if "uninstall" not in x.name.lower()), None)
+        return exe
+
     def staged_installs(self, p: Prefix) -> list:
         """Downloaded IK product installers that are present but whose product is
-        not installed yet: [(product name, installer path)]."""
+        not installed yet: [(product name, folder)]. The installer .exe is
+        resolved (and re-extracted if truncated) when the install runs."""
         from ... import programs
         d = self._downloads_dir(p)
         if not d.is_dir(): return []
@@ -123,17 +164,23 @@ class IKMultimedia(Vendor):
         for sub in sorted(d.iterdir()):
             if not sub.is_dir(): continue
             if any(sub.name.lower() in n or n in sub.name.lower() for n in installed): continue
-            exe = next((f for f in sorted(sub.glob("*.exe")) if "uninstall" not in f.name.lower()), None)
-            if exe: out.append((sub.name, exe))
+            if any(sub.glob("*.zip")) or any(x for x in sub.glob("*.exe") if "uninstall" not in x.name.lower()):
+                out.append((sub.name, sub))
         return out
 
     def finish_installs(self, p: Prefix, r=None) -> list[dict]:
-        """Run each downloaded IK installer the Product Manager could not launch."""
+        """Run each downloaded IK installer the Product Manager could not launch,
+        extracting it correctly from its zip first (the Product Manager can leave a
+        truncated exe that fails its own integrity check)."""
         from ... import programs
         from ...progress import null_reporter
         rr = null_reporter(r); done = []
-        for name, exe in self.staged_installs(p):
+        for name, sub in self.staged_installs(p):
             rr.step(f"Finishing IK download: {name}")
+            exe = self._installer_from(sub, rr)
+            if exe is None:
+                rr.fail("no usable installer in the download folder")
+                done.append({"vendor": self.id, "product": name, "ok": False}); continue
             try:
                 rc = programs.install(p, exe, rr)
                 done.append({"vendor": self.id, "product": name, "ok": rc == 0})

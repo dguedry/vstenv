@@ -159,9 +159,9 @@ class IKFinishInstallsTest(unittest.TestCase):
             names = [n for n, _ in staged]
             self.assertIn("Hammond B-3X", names)
             self.assertNotIn("SampleTank 4", names)                 # already installed -> skipped
-            # the .exe chosen is the installer, not the uninstaller
-            exe = dict(staged)["Hammond B-3X"]
-            self.assertNotIn("unins", exe.name.lower())
+            # staged returns the download folder; the installer exe is resolved at run time
+            folder = dict(staged)["Hammond B-3X"]
+            self.assertTrue(folder.is_dir())
 
     def test_finish_runs_each_through_the_installer(self):
         import tempfile
@@ -176,6 +176,28 @@ class IKFinishInstallsTest(unittest.TestCase):
                 done = v.finish_installs(p)
             inst.assert_called_once()
             self.assertEqual(done, [{"vendor": "ik", "product": "T-RackS 5", "ok": True}])
+
+    def test_truncated_exe_is_reextracted_from_the_zip_before_running(self):
+        import tempfile, zipfile
+        from unittest import mock
+        from vstenv import programs, vendors
+        v = vendors.get("ik")
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._prefix(tmp); d = self._downloads(p)
+            sub = d / "Hammond B-3X"; sub.mkdir()
+            full = b"MZ" + b"\0" * 5000                                  # the real installer content
+            zpath = sub / "Install_Hammond_B-3X_(1.3.5).zip"
+            with zipfile.ZipFile(zpath, "w") as zf: zf.writestr("Install Hammond B-3X (1.3.5).exe", full)
+            exe = sub / "Install Hammond B-3X (1.3.5).exe"
+            exe.write_bytes(full[:1000])                                  # truncated, like the PM left it
+            ran = {}
+            def fake_install(prefix, path, r=None):
+                ran["size"] = Path(path).stat().st_size; return 0
+            with mock.patch.object(programs, "installed", return_value=[]),                  mock.patch.object(programs, "install", side_effect=fake_install):
+                done = v.finish_installs(p)
+            self.assertEqual(exe.stat().st_size, len(full))              # re-extracted to full size
+            self.assertEqual(ran["size"], len(full))                     # and the full one was run
+            self.assertTrue(done[0]["ok"])
 
 
 class RespawningKillTest(unittest.TestCase):

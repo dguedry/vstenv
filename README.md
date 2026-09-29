@@ -43,7 +43,10 @@ the program does and what the app does about it.
   live from ikmultimedia.com and calls out to the system browser for its own
   in-app links (the logo, My Products, the user area), so ordinary clicking opens
   a stream of tabs; the app patches the bundle to keep IK's own links in the
-  window, and other links still open in the browser.
+  window, and other links still open in the browser. Its own zip extraction can
+  also stop partway under Wine, leaving a truncated installer that fails its
+  integrity check ("the setup files are corrupted"); the app re-extracts the
+  installer from the downloaded zip and checks its size before running it.
 - **Steinberg.** The installer chain is Java/JavaFX and .NET: the Download
   Assistant runs a .NET Install Assistant whose PowerShell steps are signed for a
   Windows trust check that fails under Wine, so it declines to install
