@@ -43,7 +43,7 @@ class VendorRegistryTest(unittest.TestCase):
 
     def test_ik_quirks_and_ni_plugin_dirs(self):
         self.assertIn("IK Product Manager", vendors.get("ik").quirks())
-        self.assertEqual(len(vendors.get("ik").quirks()["IK Product Manager"]), 2)
+        self.assertEqual(len(vendors.get("ik").quirks()["IK Product Manager"]), 3)  # os-info, disable-gpu, keep-links-in-window
         self.assertIn("Program Files/Native Instruments/VSTPlugins 64 bit", vendors.get("ni").plugin_dirs())
         self.assertEqual(vendors.get("ni").daemon_ports, (7865, 5563, 5146))
 
@@ -208,3 +208,27 @@ class RespawningKillTest(unittest.TestCase):
                  mock.patch.object(p, "kill_pids") as kp, mock.patch("time.sleep"):
                 self.assertEqual(p.kill_respawning(lambda c: "Portal" in c), 0)
                 kp.assert_not_called()
+
+
+class IKOpenExternalQuirkTest(unittest.TestCase):
+    """The Product Manager loads its UI from ikmultimedia.com and opens a browser
+    tab for its own in-app links; the quirk keeps IK links in the window."""
+    def test_shim_injected_after_electron_require_once(self):
+        from vstenv.vendors.ik import keep_ik_links_in_window, _OPENEXT_MARK
+        src = b"const { app, shell } = require('electron')\nconst fs = require('fs')\n"
+        out = keep_ik_links_in_window(src)
+        self.assertIn(_OPENEXT_MARK, out)
+        self.assertIn(b"openExternal", out)
+        self.assertIn(b"ikmultimedia", out)
+        # injected right after the electron require line, before the next line
+        self.assertLess(out.index(_OPENEXT_MARK), out.index(b"const fs"))
+        # idempotent: a second pass makes no change
+        self.assertIsNone(keep_ik_links_in_window(out))
+    def test_raises_when_no_electron_require(self):
+        from vstenv.vendors.ik import keep_ik_links_in_window
+        with self.assertRaises(LookupError):
+            keep_ik_links_in_window(b"const fs = require('fs')\n")
+    def test_registered_as_a_manager_quirk(self):
+        v = vendors.get("ik")
+        whats = [q.what for q in v.quirks()[v.manager_name]]
+        self.assertTrue(any("keep IK's own in-app links" in w for w in whats))

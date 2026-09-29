@@ -30,6 +30,26 @@ def os_info_edit(js: bytes):
     if js.count(_OS_INFO_OLD) != 1: raise LookupError("os-info getVersion not found once")
     return js.replace(_OS_INFO_OLD, _OS_INFO_NEW, 1)
 
+# The Product Manager loads its UI live from ikmultimedia.com with nodeIntegration
+# on, and the page calls shell.openExternal() for its own in-app navigation (the
+# logo, My Products, My Orders, the user area, support and legal links). Under a
+# desktop browser each such click opens a new tab, so ordinary use of the app
+# sprays ikmultimedia.com tabs and the window churns to the front as the browser
+# comes and goes. This wraps shell.openExternal in the main process so a link to
+# IK's own site loads in the app's own window instead; anything else (a YouTube
+# tutorial, say) still opens in the browser.
+_OPENEXT_MARK = b"/*VSTENV_OPENEXT*/"
+_ELECTRON_REQUIRE_IK = quirks._ELECTRON_REQUIRE
+def keep_ik_links_in_window(js: bytes):
+    if _OPENEXT_MARK in js: return None
+    m = _ELECTRON_REQUIRE_IK.search(js)
+    if not m: raise LookupError("no `require('electron')` line in the main script")
+    shim = (b"try{const _e=require('electron');const _o=_e.shell.openExternal.bind(_e.shell);"
+            b"_e.shell.openExternal=function(u,opts){try{if(typeof u==='string'&&/^https?:\\/\\/([a-z0-9-]+\\.)*ikmultimedia\\.com(\\/|$)/i.test(u)){"
+            b"const w=_e.BrowserWindow.getAllWindows()[0];if(w){w.loadURL(u);return Promise.resolve();}}}catch(e){}return _o(u,opts);};}catch(e){} "
+            + _OPENEXT_MARK + b"\n")
+    return js[:m.end()] + shim + js[m.end():]
+
 class IKMultimedia(Vendor):
     id = "ik"
     name = "IK Multimedia"
@@ -125,7 +145,9 @@ class IKMultimedia(Vendor):
         return {MANAGER: [Quirk("resources/app.asar", r"local_modules/os-info/index\.js", os_info_edit,
                                 "os-info: accept Wine's `ver` output (no [Version …] brackets)"),
                           Quirk("resources/app.asar", r"^main\.js$", quirks.electron_disable_gpu,
-                                "disable GPU acceleration in the app itself (also when a plugin starts it)")]}
+                                "disable GPU acceleration in the app itself (also when a plugin starts it)"),
+                          Quirk("resources/app.asar", r"^main\.js$", keep_ik_links_in_window,
+                                "keep IK's own in-app links in the window (its page opens a browser tab per click)")]}
 
     # -- health ------------------------------------------------------------------------------------
     def checks(self, p) -> list[Check]:

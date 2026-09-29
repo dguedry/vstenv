@@ -39,7 +39,11 @@ the program does and what the app does about it.
   with `--disable-gpu`. Sign-in uses your IK username, not your email. When it
   downloads a product it launches the installer with a command line Wine's shell
   rejects, and each failed attempt opens a browser tab; the app runs the
-  downloaded installer through its own installer path instead.
+  downloaded installer through its own installer path instead. Its UI is loaded
+  live from ikmultimedia.com and calls out to the system browser for its own
+  in-app links (the logo, My Products, the user area), so ordinary clicking opens
+  a stream of tabs; the app patches the bundle to keep IK's own links in the
+  window, and other links still open in the browser.
 - **Steinberg.** The installer chain is Java/JavaFX and .NET: the Download
   Assistant runs a .NET Install Assistant whose PowerShell steps are signed for a
   Windows trust check that fails under Wine, so it declines to install
