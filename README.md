@@ -37,7 +37,13 @@ this app exists because of a decision one of them made on purpose.
 - **IK Multimedia** copied NI's Electron storefront, inherited its mistakes and
   added one of its own: the Product Manager refuses to start because the output
   of `ver` does not look like a Windows it has met. That is the whole check. Two
-  edits to its bundle and `--disable-gpu`, and it behaves.
+  edits to its bundle and `--disable-gpu`, and it behaves. Its login wants your
+  IK username, not the email you registered with, and says "invalid password"
+  either way. It downloads a product, then tries to launch the installer with a
+  command line Wine's shell rejects (a path in doubled quotes, worse with the
+  parentheses in IK's filenames); the failed launch retries and opens a browser
+  tab each time. The app runs the downloaded installer itself instead, through
+  its own installer path.
 - **Steinberg** built an installer chain out of every Microsoft technology of
   the last twenty years: a Java 8 / JavaFX downloader starts a .NET Install
   Assistant that runs PowerShell scripts signed for a Windows trust check, and
@@ -52,6 +58,15 @@ this app exists because of a decision one of them made on purpose.
   abort rather than fall back: an instrument that cannot draw a button without
   a desktop compositor. Hence two patched Wine DLLs and a Segoe UI font family
   so its dialogs are not blank.
+- **JUCE 8**, the framework half the industry builds on, then made the same
+  choice for everyone: Direct2D and DirectComposition became its default
+  Windows renderer, with no fallback, so every program built on it inherits
+  Steinberg's problem. Its vblank thread also ignores its exit flag when the
+  wait fails, so under stock Wine a JUCE 8 app (Spitfire Audio's) hangs before
+  a window appears, or shows a blank one. The app scans every installed
+  program and bridged plugin for that import and gives each one the patched
+  DLLs and Wine's own Direct3D; a third patched DLL makes the vblank wait
+  return.
 
 It can be done properly. FabFilter's Total Bundle, Soundtoys 5.5 with its iLok
 licensing, Valhalla DSP and Xfer Records' Serum 2 install as plain Windows
@@ -75,6 +90,8 @@ Wine 11.17 build, plugins loaded in a Linux DAW through yabridge.
 | Soundtoys (no module: plain Windows installer) | Soundtoys 5.5 bundle installer, iLok License Manager | Every effect bridged as VST3 and VST2, working out of the box; iLok licensing (PACE License Support 5.10) activates and runs unchanged |
 | Valhalla DSP (no module: plain Windows installer) | ValhallaFreqEcho 1.2 installer | Bridged as VST3 and VST2, flawless out of the box |
 | Xfer Records (no module: plain Windows installer) | Serum 2 (2.1.5) installer | Bridged as VST3 and playing out of the box |
+| iZotope (no module: plain Windows installer) | Product Portal 1.4, Ozone 9 Advanced 9.13 installer | Every Ozone module bridged as VST3 and VST2, working out of the box. Its installer hands off to a helper (the app waits for it) and leaves the Electron Product Portal running, which crash-loops under Wine; the app stops that so it cannot starve loaded plugins |
+| Spitfire Audio (no module: plain Windows installer) | Spitfire Audio app 3.4 | Draws and signs in only with the app's patched dcomp.dll and dxgi.dll and Wine's own Direct3D, which the app applies to any program that imports DirectComposition (JUCE 8) |
 
 Health lists every check behind these; when one fails it names the fix.
 
@@ -112,9 +129,11 @@ vstenv doctor                                         # every fix and prerequisi
   own Wine (vendor launch fixes and per-program quirks applied); each also gets a
   desktop menu entry with its own icon (`vstenv menu`).
 - **Install** — per vendor: open the manager, get it from the vendor, install or
-  update it from a downloaded installer, and (NI) install a product from its own
-  installer when the manager's install fails. Plus any third-party plugin
-  installer, extra plugin folders, and finishing interrupted installs.
+  update it from a downloaded installer, and (NI, IK) install a product from its
+  own installer when the manager cannot. Plus any third-party plugin installer,
+  extra plugin folders, and finishing interrupted installs. When an installer
+  leaves an Electron manager crash-looping under Wine (iZotope's Product Portal),
+  the app stops it, so it cannot thrash the prefix and freeze loaded plugins.
 - **Health** — every check with a fix, sign-in handler registration, and a
   scrubbed diagnostic report to attach to a bug.
 
@@ -146,6 +165,11 @@ and every Wine process the app starts share the host's pid namespace
 (`flatpak-spawn --host`, portal permission `org.freedesktop.Flatpak`). The
 sandbox also needs to see every host path Wine reaches through the prefix
 (Documents, sample libraries on other disks): Health reports what it cannot.
+
+**Windows behave under your window manager.** Setup turns off Wine's
+`UseTakeFocus` (its X11 driver otherwise asks to be raised on every activation),
+so a plugin's Wine window no longer jumps to the front each time you click it
+while a DAW is open.
 
 **Vendor modules.** `vstenv/vendors/__init__.py` defines the interface; the
 core calls it and never names a vendor. A module says what its manager is and
@@ -197,7 +221,10 @@ what Steinberg's graphics library still needs) and installs it into its Wine
 (`vstenv wine-fixes`), gives Steinberg programs and their bridged plugins Wine's
 own Direct3D, and installs a "Segoe UI" font family (Microsoft's open-source
 Selawik, renamed) so their dialogs have text. The patches are under
-`patches/wine/` and are built by CI for the pinned Wine.
+`patches/wine/` and are built by CI for the pinned Wine. The same treatment
+is applied to any program or bridged plugin whose import table names
+DirectComposition (JUCE 8 GUIs such as Spitfire Audio's), and a third patched
+DLL, dxgi.dll, makes WaitForVBlank return so JUCE's vblank thread can exit.
 
 ## Command line
 

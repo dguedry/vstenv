@@ -124,3 +124,87 @@ class ProductNotesTest(unittest.TestCase):
         with mock.patch.object(v, "dcomp_ready", return_value=True):
             self.assertEqual(vendors.note_for("Steinberg HALion Sonic 7", v.product_notes(None)).level, "patched")
             self.assertEqual(vendors.note_for("Steinberg Library Manager", v.product_notes(None)).level, "works")
+
+
+class IKFinishInstallsTest(unittest.TestCase):
+    """The IK Product Manager downloads a product then fails to launch its
+    installer (Node exec double-quotes a parenthesised path); vstenv runs the
+    downloaded installer itself and skips products already installed."""
+    def _prefix(self, tmp):
+        from vstenv.wine import Prefix, WineBuild
+        p = Prefix(Path(tmp) / "prefix", WineBuild(Path(tmp) / "wine"))
+        (p.drive_c / "users/me").mkdir(parents=True)
+        return p
+
+    def _downloads(self, p):
+        d = p.user_dir / "Documents/IK Multimedia/IK Product Manager"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def test_staged_lists_downloaded_but_uninstalled_products(self):
+        import tempfile
+        from unittest import mock
+        from vstenv import programs, vendors
+        v = vendors.get("ik")
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._prefix(tmp); d = self._downloads(p)
+            for name, files in {"SampleTank 4": ["Install SampleTank 4 (4.2.6).exe", "Install_SampleTank_4_(4.2.6).zip"],
+                                "Hammond B-3X": ["Install Hammond B-3X (1.2.0).exe", "unins000.exe"]}.items():
+                sub = d / name; sub.mkdir()
+                for fn in files: (sub / fn).write_bytes(b"MZ")
+            # SampleTank 4 is already installed; Hammond is not
+            prog = programs.Program(name="SampleTank 4", exe=None, install_dir=r"C:\\Program Files\\IK Multimedia\\SampleTank 4")
+            with mock.patch.object(programs, "installed", return_value=[prog]):
+                staged = v.staged_installs(p)
+            names = [n for n, _ in staged]
+            self.assertIn("Hammond B-3X", names)
+            self.assertNotIn("SampleTank 4", names)                 # already installed -> skipped
+            # the .exe chosen is the installer, not the uninstaller
+            exe = dict(staged)["Hammond B-3X"]
+            self.assertNotIn("unins", exe.name.lower())
+
+    def test_finish_runs_each_through_the_installer(self):
+        import tempfile
+        from unittest import mock
+        from vstenv import programs, vendors
+        v = vendors.get("ik")
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._prefix(tmp); d = self._downloads(p)
+            sub = d / "T-RackS 5"; sub.mkdir(); (sub / "Install T-RackS 5 (5.9).exe").write_bytes(b"MZ")
+            with mock.patch.object(programs, "installed", return_value=[]), \
+                 mock.patch.object(programs, "install", return_value=0) as inst:
+                done = v.finish_installs(p)
+            inst.assert_called_once()
+            self.assertEqual(done, [{"vendor": "ik", "product": "T-RackS 5", "ok": True}])
+
+
+class RespawningKillTest(unittest.TestCase):
+    """kill_respawning kills a crash-looping app the supervisor keeps relaunching,
+    parents-before-children, and stops when the set stays empty."""
+    def test_kills_until_the_set_is_empty(self):
+        import tempfile
+        from unittest import mock
+        from vstenv.wine import Prefix, WineBuild
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Prefix(Path(tmp) / "prefix", WineBuild(Path(tmp) / "wine"))
+            live = {1: "start.exe /exec", 2: "iZotope Product Portal.exe --type=renderer"}
+            def processes(exe_name=None):
+                return [(pid, cmd) for pid, cmd in live.items()]
+            def kill_pids(pids, sig="TERM", wait=0):
+                for x in pids: live.pop(int(x), None)          # this round's kill removes them; nothing respawns
+            with mock.patch.object(p, "processes", side_effect=processes), \
+                 mock.patch.object(p, "kill_pids", side_effect=kill_pids), \
+                 mock.patch("time.sleep"):
+                n = p.kill_respawning(lambda c: "Portal" in c or "start.exe" in c)
+            self.assertEqual(n, 2); self.assertEqual(live, {})
+
+    def test_nothing_matching_kills_nothing(self):
+        import tempfile
+        from unittest import mock
+        from vstenv.wine import Prefix, WineBuild
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Prefix(Path(tmp) / "prefix", WineBuild(Path(tmp) / "wine"))
+            with mock.patch.object(p, "processes", return_value=[(9, "explorer.exe")]), \
+                 mock.patch.object(p, "kill_pids") as kp, mock.patch("time.sleep"):
+                self.assertEqual(p.kill_respawning(lambda c: "Portal" in c), 0)
+                kp.assert_not_called()

@@ -32,7 +32,8 @@ from .progress import null_reporter
 RELEASE_REPO = wine.RELEASE_REPO
 PE_DIR = "lib/wine/x86_64-windows"
 MARKER_NAME = "vstenv-wine-fixes.json"
-FIXES = {"dcomp.dll": "DirectComposition (Steinberg's graphics2d: HALion Sonic 7, Cubase, Dorico)",
+FIXES = {"dcomp.dll": "DirectComposition (Steinberg's VSTGUI: HALion Sonic 7, Cubase, Dorico; JUCE 8 GUIs: Spitfire Audio)",
+         "dxgi.dll": "WaitForVBlank paced to the display refresh (JUCE 8 GUIs hang on Wine's E_NOTIMPL)",
          "advapi32.dll": "credential attributes (Steinberg's License Engine keeps its sign-in)"}
 
 def wine_version(build=None) -> str:

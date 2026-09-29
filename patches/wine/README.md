@@ -27,6 +27,18 @@ commented-out stub, so HALion Sonic, which closes its wait-chain session on
 exit, raised a stub exception instead of quitting and showed its crash
 reporter on every close.
 
+## dxgi-waitforvblank-<version>.patch
+
+`IDXGIOutput::WaitForVBlank` returned `E_NOTIMPL` (a stub). JUCE 8's Direct2D
+window peer paces its painting on that call from a vblank thread whose loop
+only checks its exit flag after a successful wait, so on `E_NOTIMPL` the thread
+spins forever and the main thread hangs in `stopThread` before the first window
+is shown (Spitfire Audio's app; any JUCE 8 GUI). DXVK sleeps for the refresh
+period and returns `S_OK`; this patch does the same with Wine's dxgi, reading
+the output's refresh rate from wined3d and sleeping to the next period boundary.
+Verified 2026-09-28: the Spitfire Audio app draws and signs in. A candidate
+for upstreaming.
+
 ## dcomp-steinberg-<version>.patch
 
 DirectComposition for Steinberg's current products. Their GUI library

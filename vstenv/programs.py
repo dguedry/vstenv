@@ -294,6 +294,42 @@ def wait_for_uninstaller(p: Prefix, prog: Program, timeout=1800):
         if not procs: return
         time.sleep(2)
 
+# An installer's helper: something it started that is still installing after the
+# process we ran returned. Wrappers unpack into Temp and run the real setup from
+# there (iZotope, InnoSetup's is-*.tmp, NSIS), or hand off to msiexec. A product
+# the installer offered to "run now" lives under Program Files and matches none
+# of this, so it is not waited for.
+INSTALLER_PROC = re.compile(r"(\\temp\\|\\tmp\\|msiexec|\bis-[0-9a-z]+\.tmp|_MEI\d+|setup|instal)", re.I)
+
+# Crash-looping vendor manager/installer chains left behind after an install:
+# `start.exe /exec` (Wine's launcher for a program the installer started), a
+# still-running installer exe under Downloads, and the Electron helpers it keeps
+# respawning (renderer/gpu/utility children with no main). See kill_respawning.
+RESPAWNING_MANAGER = re.compile(
+    r"(start\.exe /exec|\\Downloads\\.*\.exe|--type=(renderer|gpu-process|utility)|Product Portal|Product Manager)", re.I)
+
+def wait_for_installer(p: Prefix, before: set[int], reporter=None, timeout=7200):
+    """Block while a helper the installer started (a pid that was not there before
+    it ran) is still installing. Returns the helpers seen."""
+    r = null_reporter(reporter); seen = []; t0 = time.time()
+    while time.time() - t0 < timeout:
+        procs = [c for pid, c in p.processes() if pid not in before and INSTALLER_PROC.search(c)]
+        if not procs:
+            if seen: r.ok(", ".join(seen))
+            return seen
+        if not seen: r.step("Waiting for the setup the installer started")
+        seen = list(dict.fromkeys(seen + [_exe_name(c) for c in procs]))
+        time.sleep(2)
+    r.fail(f"{', '.join(seen)} still running after {timeout // 60} min; not waiting any longer")
+    return seen
+
+def _exe_name(cmdline: str) -> str:
+    """The program in a Windows command line: its first .exe, else its last .tmp/.msi."""
+    exe = re.search(r"[^\\/]+?\.exe", cmdline, re.I)
+    if exe: return exe.group(0)
+    other = re.findall(r"[^\\/ ]+\.(?:tmp|msi)", cmdline, re.I)
+    return other[-1] if other else cmdline[:60]
+
 def install(p: Prefix, installer: Path, reporter=None) -> int:
     """Run any Windows installer interactively: .msi through msiexec, anything else
     as a program. Plugins it drops are bridged by the caller (yabridge.sync)."""
@@ -302,10 +338,26 @@ def install(p: Prefix, installer: Path, reporter=None) -> int:
     if not installer.is_file(): raise FileNotFoundError(f"installer not found: {installer}")
     r.step(f"Running installer: {installer.name}")
     before = {(x.name, x.install_dir) for x in installed(p)}
+    pids_before = {pid for pid, _ in p.processes()}
     if installer.suffix.lower() == ".msi": argv = ["msiexec", "/i", str(installer)]
     else: argv = [str(installer)]
     cp = p.run(argv, timeout=7200, capture=False)
     (r.ok if cp.returncode == 0 else r.fail)(f"exit {cp.returncode}")
+    # The process we ran may be only a wrapper: the real setup it unpacked and
+    # started keeps installing after it returns (iZotope's does), and bridging
+    # before that finishes misses every plugin it is about to drop.
+    wait_for_installer(p, pids_before, r)
+    # Some vendor installers leave their Electron manager running (iZotope's
+    # Product Portal, launched via `start.exe /exec`), and it crash-loops under
+    # Wine: a supervisor relaunches it every few seconds, thrashing the shared
+    # wineserver until unrelated plugins deadlock. Stop anything the installer
+    # started that is still respawning, but never a program that was already
+    # running before this install (a plugin host in a DAW).
+    orphans = [c for pid, c in p.processes() if pid not in pids_before and RESPAWNING_MANAGER.search(c)]
+    if orphans:
+        r.step("Stopping the installer's crash-looping manager")
+        n = p.kill_respawning(lambda c: RESPAWNING_MANAGER.search(c) is not None, r)
+        r.ok(f"{n} process(es): {', '.join(sorted({_exe_name(c) for c in orphans}))}")
     for prog in installed(p):                      # quirks for what this installer added or replaced, not for
         if not prog.install_dir: continue          # every program already in the prefix (a FabFilter install
         if (prog.name, prog.install_dir) in before: continue   # is not the moment to talk about IK's bundle)

@@ -6,7 +6,8 @@
 # Why: a few Wine DLLs need patches for the vendors' programs (see
 # patches/wine/README.md): dcomp.dll (DirectComposition for Steinberg's
 # products) and advapi32.dll (credential attributes, which Steinberg's
-# License Engine needs to keep its sign-in). This applies every
+# License Engine needs to keep its sign-in) and dxgi.dll (a WaitForVBlank that
+# returns, for JUCE 8 GUIs). This applies every
 # patches/wine/*-<version>.patch to the Wine sources (on top of the full
 # wine-staging set, since the pinned build is a staging build), builds just
 # those DLLs with the MinGW cross compiler, and produces
@@ -20,7 +21,7 @@ OUT="${2:-$PWD}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 PATCHES=("$HERE"/patches/wine/*-"$VERSION".patch)
 [ -f "${PATCHES[0]}" ] || { echo "no patches for Wine $VERSION under $HERE/patches/wine" >&2; exit 1; }
-DLLS=(dcomp advapi32)
+DLLS=(dcomp advapi32 dxgi)
 # WINE_FIXES_WORK=<dir> keeps the patched tree (unstripped DLL for symbols).
 if [ -n "${WINE_FIXES_WORK:-}" ]; then WORK="$WINE_FIXES_WORK"; mkdir -p "$WORK"; else WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT; fi
 cd "$WORK"

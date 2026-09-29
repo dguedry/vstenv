@@ -296,6 +296,41 @@ done"""
         if pids: host.run(["kill", "-TERM", *pids], capture_output=True, timeout=20)
         time.sleep(wait)
 
+    def kill_pids(self, pids, sig="TERM", wait=2.0):
+        pids = [str(x) for x in pids]
+        if pids: host.run(["kill", f"-{sig}", *pids], capture_output=True, timeout=20)
+        if wait: time.sleep(wait)
+
+    def kill_respawning(self, match, reporter=None, rounds=4) -> int:
+        """Stop a set of prefix processes that a supervisor keeps relaunching.
+
+        A crashing Electron app (a vendor installer's manager: iZotope's Product
+        Portal, IK's Product Manager) is restarted every few seconds by the
+        process that spawned it, so killing the children alone loops forever and
+        the churn starves the shared wineserver -- enough to deadlock unrelated
+        plugins (an Ozone preset window froze this way, 2026-09-29). Kill parents
+        before children each round (so nothing is left to respawn them), TERM then
+        KILL, and confirm the set stays empty. `match` is a predicate on the
+        command line. Returns how many distinct pids were killed."""
+        from .progress import null_reporter
+        r = null_reporter(reporter); killed = set()
+        def victims():
+            # pid -> (ppid, cmd) for prefix processes whose cmdline matches, plus
+            # the non-system parents that launch them (start.exe /exec, the installer).
+            hits = [(pid, cmd) for pid, cmd in self.processes() if match(cmd)]
+            return hits
+        for i in range(rounds):
+            hits = victims()
+            if not hits:
+                if killed: r.log(f"stopped {len(killed)} respawning process(es)")
+                return len(killed)
+            pids = [pid for pid, _ in hits]
+            killed.update(pids)
+            self.kill_pids(pids, "TERM" if i < rounds - 1 else "KILL", wait=2.0 + i)
+        left = victims()
+        if left: r.log(f"warning: {len(left)} process(es) still present after {rounds} rounds")
+        return len(killed)
+
     # -- integrity -------------------------------------------------------------------
     # Builtin DLLs whose prefix copies must come from *this* wine. Another Wine
     # (a DAW's yabridge using the host wine) touching the prefix runs its own

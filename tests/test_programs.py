@@ -127,6 +127,7 @@ class InstallerAutoLaunchTest(unittest.TestCase):
             prog = programs.Program(name="IK Product Manager", exe=r"C:\Program Files\IK\IK Product Manager.exe", install_dir=r"C:\Program Files\IK")
             before = [prog] if already_present else []      # installed() before the installer ran, then after
             with mock.patch.object(p, "run", return_value=subprocess.CompletedProcess([], 0)), \
+                 mock.patch.object(p, "processes", return_value=[]), \
                  mock.patch.object(programs, "installed", side_effect=[before, [prog]]), \
                  mock.patch.object(quirks, "apply", return_value=["os-info patched"]) as apply, \
                  mock.patch.object(quirks, "launch_args", return_value=["--disable-gpu"]), \
@@ -144,6 +145,50 @@ class InstallerAutoLaunchTest(unittest.TestCase):
         # installing a third-party plugin must not re-run (and re-report) another vendor's quirks
         kill, run, apply = self._install(running=True, already_present=True)
         apply.assert_not_called(); kill.assert_not_called(); run.assert_not_called()
+
+
+class InstallerHelperWaitTest(unittest.TestCase):
+    """A wrapper installer returns while the setup it unpacked into Temp is still
+    running (iZotope); the app must wait for that helper before bridging, but not
+    for a product the installer offered to run."""
+    def _run(self, scans):
+        # scans is the sequence of process snapshots install() will see; once it
+        # runs out, the last snapshot repeats (so an extra scan for orphan cleanup
+        # does not raise StopIteration and just sees a quiet prefix).
+        import subprocess, tempfile
+        from unittest import mock
+        from vstenv.wine import Prefix, WineBuild
+        seq = list(scans); calls = {"n": 0}
+        def fake_processes(exe_name=None):
+            i = min(calls["n"], len(seq) - 1); calls["n"] += 1; return seq[i]
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Prefix(Path(tmp) / "prefix", WineBuild(Path(tmp) / "wine"))
+            inst = Path(tmp) / "iZotope_Ozone.exe"; inst.write_bytes(b"MZ")
+            with mock.patch.object(p, "run", return_value=subprocess.CompletedProcess([], 0)), \
+                 mock.patch.object(p, "processes", side_effect=fake_processes), \
+                 mock.patch.object(p, "kill_respawning", return_value=1) as killr, \
+                 mock.patch.object(programs, "installed", return_value=[]), \
+                 mock.patch.object(programs.time, "sleep"):
+                programs.install(p, inst)
+                return calls["n"], killr.call_count
+    def test_waits_for_the_setup_the_wrapper_started(self):
+        services = [(10, r"C:\windows\system32\services.exe"), (11, r"C:\windows\system32\explorer.exe")]
+        helper = (55, r"C:\users\me\Temp\{1234}\Ozone 9 Advanced Setup.exe")
+        # before; helper still running (poll 1,2); gone (poll 3); then the orphan scan sees a quiet prefix
+        scans = [services, services + [helper], services + [helper], services, services]
+        n, killed = self._run(scans)
+        self.assertGreaterEqual(n, 4); self.assertEqual(killed, 0)      # nothing respawning -> no cleanup
+    def test_a_crash_looping_manager_left_by_the_installer_is_stopped(self):
+        services = [(10, r"C:\windows\system32\services.exe")]
+        # a Product Portal that was NOT there before the install appears afterwards -> cleaned up
+        portal = (77, r"C:\Program Files\iZotope\Product Portal\x64\iZotope Product Portal.exe --type=renderer")
+        n, killed = self._run([services, services + [portal]])
+        self.assertEqual(killed, 1)
+    def test_a_service_that_was_already_running_is_ignored(self):
+        # a renderer present BEFORE the install is not treated as an orphan of it
+        old = [(10, r"C:\windows\system32\services.exe"), (20, r"C:\Program Files\x\App.exe --type=renderer")]
+        n, killed = self._run([old, old])
+        self.assertEqual(killed, 0)
 
 
 class ShortcutFilterTest(unittest.TestCase):

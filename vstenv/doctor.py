@@ -1,7 +1,7 @@
 """Health checks: the environment's own, then every vendor module's."""
 import os, shutil
 from pathlib import Path
-from . import APP_ID, paths, wine, runtime, yabridge, prefixes, dxvk, host, menu, vendors, winefixes
+from . import APP_ID, paths, wine, runtime, yabridge, prefixes, dxvk, host, menu, vendors, winefixes, dcomp
 from .vendors import Check
 
 class _Checks(list):
@@ -31,13 +31,19 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
         if b is None: return c
         p = wine.Prefix(paths.PREFIX, b)
     wf = winefixes.status(b)
-    c.append(Check("patched Wine DLLs (Steinberg: DirectComposition, sign-in persistence)", wf["installed"],
-                   ", ".join(wf["files"]) if wf["installed"] else f"{', '.join(wf['missing'])} not installed: Steinberg's current products are refused at launch, or their sign-in is forgotten",
+    c.append(Check("patched Wine DLLs (DirectComposition, vblank wait, credential attributes)", wf["installed"],
+                   ", ".join(wf["files"]) if wf["installed"] else f"{', '.join(wf['missing'])} not installed: DirectComposition GUIs (Steinberg, JUCE 8) are refused, hang or stay blank, or Steinberg's sign-in is forgotten",
                    fix="vstenv wine-fixes install (fetches this app's build from its release)"))
     ok, detail = wine.module_libs_check(wine.missing_module_libs(b))
     c.append(Check("Wine modules find their host libraries", ok, detail, fix="install the named libraries with your package manager (optional modules only lose that feature)"))
     c.append(Check("prefix", p.exists, str(p.path), fix="vstenv setup"))
     if not p.exists: return c
+    try:
+        exes = dcomp.program_exes(p); missing = [e for e in exes if not dcomp.program_fix_applied(p, e)]
+        c.append(Check("DirectComposition programs run on Wine's own Direct3D", not missing,
+                       (", ".join(exes) if exes else "none installed") if not missing else f"{', '.join(missing)}: DXVK has no composition swap chains, so their windows stay blank",
+                       fix="vstenv setup"))
+    except Exception as e: c.append(Check("DirectComposition programs run on Wine's own Direct3D", False, str(e)[:100], fix="vstenv setup"))
     hok, hdetail = host.available()
     c.append(Check("Wine runs on the host", hok, hdetail, fix="reinstall the current Flatpak build (it grants the org.freedesktop.Flatpak portal)"))
     if not hok: return c

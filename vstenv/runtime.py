@@ -124,6 +124,13 @@ def registry(p: Prefix, reporter=None):
     reg += [f'"{k}"="{v}"' for k, v in subs.items()]
     if segoe: reg += [f'"{k}"=-' for k in aliased]           # a substitute would hide the alias faces from GDI
     reg += ["", r"[HKEY_CURRENT_USER\Software\Wine\DllOverrides]"] + [f'"{d}"="native,builtin"' for d in dlls] + [""]
+    # Wine's X11 driver asks the window manager for focus via WM_TAKE_FOCUS on
+    # every activation (UseTakeFocus defaults to Y); with a plugin editor and a
+    # DAW sharing the screen, each click on a plugin makes its Wine window raise
+    # itself to the front. UseTakeFocus=N lets the window manager decide, which
+    # stops the raise-on-click. (A per-plugin editor is embedded by the DAW, but
+    # standalone and detached editor windows hit this.)
+    reg += ["", r"[HKEY_CURRENT_USER\Software\Wine\X11 Driver]", '"UseTakeFocus"="N"', ""]
     rc = p.reg_import("\r\n".join(reg), "vstenv-setup.reg")
     if rc != 0: r.fail(f"regedit exit {rc}")
     else: r.ok()

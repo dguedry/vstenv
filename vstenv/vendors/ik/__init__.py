@@ -68,7 +68,8 @@ class IKMultimedia(Vendor):
         try: gpu = dxvk.status(p)
         except Exception: gpu = {"installed": False}
         return [Note(MANAGER, "patched", "IK copied NI's Electron storefront and its mistakes, then added one of its own: it refuses to run because "
-                     "the output of `ver` does not look like a Windows it has met. Two edits to its bundle and --disable-gpu, and it behaves."),
+                     "the output of `ver` does not look like a Windows it has met. Two edits to its bundle and --disable-gpu, and it behaves. "
+                     "Its login wants your IK username, not the email you registered with; it says 'invalid password' either way."),
                 Note("", "works" if gpu["installed"] else "limited",
                      "JUCE plugin GUIs that draw through Direct3D; they repaint through DXVK here." if gpu["installed"] else
                      "JUCE plugin GUIs that draw through Direct3D and need DXVK to repaint; this machine has no usable Vulkan driver, "
@@ -78,6 +79,48 @@ class IKMultimedia(Vendor):
         from ... import programs
         return [Product(name=x.name, vendor=self.id, kind="App", version=x.version, install_dir=x.install_dir)
                 for x in programs.installed(p) if self.publisher.search(x.publisher or "") and not self.is_manager_program(x)]
+    # -- finishing the Product Manager's downloads -------------------------------------------
+    # The Product Manager downloads a product into
+    # Documents/IK Multimedia/IK Product Manager/<Product>/ (a .zip and the .exe
+    # it unpacks) and then tries to launch the installer with Node's exec, which
+    # wraps the already-quoted path in another pair of quotes -- Wine's cmd
+    # rejects `cmd /c ""C:\...\Install X (1.2.3).exe""` (worse with the
+    # parentheses in IK's names). The install fails, the page retries, and each
+    # retry opens a browser tab (shell.openExternal). vstenv runs the downloaded
+    # installer itself, through its own installer path, which quotes correctly and
+    # waits for it. Products already installed are left alone.
+    def _downloads_dir(self, p: Prefix) -> Path:
+        return p.user_dir / "Documents/IK Multimedia/IK Product Manager"
+
+    def staged_installs(self, p: Prefix) -> list:
+        """Downloaded IK product installers that are present but whose product is
+        not installed yet: [(product name, installer path)]."""
+        from ... import programs
+        d = self._downloads_dir(p)
+        if not d.is_dir(): return []
+        installed = {x.name.lower() for x in programs.installed(p)}
+        out = []
+        for sub in sorted(d.iterdir()):
+            if not sub.is_dir(): continue
+            if any(sub.name.lower() in n or n in sub.name.lower() for n in installed): continue
+            exe = next((f for f in sorted(sub.glob("*.exe")) if "uninstall" not in f.name.lower()), None)
+            if exe: out.append((sub.name, exe))
+        return out
+
+    def finish_installs(self, p: Prefix, r=None) -> list[dict]:
+        """Run each downloaded IK installer the Product Manager could not launch."""
+        from ... import programs
+        from ...progress import null_reporter
+        rr = null_reporter(r); done = []
+        for name, exe in self.staged_installs(p):
+            rr.step(f"Finishing IK download: {name}")
+            try:
+                rc = programs.install(p, exe, rr)
+                done.append({"vendor": self.id, "product": name, "ok": rc == 0})
+            except Exception as e:
+                rr.fail(str(e)[:100]); done.append({"vendor": self.id, "product": name, "ok": False})
+        return done
+
     def quirks(self):
         return {MANAGER: [Quirk("resources/app.asar", r"local_modules/os-info/index\.js", os_info_edit,
                                 "os-info: accept Wine's `ver` output (no [Version …] brackets)"),

@@ -1,7 +1,7 @@
 """Setting the environment up and keeping it consistent: the core steps, then
 every vendor module's own, in one idempotent pass."""
 from pathlib import Path
-from . import runtime, dxvk, yabridge, menu, urlschemes, vendors, tools, winefixes
+from . import runtime, dxvk, yabridge, menu, urlschemes, vendors, tools, winefixes, dcomp
 from .progress import null_reporter
 from .wine import Prefix
 
@@ -20,7 +20,8 @@ def prepare(p: Prefix, reporter=None):
     p.wait_idle()
     _guarded(r, "Installing yabridge", lambda: yabridge.install(r))
     _guarded(r, "nilinux leftovers", lambda: yabridge.remove_nilinux_leftovers(r))
-    _guarded(r, "Plugin DLL overrides", lambda: yabridge.write_plugin_overrides([e for v in vendors.all() for e in v.plugin_dll_overrides(p)]))
+    _guarded(r, "Plugin DLL overrides", lambda: yabridge.write_plugin_overrides(dcomp.all_plugin_overrides(p)))
+    _guarded(r, "DirectComposition programs", lambda: dcomp.apply_program_overrides(p, dcomp.program_exes(p), r))
     for v in vendors.all():
         _guarded(r, f"{v.name}: preparing", lambda v=v: v.prepare(p, r))
     _guarded(r, "URL handlers", lambda: urlschemes.register_all(p, r))
@@ -48,7 +49,8 @@ def after_change(p: Prefix, reporter=None) -> dict:
     r = null_reporter(reporter)
     for v in vendors.all():
         _guarded(r, f"{v.name}: after install", lambda v=v: v.after_install(p, r))
-    _guarded(r, "Plugin DLL overrides", lambda: yabridge.write_plugin_overrides([e for v in vendors.all() for e in v.plugin_dll_overrides(p)]))
+    _guarded(r, "DirectComposition programs", lambda: dcomp.apply_program_overrides(p, dcomp.program_exes(p), r))
+    _guarded(r, "Plugin DLL overrides", lambda: yabridge.write_plugin_overrides(dcomp.all_plugin_overrides(p)))
     res = yabridge.sync(p, r)
     _guarded(r, "Desktop menu entries", lambda: menu.sync(p, r))
     return res

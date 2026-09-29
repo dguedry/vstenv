@@ -70,7 +70,7 @@ from pathlib import Path
 
 from .. import Vendor, Product, Check, UrlScheme, Note
 from ...progress import null_reporter
-from ... import mono, pe
+from ... import dcomp, mono, pe
 from ...installers import steinberg as pkg
 from ...wine import Prefix
 
@@ -79,24 +79,13 @@ EXE = "Steinberg Download Assistant.exe"
 DEFAULT_EXE = r"C:\Program Files (x86)\Steinberg\Download Assistant\Steinberg Download Assistant.exe"
 OVERRIDES = ("d3d9", "d3d10core", "d3d11", "dxgi")
 OVERRIDES_KEY = rf"HKCU\Software\Wine\AppDefaults\{EXE}\DllOverrides"
-PRODUCT_OVERRIDES = ("d3d10core", "d3d11", "dxgi")                 # VSTGUI/Direct2D: built-in D3D11 for Steinberg programs
-
-def overrides_key(exe_name: str) -> str: return rf"HKCU\Software\Wine\AppDefaults\{exe_name}\DllOverrides"
-
-def program_fix_applied(p: Prefix, exe_name: str) -> bool:
-    cur = p.reg_query(overrides_key(exe_name))
-    return all(cur.get(d) == "builtin" for d in PRODUCT_OVERRIDES)
+PRODUCT_OVERRIDES = dcomp.BUILTIN                                   # VSTGUI/Direct2D: built-in D3D11 for Steinberg programs
+overrides_key = dcomp.overrides_key
+program_fix_applied = dcomp.program_fix_applied
 
 def apply_program_fixes(p: Prefix, exe_names: list[str], reporter=None) -> list[str]:
     """Built-in D3D11 for each Steinberg program exe (VSTGUI draws through Direct2D). Returns what changed."""
-    r = null_reporter(reporter); changed = []
-    for name in exe_names:
-        if program_fix_applied(p, name): continue
-        for d in PRODUCT_OVERRIDES: p.reg_add(overrides_key(name), d, "builtin")
-        changed.append(name)
-    if changed:
-        r.step("Steinberg programs: built-in Direct3D 11 (their GUIs draw through Direct2D)"); r.ok(", ".join(changed))
-    return changed
+    return dcomp.apply_program_overrides(p, exe_names, reporter, why="Steinberg's VSTGUI draws through Direct2D")
 SCHEME = "net-steinberg-sda"
 # The Activation Manager (Qt) signs in the same way: system browser, then the flow
 # page opens net-steinberg-activation-manager://…, which the prefix registers as

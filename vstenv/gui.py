@@ -4,7 +4,7 @@ from pathlib import Path
 import gi
 gi.require_version("Gtk", "4.0"); gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk, Gio
-from . import __version__, APP_ID, APP_NAME, paths, wine, yabridge, doctor, programs, setup, vendors, menu, runtime
+from . import __version__, APP_ID, APP_NAME, paths, wine, yabridge, doctor, programs, setup, vendors, menu, runtime, dcomp
 from .progress import Reporter, OK, FAIL, SKIP, RUN
 
 TITLE = "VST Environment"
@@ -226,6 +226,8 @@ class Window(Adw.ApplicationWindow):
             progs = programs.installed(self.prefix)
             bridged = yabridge.bridged(self.prefix)
             state, detail = yabridge.plugin_wine_status(self.prefix)
+            try: dc = dcomp.program_exes(self.prefix)
+            except Exception: dc = []
             def show():
                 if state == "missing": self.daw_banner.set_title("Plugins are not bridged: a DAW would run them with the host's wine and damage the prefix — run Re-run setup / repair.")
                 self.daw_banner.set_revealed(state != "active")
@@ -243,8 +245,10 @@ class Window(Adw.ApplicationWindow):
                 seen, crows, levels = set(), [], []
                 items = [(v.id, x.name) for v in vendors.all() for x in prods.get(v.id, [])]
                 items += [(v.id, x.name) for x in progs for v in [vendors.for_program(x)] if v is not None]
-                for vid, name in items:
-                    n = vendors.note_for(name, notes.get(vid, []))
+                found = [(name, vendors.note_for(name, notes.get(vid, []))) for vid, name in items]
+                # programs no vendor module claims, drawing through DirectComposition (JUCE 8: Spitfire Audio)
+                found += [(x.name, dcomp.note()) for x in progs if vendors.for_program(x) is None and dcomp.is_dcomp_program(x, dc)]
+                for name, n in found:
                     if n is None or n.level == "works" or name in seen: continue
                     seen.add(name); levels.append(n.level)
                     r = Adw.ActionRow(title=GLib.markup_escape_text(name), subtitle=GLib.markup_escape_text(n.text), subtitle_lines=0); r.add_suffix(_pill(n.level)); crows.append(r)
@@ -283,6 +287,8 @@ class Window(Adw.ApplicationWindow):
             for v in vendors.all():
                 try: notes[v.id] = v.product_notes(self.prefix)
                 except Exception: notes[v.id] = []
+            try: dc = dcomp.program_exes(self.prefix)
+            except Exception: dc = []
             def show():
                 rows = []
                 for x in progs:
@@ -296,6 +302,7 @@ class Window(Adw.ApplicationWindow):
                         b.connect("clicked", lambda *_, prog=x: self.uninstall_program(prog)); sfx.append(b)
                     v = vendors.for_program(x)
                     note = vendors.note_for(x.name, notes.get(v.id, [])) if v is not None else None
+                    if note is None and v is None and dcomp.is_dcomp_program(x, dc): note = dcomp.note()
                     if note is not None and note.level == "works": note = None      # a pill only where there is something to say
                     row = _noted_row(GLib.markup_escape_text(x.name), GLib.markup_escape_text(sub), note, sfx)
                     if x.exe: row.set_tooltip_text(x.exe)
