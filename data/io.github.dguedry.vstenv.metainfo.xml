@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.11" date="2026-09-29">
+      <description>
+        <p>JUCE 8 GUIs, crash-looping installer cleanup, Wine focus, IK installer handoff</p>
+      </description>
+    </release>
     <release version="0.1.10" date="2026-09-28">
       <description>
         <p>Tested: Valhalla DSP and Xfer Records Serum 2 work out of the box</p>
