@@ -246,4 +246,11 @@ cuts a release with a chosen version and note.
 
 ## License
 
-MIT.
+GPL-3.0-or-later. See [LICENSE](LICENSE). vstenv is a companion to
+[Performer](https://github.com/dguedry/linux-performer), which is under the same
+licence.
+
+The patches under [`patches/wine/`](patches/wine/) modify Wine and are therefore
+covered by Wine's own licence (LGPL-2.1-or-later), not the GPL; see
+[`patches/wine/README.md`](patches/wine/README.md). The DLLs built from them are
+likewise LGPL. Everything else in this repository is GPL-3.0-or-later.
