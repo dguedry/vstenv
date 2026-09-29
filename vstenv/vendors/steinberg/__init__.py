@@ -222,10 +222,11 @@ class Steinberg(Vendor):
     def after_install(self, p, r=None): apply_program_fixes(p, self.program_exes(p), r)
     def product_notes(self, p):
         dcomp = self.dcomp_ready(p)
-        gui = ("Steinberg rewrote its GUI library on DirectComposition, Direct2D and DirectWrite together, the one Windows graphics stack nobody "
-               "outside Redmond implements, and made it abort rather than fall back when any piece is missing: an instrument that cannot draw a "
-               "button without a desktop compositor. It runs here only because this app ships a patched dcomp.dll, forces Wine's own Direct3D "
-               "for it and its bridged plugin, and installs a Segoe UI font family so its dialogs are not blank.") if dcomp else \
+        gui = ("Steinberg rewrote its GUI library to draw with Direct2D and DirectWrite into a DirectComposition surface. Wine has the first two, "
+               "but DirectComposition, the desktop compositor, is barely implemented outside Windows, and Steinberg made the GUI abort rather than "
+               "fall back without it: an instrument that cannot draw a button without a compositor. It runs here only because this app ships a "
+               "patched dcomp.dll, forces Wine's own Direct3D for it and its bridged plugin, and installs a Segoe UI font family so its dialogs "
+               "are not blank.") if dcomp else \
               ("Steinberg rewrote its GUI library on DirectComposition, which Wine does not have, and made it abort rather than fall back. "
                "This app's patched dcomp.dll is not installed, so it is refused at launch; run setup.")
         return [Note(MANAGER, "patched", "Steinberg's installer chain is a museum of Microsoft technology: a Java 8 / JavaFX downloader starts a "

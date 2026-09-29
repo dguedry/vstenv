@@ -15,65 +15,57 @@ vstenv is the vendor-modular successor to [nilinux](https://github.com/dguedry/n
 
 Not affiliated with or endorsed by Native Instruments GmbH, IK Multimedia Production srl or Steinberg Media Technologies GmbH.
 
-## Why this exists
+## What needs help, and why
 
-Wine runs most Windows programs. It does not run these, and that is not Wine's
-fault. Companies that charge the price of a used car for an instrument ship
-software that a first-year student would be marked down for, and every fix in
-this app exists because of a decision one of them made on purpose.
+Wine runs most Windows programs as they are. A few of these vendors' programs
+need extra handling under Wine, some of it patched Wine DLLs where the program
+relies on parts of Windows that Wine has not finished. Each item below is what
+the program does and what the app does about it.
 
-- **Native Instruments** wrote its storefront, Native Access, as a web page
-  inside a browser it cannot keep alive. Its own installer cannot install it.
-  Its GPU process crash-loops. Its sandbox cannot start its own children. Its
-  updater would put all of that back. Its helper daemon grabs fixed localhost
-  ports as if nothing else had ever run on a computer. Seven repairs before the
-  window opens: the app unpacks the installer itself, raises the stack reserve,
-  patches the bundle, starts it with `--disable-gpu --no-sandbox`, installs the
-  daemon from NI's own files and wires the browser sign-in link.
-- **Kontakt**, the flagship sampler, arrives in an InstallAware wrapper that
-  unpacks its payload and then sits at half a core forever, doing nothing. The
-  app kills it and copies the files the installer already had. Libraries the
-  daemon cannot be bothered to register, the app registers.
-- **IK Multimedia** copied NI's Electron storefront, inherited its mistakes and
-  added one of its own: the Product Manager refuses to start because the output
-  of `ver` does not look like a Windows it has met. That is the whole check. Two
-  edits to its bundle and `--disable-gpu`, and it behaves. Its login wants your
-  IK username, not the email you registered with, and says "invalid password"
-  either way. It downloads a product, then tries to launch the installer with a
-  command line Wine's shell rejects (a path in doubled quotes, worse with the
-  parentheses in IK's filenames); the failed launch retries and opens a browser
-  tab each time. The app runs the downloaded installer itself instead, through
-  its own installer path.
-- **Steinberg** built an installer chain out of every Microsoft technology of
-  the last twenty years: a Java 8 / JavaFX downloader starts a .NET Install
-  Assistant that runs PowerShell scripts signed for a Windows trust check, and
-  when that check fails it refuses to install Steinberg's own packages. Five
-  runtimes to copy a file. The Activation Manager is a Qt 6 front end to a
-  licence engine that talks nanomsg over named pipes to store one token, and
-  stores it with a credential attribute Wine used to throw away, so it forgot
-  your sign-in on every restart and then opened itself in your face each time a
-  plugin asked for a licence. And the current HALion, Cubase and Dorico rewrote
-  their GUI library on DirectComposition, Direct2D and DirectWrite together,
-  the one Windows graphics stack nobody outside Redmond implements, and made it
-  abort rather than fall back: an instrument that cannot draw a button without
-  a desktop compositor. Hence two patched Wine DLLs and a Segoe UI font family
-  so its dialogs are not blank.
-- **JUCE 8**, the framework half the industry builds on, then made the same
-  choice for everyone: Direct2D and DirectComposition became its default
-  Windows renderer, with no fallback, so every program built on it inherits
-  Steinberg's problem. Its vblank thread also ignores its exit flag when the
-  wait fails, so under stock Wine a JUCE 8 app (Spitfire Audio's) hangs before
-  a window appears, or shows a blank one. The app scans every installed
-  program and bridged plugin for that import and gives each one the patched
-  DLLs and Wine's own Direct3D; a third patched DLL makes the vblank wait
-  return.
+- **Native Instruments (Native Access).** The storefront is an Electron app.
+  Under Wine its installer does not run, its GPU process is unstable, its Chromium
+  sandbox cannot start child processes, its self-updater reverts the changes
+  below, and its helper daemon binds fixed localhost ports. The app extracts the
+  files from the installer itself, raises the executable's stack reserve, patches
+  the bundle so it does not self-update, launches it with `--disable-gpu
+  --no-sandbox`, installs the NTK daemon from NI's own files, and registers the
+  `native-access://` browser sign-in handler.
+- **Kontakt.** Its InstallAware installer unpacks the payload and then stops
+  making progress. The app ends it and copies the already-unpacked files, and
+  registers the library entries the daemon does not.
+- **IK Multimedia (IK Product Manager).** Also Electron. Its os-info module
+  parses the output of `ver` and fails on Wine's format, and it needs GPU
+  acceleration disabled; the app makes two edits to its bundle and launches it
+  with `--disable-gpu`. Sign-in uses your IK username, not your email. When it
+  downloads a product it launches the installer with a command line Wine's shell
+  rejects, and each failed attempt opens a browser tab; the app runs the
+  downloaded installer through its own installer path instead.
+- **Steinberg.** The installer chain is Java/JavaFX and .NET: the Download
+  Assistant runs a .NET Install Assistant whose PowerShell steps are signed for a
+  Windows trust check that fails under Wine, so it declines to install
+  Steinberg's own packages; the app installs Wine Mono and unpacks and runs the
+  packages itself. The Activation Manager stores its sign-in token with a
+  credential attribute Wine used to discard, so sign-in was lost on each restart;
+  a patched advapi32.dll keeps it. HALion, Cubase and Dorico of the current
+  generation draw with Direct2D and DirectWrite onto a DirectComposition surface.
+  Wine has Direct2D and DirectWrite; DirectComposition is only partly implemented
+  and the GUI does not fall back without it. The app ships a patched dcomp.dll,
+  gives these programs Wine's own Direct3D, and installs a Segoe UI font family
+  so their dialogs have text.
+- **JUCE 8 programs.** JUCE 8 defaults to the same Direct2D/DirectComposition
+  path on Windows with no fallback, so programs built on it (for example the
+  Spitfire Audio app) need the same handling. Its vblank thread also does not
+  exit cleanly when the vertical-blank wait is unimplemented, which hangs the
+  program at startup under stock Wine. The app detects any program or bridged
+  plugin that uses DirectComposition and applies the patched DLLs and Wine's own
+  Direct3D; a patched dxgi.dll makes the vblank wait return.
 
-It can be done properly. FabFilter's Total Bundle, Soundtoys 5.5 with its iLok
-licensing, Valhalla DSP and Xfer Records' Serum 2 install as plain Windows
-programs and every one of their plugins works untouched, which is what the
-vendors above should be embarrassed by. The app carries all of the rest so you never
-have to know it. Its Plugins tab labels every product that only works because
-something was patched, and says in one sentence what the vendor did.
+Many plugins need none of this. FabFilter's Total Bundle, Soundtoys 5.5 (with
+its iLok licensing), and Valhalla DSP install as plain Windows programs and draw
+through GDI or OpenGL, so they run untouched. Xfer's Serum 2 and iZotope's Ozone
+install cleanly and draw through Direct2D, so they use the same Wine graphics
+handling as the programs above. The Plugins tab labels every product that needed
+work and states what it was.
 
 ## Tested
 
@@ -123,8 +115,8 @@ vstenv doctor                                         # every fix and prerequisi
 - **Plugins** — what each vendor's manager installed, and what is bridged for DAWs.
   Anything that only works because the app patched something carries a pill
   (*patched*, *limited*, *cannot run*) and expands to one sentence saying what
-  the vendor did and what the app does about it; "Why this app exists" at the
-  top gathers them.
+  the vendor did and what the app does about it; "What needs help, and why" at
+  the top gathers them.
 - **Programs** — every Windows program in the prefix, run with the environment's
   own Wine (vendor launch fixes and per-program quirks applied); each also gets a
   desktop menu entry with its own icon (`vstenv menu`).
@@ -140,6 +132,11 @@ vstenv doctor                                         # every fix and prerequisi
 Bridged plugins land in `~/.vst/yabridge`, `~/.vst3/yabridge` and
 `~/.clap/yabridge`; point your DAW there if it does not scan them already. They
 are ordinary bundles: nothing about how a DAW is started matters.
+
+For playing them live, [Performer](https://github.com/dguedry/linux-performer)
+is a companion project: a live-performance plugin host for Linux that loads the
+Windows VST3s vstenv bridges alongside native VST3, LV2 and LADSPA, a program
+per sound changed from the keyboard, with each plugin in its own process.
 
 ## How it works
 

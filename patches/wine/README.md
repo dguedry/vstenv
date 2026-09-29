@@ -7,6 +7,32 @@ the DLLs it lists, and attaches `wine-fixes-<version>.tar.gz` to every
 release; setup installs the DLLs into `lib/wine/x86_64-windows/` of the app's
 Wine, keeping the originals as `.orig`.
 
+## Upstream status (re-check before each Wine bump)
+
+These are a bridge, not a fork to maintain forever. DirectComposition, the piece
+most of this rides on, is being implemented upstream, and as it lands the custom
+patches should shrink toward nothing:
+
+- **Mainline Wine** has merged the stub `dcomp.dll` (the groundwork); a working
+  implementation is in progress, not finished.
+- **Wine-Staging** carries the real code today: a ~65-patch DirectComposition
+  series from CodeWeavers (Zhiyi Zhang), first in staging 11.6, plus
+  `DCompositionCreateDevice2` after it. `dcomp-steinberg-*.patch` here sits on
+  top of that staging set, so it is already mostly upstream's work.
+- **A dedicated audio fork**, https://github.com/giang17/wine (`d2d1-dcomp-11.*`
+  branches), implements DirectComposition, Direct2D, DirectWrite and DXGI
+  composition swap chains for the exact frameworks vstenv cares about (JUCE 8,
+  VSTGUI, SynthEdit/GMPI), ~30k lines over 40+ DLLs, with several fixes already
+  upstreamed. Worth watching as a reference and a possible base.
+- **Still missing upstream** before the graphics patches become unnecessary: a
+  `dwm.exe` compositor, some graphics-driver integration, and Direct2D 1.3
+  (staging ships 1.2). `dxgi-waitforvblank-*.patch` below is small and general
+  and is a good upstream candidate on its own.
+
+At each Wine bump, rebuild against the new staging set and re-test HALion Sonic
+and a JUCE 8 GUI (Spitfire Audio) *without* each patch; drop any patch the
+staging set now covers.
+
 ## advapi32-credential-attributes-<version>.patch
 
 Credential Manager attributes. Wine's `CredWriteW` stored everything but
