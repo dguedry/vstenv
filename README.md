@@ -180,10 +180,15 @@ and every Wine process the app starts share the host's pid namespace
 sandbox also needs to see every host path Wine reaches through the prefix
 (Documents, sample libraries on other disks): Health reports what it cannot.
 
-**Windows behave under your window manager.** Setup turns off Wine's
-`UseTakeFocus` (its X11 driver otherwise asks to be raised on every activation),
-so a plugin's Wine window no longer jumps to the front each time you click it
-while a DAW is open.
+**Windows behave under your window manager.** Wine activates (raises) its
+top-level windows when they receive focus, so with several Wine windows in one
+session (a plugin editor in a DAW, a standalone manager) a click can pull a Wine
+window to the front. There is no Wine setting for this; the window manager
+decides. On Cinnamon, whose default `focus-new-windows = smart` focuses and
+raises an activating window without being asked, setup switches it to `strict`
+(only when it is still at the default), which stops the jump. Setup also sets
+Wine's `UseTakeFocus = N`, which fixes the separate problem of a Wine window
+losing keyboard input after Alt-Tab.
 
 **Vendor modules.** `vstenv/vendors/__init__.py` defines the interface; the
 core calls it and never names a vendor. A module says what its manager is and

@@ -1,7 +1,7 @@
 """Health checks: the environment's own, then every vendor module's."""
 import os, shutil
 from pathlib import Path
-from . import APP_ID, paths, wine, runtime, yabridge, prefixes, dxvk, host, menu, vendors, winefixes, dcomp
+from . import APP_ID, paths, wine, runtime, yabridge, prefixes, dxvk, host, menu, vendors, winefixes, dcomp, desktopfix
 from .vendors import Check
 
 class _Checks(list):
@@ -124,6 +124,12 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
                    f"{len(entries)} program{'s' if len(entries) != 1 else ''} in the app menu" if not broken
                    else f"{len(broken)} of {len(entries)} entries name a launcher the desktop cannot find (hidden from the menu)",
                    fix="vstenv menu update"))
+    ds = desktopfix.status()
+    if ds["applies"]:
+        c.append(Check("Wine windows do not jump to the front (Cinnamon)", ds["ok"],
+                       f"focus-new-windows = {ds['value']}" if ds["ok"]
+                       else f"focus-new-windows = {ds['value']}: Wine plugin windows raise themselves on every click; strict stops it",
+                       fix="vstenv setup"))
     for v in vendors.all():
         try:
             for ck in v.checks(p): c.append(ck)
