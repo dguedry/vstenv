@@ -273,8 +273,8 @@ class Window(Adw.ApplicationWindow):
         self.programs_group = Adw.PreferencesGroup(title="Installed programs", description="Everything with an installer record or a Start Menu shortcut in the prefix, plus the vendors' managers. Each also appears in your desktop's application menu.")
         page.add(self.programs_group)
         g = Adw.PreferencesGroup(title="Install")
-        g.add(_menu_row("Install a Windows program", "A .exe or .msi installer; its own window opens.", "document-open-symbolic",
-                        lambda: self.pick_file("Choose installer (.exe or .msi)", self.install_program, downloads=True),
+        g.add(_menu_row("Install from a Windows installer", "Pick a .exe or .msi (unzip a downloaded .zip first). Its window opens; anything it installs, app or plugin, is set up and plugins are bridged. Same as the Install tab's installer.", "document-open-symbolic",
+                        lambda: self.pick_file("Choose an installer (.exe or .msi)", self.install_program, downloads=True),
                         [("Refresh the list and the app menu", lambda: self.run_bg("Updating the app menu", lambda r: menu.sync(self.prefix, r)))]))
         self._rows_limits = _row("What runs here", "Click for the limits of this environment.", "dialog-information-symbolic", lambda: self.toast(programs.LIMITS, 12))
         g.add(self._rows_limits)
@@ -347,8 +347,8 @@ class Window(Adw.ApplicationWindow):
             self.manager_rows[v.id] = r; g.add(r)
             page.add(g)
         g = Adw.PreferencesGroup(title="Other plugins")
-        g.add(_menu_row("Run a plugin installer", "Any Windows VST2 / VST3 / CLAP installer; plugins are bridged when it finishes.", "document-open-symbolic",
-                        lambda: self.pick_file("Choose installer", self.install_program),
+        g.add(_menu_row("Install from a Windows installer", "Pick a .exe or .msi (unzip a downloaded .zip first). Its window opens; plugins it installs are bridged, apps are set up. Same as the Programs tab's installer.", "document-open-symbolic",
+                        lambda: self.pick_file("Choose an installer (.exe or .msi)", self.install_program, downloads=True),
                         [("Add a plugin folder", self.pick_folder),
                          ("Bridge plugins now", self.sync),
                          ("Finish interrupted installs", self.finish_installs),

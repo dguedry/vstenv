@@ -118,6 +118,28 @@ vstenv manager ni launch                              # sign in, install product
 vstenv doctor                                         # every fix and prerequisite, with repair hints
 ```
 
+### Installing something you downloaded
+
+A vendor manager (Native Access, the IK Product Manager, the Steinberg Download
+Assistant) installs its own products for you; you rarely touch installers by
+hand. But you often download things directly: a plugin installer, or a sound or
+content pack (an IK SampleTank library, say). For those:
+
+1. **If it is a `.zip`, unzip it first.** Content packs ship as a zip holding an
+   installer (for example `Install SampleTank 4 Sound Content.exe`) next to a
+   content folder; the installer only works when it sits beside that folder, so
+   extract the whole zip and keep it together. A plain plugin download is often
+   already a `.exe` or `.msi` and needs no unzipping.
+2. **In the app, use "Install from a Windows installer"** and pick that `.exe`
+   or `.msi`. It is on both the **Programs** tab and the **Install** tab (the
+   same action, listed in both places); either one works. The installer's own
+   window opens, you click through it, and when it finishes the app sets up
+   whatever it installed and bridges any plugins to your DAW automatically.
+3. **From the command line** the equivalent is `vstenv install <path-to-the.exe>`.
+
+The installer is always the `.exe` or `.msi`, never the `.zip` itself. If you
+picked a zip by mistake, unzip it and pick the installer inside.
+
 ## What you get
 
 - **Plugins** — what each vendor's manager installed, and what is bridged for DAWs.
@@ -134,8 +156,10 @@ vstenv doctor                                         # every fix and prerequisi
   app so their fixes apply.
 - **Install** — per vendor: open the manager, get it from the vendor, install or
   update it from a downloaded installer, and (NI, IK) install a product from its
-  own installer when the manager cannot. Plus any third-party plugin installer,
-  extra plugin folders, and finishing interrupted installs. When an installer
+  own installer when the manager cannot. Plus "Install from a Windows installer"
+  for any downloaded `.exe`/`.msi` (a plugin, a sound or content pack; unzip a
+  `.zip` first, see above), extra plugin folders, and finishing interrupted
+  installs. When an installer
   leaves an Electron manager crash-looping under Wine (iZotope's Product Portal),
   the app stops it, so it cannot thrash the prefix and freeze loaded plugins.
 - **Health** — every check with a fix, sign-in handler registration, and a
