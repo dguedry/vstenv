@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.22" date="2026-09-30">
+      <description>
+        <p>WebView2 runtime installed on demand so embedded-Edge apps launch instead of crashing</p>
+      </description>
+    </release>
     <release version="0.1.21" date="2026-09-30">
       <description>
         <p>GUI: loading spinners for tab data and a "Starting…" indicator for launches</p>
