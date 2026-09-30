@@ -74,34 +74,31 @@ install cleanly and draw through Direct2D, so they use the same Wine graphics
 handling as the programs above. The Plugins tab labels every product that needed
 work and states what it was.
 
-### Known limitation: WebView2 logins
+### WebView2 apps (embedded Edge)
 
 Some vendors build their app's window on Microsoft's WebView2 control (an
-embedded Edge/Chromium). Orchestral Tools' SINE Player is one. Its window draws
-under Wine, but its text fields do not accept keyboard input: Wine does not route
-key messages from the host window into the embedded browser, so a login form
-shows a blinking cursor yet takes no typing. This is a Wine limitation in how it
-delivers input to a hosted WebView2 (not the same as an ordinary Electron app,
-whose Chromium pumps its own input and works, the IK and NI managers sign in
-fine). Some of these apps (Audio Modeling's Software Center) go further and show
-only a blank window, because WebView2's renderer cannot paint under Wine either.
-No app-side flag or runtime swap fixed either problem in testing, and the
-affected apps do not officially support Linux.
+embedded Edge/Chromium): Orchestral Tools' SINE Player, Audio Modeling's
+Software Center. The app makes three arrangements for them, and with all three
+Audio Modeling's Software Center works fully, it renders and its login takes
+typing:
 
-The app does two things here. It installs the Microsoft WebView2 runtime into
-the prefix when it sees an app that needs one, because without it the app does
-not just fail, it crashes at startup (`vstenv webview2` installs it by hand;
-Health flags it). And a patched ole32.dll makes OLE drag-drop teardown survive
-the stale target pointer WebView2's embedded browser leaves behind, which
-crashed these apps seconds after launch even with the runtime present. With
-both, the app launches and stays up, even if its window then draws blank or
-takes no typing.
+- **The WebView2 runtime is installed on demand** when an app that needs it is
+  detected; without one these apps crash at startup rather than failing politely
+  (`vstenv webview2` installs it by hand; Health flags it).
+- **A patched ole32.dll** survives the stale drag-drop target WebView2's
+  embedded browser leaves behind at window teardown, which crashed these apps
+  seconds after launch even with the runtime present.
+- **DXVK's dummy composition swapchain is enabled** (`DXVK_CONFIG`, set for
+  every launch unless you set your own): DXVK otherwise refuses the composition
+  swapchain WebView2 renders through, leaving a blank white window. With it the
+  embedded browser paints and takes input.
 
-The practical way around the rest: authorize the app once on a real Windows
-machine or a Windows VM. It writes its activation and library registration to
-disk, and after that the plugin itself, which vstenv bridges like any other,
-plays in a Linux DAW, because playback never uses the WebView2 window. Expect any
-WebView2-based login or store window to have this problem, not just SINE.
+One known holdout: **SINE Player's login renders but does not accept keyboard
+input.** SINE hosts WebView2 through JUCE, whose focus handoff into the embedded
+browser Wine does not deliver; no flag or runtime swap fixed it in testing. For
+SINE only: authorize once on a real Windows machine or VM, its activation is
+written to disk, and the bridged SINE Player plugin then plays in a Linux DAW,
+because playback never uses the login window.
 
 ## Tested
 
@@ -121,6 +118,7 @@ through yabridge, including [Performer](https://github.com/dguedry/linux-perform
 | Xfer Records (no module: plain Windows installer) | Serum 2 (2.1.5) installer | Bridged as VST3 and playing out of the box |
 | iZotope (no module: plain Windows installer) | Product Portal 1.4, Ozone 9 Advanced 9.13 installer | Every Ozone module bridged as VST3 and VST2, working out of the box. Its installer hands off to a helper (the app waits for it) and leaves the Electron Product Portal running, which crash-loops under Wine; the app stops that so it cannot starve loaded plugins |
 | Spitfire Audio (no module: plain Windows installer) | Spitfire Audio app 3.4 | Draws and signs in only with the app's patched dcomp.dll and dxgi.dll and Wine's own Direct3D, which the app applies to any program that imports DirectComposition (JUCE 8) |
+| Audio Modeling (no module: plain Windows installer) | Software Center 1.x (WebView2) | Launches, renders and its sign-in takes input, via the on-demand WebView2 runtime, the patched ole32.dll and DXVK's dummy composition swapchain |
 
 Health lists every check behind these; when one fails it names the fix.
 

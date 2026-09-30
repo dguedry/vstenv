@@ -376,6 +376,7 @@ fi
 LAUNCHER_QUIET_MARK = "# vstenv: no per-frame fixme chatter from the host (set WINEDEBUG yourself to see it)"
 _OUR_QUIET = f'''{LAUNCHER_QUIET_MARK}
 if [ -z "${{WINEDEBUG+x}}" ]; then WINEDEBUG=fixme-all; export WINEDEBUG; fi
+if [ -z "${{DXVK_CONFIG+x}}" ]; then DXVK_CONFIG="dxgi.enableDummyCompositionSwapchain = True"; export DXVK_CONFIG; fi
 '''
 
 def write_plugin_overrides(entries: list[tuple[str, str]]) -> Path:

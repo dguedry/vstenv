@@ -157,6 +157,13 @@ class Prefix:
             "WINEDLLOVERRIDES": self.dll_overrides(),
             "WINEARCH": "win64",
         }
+        # DXVK fails CreateSwapChainForComposition with "Not implemented", which
+        # left WebView2/Chromium UIs (Audio Modeling's Software Center) painting
+        # nothing; its dummy-composition-swapchain option makes them render and
+        # take input. Harmless for everything else (it only changes the call that
+        # otherwise fails), and a user's own DXVK_CONFIG always wins.
+        if "DXVK_CONFIG" not in os.environ:
+            e["DXVK_CONFIG"] = "dxgi.enableDummyCompositionSwapchain = True"
         if extra: e.update(extra)
         return e
 
