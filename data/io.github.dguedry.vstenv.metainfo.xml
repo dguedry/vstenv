@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.27" date="2026-09-30">
+      <description>
+        <p>Menu: validated PNG icons, no duplicate SWAM entry, no WebView2 runtime entry</p>
+      </description>
+    </release>
     <release version="0.1.26" date="2026-09-30">
       <description>
         <p>Audio Modeling module: finish the Software Center's aborted SWAM installs</p>
