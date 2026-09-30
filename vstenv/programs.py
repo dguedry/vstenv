@@ -213,11 +213,14 @@ def installed(p: Prefix) -> list[Program]:
             for s in r.sources:
                 if s not in cur.sources: cur.sources.append(s)
         else: by_name[k] = r
+    def _p(x):                       # BitRock and friends write registry paths with
+        return (x or "").lower().replace("/", "\\")   # forward slashes; compare normalized
     for l in links:
         match = None
         for r in by_name.values():
             if _norm(l.name) == _norm(r.name) or _bare(l.name) == _bare(r.name) \
-           or (r.install_dir and l.exe.lower().startswith(r.install_dir.lower().rstrip("\\") + "\\")):
+           or (r.exe and _p(l.exe) == _p(r.exe)) \
+           or (r.install_dir and _p(l.exe).startswith(_p(r.install_dir).rstrip("\\") + "\\")):
                 match = r; break
         if match:
             match.exe, match.args, match.workdir = l.exe, l.args, l.workdir

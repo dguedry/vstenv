@@ -45,14 +45,34 @@ def exec_line(name: str) -> str:
     return f"{launcher()} run {_q(name)}"
 
 def _icon_for(p: Prefix, prog) -> str:
-    """Extract the exe's icon once; fall back to the app icon."""
+    """Extract the exe's icon once, converted to PNG; fall back to the app icon.
+
+    The raw .ico assembled from the exe's resources is not always parseable (two
+    of them here were not), and menu shells render an absolute-path PNG more
+    reliably than an .ico. So the extracted icon is loaded through GdkPixbuf --
+    the same loader the desktop uses -- and saved as PNG; if it does not load,
+    the entry gets the app icon instead of a blank."""
     try:
         exe = p.to_host(prog.exe)
-        dst = ICONS / f"{slug(prog.name)}.ico"
-        if dst.exists() and exe.exists() and dst.stat().st_mtime >= exe.stat().st_mtime: return str(dst)
+        png = ICONS / f"{slug(prog.name)}.png"
+        if png.exists() and exe.exists() and png.stat().st_mtime >= exe.stat().st_mtime: return str(png)
         ico = pe.icon(exe)
-        if ico:
-            ICONS.mkdir(parents=True, exist_ok=True); dst.write_bytes(ico); return str(dst)
+        if not ico: return APP_ID
+        ICONS.mkdir(parents=True, exist_ok=True)
+        tmp = ICONS / f".{slug(prog.name)}.ico"
+        tmp.write_bytes(ico)
+        try:
+            import gi
+            gi.require_version("GdkPixbuf", "2.0")
+            from gi.repository import GdkPixbuf
+            pb = GdkPixbuf.Pixbuf.new_from_file(str(tmp))
+            pb.savev(str(png), "png", [], [])
+            (ICONS / f"{slug(prog.name)}.ico").unlink(missing_ok=True)   # migrate old cache
+            return str(png)
+        except Exception:
+            return APP_ID          # unparseable icon: the app icon beats a blank
+        finally:
+            tmp.unlink(missing_ok=True)
     except OSError: pass
     return APP_ID
 
@@ -87,7 +107,8 @@ def sync(p: Prefix, reporter=None) -> dict:
     r.step("Desktop menu entries for the prefix's programs")
     # No shortcut for a vendor manager/installer: it has to run through the app so
     # its launch fixes apply (a raw shortcut would start it without them).
-    progs = [x for x in programs.installed(p) if x.runnable and not vendors.run_through_app(x)]
+    progs = [x for x in programs.installed(p) if x.runnable and not vendors.run_through_app(x)
+             and "webview2 runtime" not in x.name.lower()]          # Microsoft plumbing, not a user app
     want = {desktop_path(x.name): x for x in progs}
     written = removed = 0
     try:

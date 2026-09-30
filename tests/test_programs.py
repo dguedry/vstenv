@@ -224,3 +224,25 @@ class ShortcutFilterTest(unittest.TestCase):
             (self.menu / "Thing.lnk").write_bytes(b"C:\\Program Files\\Thing\\thing.exe||")
             with self._lnk(None), mock.patch.object(p, "run") as run:
                 self.assertEqual(len(programs.shortcut_programs(p)), 1); run.assert_not_called()
+
+
+class MergeSlashStyleTest(unittest.TestCase):
+    """A registry entry written with forward slashes (BitRock) must merge with the
+    Start Menu shortcut for the same exe instead of producing two programs."""
+    def test_same_exe_different_slashes_is_one_program(self):
+        import tempfile
+        from unittest import mock
+        from vstenv.wine import Prefix, WineBuild
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Prefix(Path(tmp) / "prefix", WineBuild(Path(tmp) / "wine"))
+            (p.drive_c / "users/me").mkdir(parents=True)
+            reg = programs.Program(name="SWAM Violin", exe=r"C:\Program Files/Audio Modeling/SWAM Violin\SWAM Violin 3.exe",
+                                   install_dir=r"C:\Program Files/Audio Modeling/SWAM Violin", sources=["registry"])
+            link = programs.Program(name="SWAM Violin 3", exe=r"C:\Program Files\Audio Modeling\SWAM Violin\SWAM Violin 3.exe",
+                                    sources=["shortcut"])
+            with mock.patch.object(programs, "registry_programs", return_value=[reg]), \
+                 mock.patch.object(programs, "shortcut_programs", return_value=[link]), \
+                 mock.patch("vstenv.vendors.all", return_value=[]):
+                out = programs.installed(p)
+            names = [x.name for x in out if "SWAM" in x.name]
+            self.assertEqual(names, ["SWAM Violin"])
