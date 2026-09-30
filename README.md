@@ -140,6 +140,13 @@ content pack (an IK SampleTank library, say). For those:
 The installer is always the `.exe` or `.msi`, never the `.zip` itself. If you
 picked a zip by mistake, unzip it and pick the installer inside.
 
+**If an installer asks where to put the plugin**, choose
+`C:\Program Files\VstPlugins` (a VST2 folder the app already scans; older IK
+installers ask this). Setup pre-fills that as the default VST2 path, so most
+installers propose it. VST3 plugins install to `C:\Program Files\Common
+Files\VST3` on their own. Either way the app bridges the plugin to your DAW once
+the installer finishes; nothing needs moving by hand.
+
 ## What you get
 
 - **Plugins** — what each vendor's manager installed, and what is bridged for DAWs.

@@ -131,6 +131,13 @@ def registry(p: Prefix, reporter=None):
     # stops the raise-on-click. (A per-plugin editor is embedded by the DAW, but
     # standalone and detached editor windows hit this.)
     reg += ["", r"[HKEY_CURRENT_USER\Software\Wine\X11 Driver]", '"UseTakeFocus"="N"', ""]
+    # The default VST2 install folder. Old installers (IK's Sonik Synth, SampleTank
+    # standalones) ask where to put the .dll, or read this key as the default; point
+    # them at a folder yabridge already scans so the plugin is bridged with no extra
+    # step. VstPlugins is the first of yabridge.STANDARD_DIRS.
+    vst2 = r"C:\Program Files\VstPlugins"
+    for hive in (r"HKEY_LOCAL_MACHINE\Software\VST", r"HKEY_LOCAL_MACHINE\Software\Wow6432Node\VST"):
+        reg += ["", f"[{hive}]", f'"VSTPluginsPath"="{vst2}"'.replace("\\", "\\\\"), ""]
     rc = p.reg_import("\r\n".join(reg), "vstenv-setup.reg")
     if rc != 0: r.fail(f"regedit exit {rc}")
     else: r.ok()
