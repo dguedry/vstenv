@@ -83,13 +83,21 @@ key messages from the host window into the embedded browser, so a login form
 shows a blinking cursor yet takes no typing. This is a Wine limitation in how it
 delivers input to a hosted WebView2 (not the same as an ordinary Electron app,
 whose Chromium pumps its own input and works, the IK and NI managers sign in
-fine). No app-side flag or runtime swap fixed it in testing, and the affected
-apps do not officially support Linux.
+fine). Some of these apps (Audio Modeling's Software Center) go further and show
+only a blank window, because WebView2's renderer cannot paint under Wine either.
+No app-side flag or runtime swap fixed either problem in testing, and the
+affected apps do not officially support Linux.
 
-The practical way around it: authorize the app once on a real Windows machine or
-a Windows VM. It writes its activation and library registration to disk, and
-after that the plugin itself, which vstenv bridges like any other, plays in a
-Linux DAW, because playback never uses the WebView2 login. Expect any
+The app does one thing here: it installs the Microsoft WebView2 runtime into the
+prefix when it sees an app that needs one, because without it the app does not
+just fail, it crashes at startup. With the runtime present the app launches, even
+if its window then draws blank or takes no typing (`vstenv webview2` installs it
+by hand; Health flags it).
+
+The practical way around the rest: authorize the app once on a real Windows
+machine or a Windows VM. It writes its activation and library registration to
+disk, and after that the plugin itself, which vstenv bridges like any other,
+plays in a Linux DAW, because playback never uses the WebView2 window. Expect any
 WebView2-based login or store window to have this problem, not just SINE.
 
 ## Tested
@@ -302,7 +310,7 @@ DLL, dxgi.dll, makes WaitForVBlank return so JUCE's vblank thread can exit.
 vstenv setup [--installer FILE]     vstenv vendors            vstenv manager <vendor> install|launch|repair|status
 vstenv products [--vendor V]        vstenv install FILE       vstenv sync [DIR...]
 vstenv programs | run NAME | uninstall NAME | menu [update|remove]
-vstenv doctor | report | rescue-install | finish-installs | dxvk | wine-fixes | mono | prefixes | url-handlers
+vstenv doctor | report | rescue-install | finish-installs | dxvk | wine-fixes | mono | webview2 | prefixes | url-handlers
 ```
 
 ## Development

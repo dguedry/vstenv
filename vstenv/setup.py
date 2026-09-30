@@ -1,7 +1,7 @@
 """Setting the environment up and keeping it consistent: the core steps, then
 every vendor module's own, in one idempotent pass."""
 from pathlib import Path
-from . import runtime, dxvk, yabridge, menu, urlschemes, vendors, tools, winefixes, dcomp, desktopfix
+from . import runtime, dxvk, yabridge, menu, urlschemes, vendors, tools, winefixes, dcomp, desktopfix, webview2
 from .progress import null_reporter
 from .wine import Prefix
 
@@ -51,6 +51,11 @@ def after_change(p: Prefix, reporter=None) -> dict:
     for v in vendors.all():
         _guarded(r, f"{v.name}: after install", lambda v=v: v.after_install(p, r))
     _guarded(r, "DirectComposition programs", lambda: dcomp.apply_program_overrides(p, dcomp.program_exes(p), r))
+    # A WebView2 app just installed (SINE, Audio Modeling) crashes at startup without
+    # a runtime; install one on demand so it launches. It may still not render its
+    # embedded-Edge UI under Wine, but launching beats crashing.
+    if webview2.needed(p):
+        _guarded(r, "Microsoft WebView2 runtime", lambda: webview2.install(p, r))
     _guarded(r, "Plugin DLL overrides", lambda: yabridge.write_plugin_overrides(dcomp.all_plugin_overrides(p)))
     res = yabridge.sync(p, r)
     _guarded(r, "Desktop menu entries", lambda: menu.sync(p, r))

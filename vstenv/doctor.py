@@ -1,7 +1,7 @@
 """Health checks: the environment's own, then every vendor module's."""
 import os, shutil
 from pathlib import Path
-from . import APP_ID, paths, wine, runtime, yabridge, prefixes, dxvk, host, menu, vendors, winefixes, dcomp, desktopfix
+from . import APP_ID, paths, wine, runtime, yabridge, prefixes, dxvk, host, menu, vendors, winefixes, dcomp, desktopfix, webview2
 from .vendors import Check
 
 class _Checks(list):
@@ -121,6 +121,12 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
                    f"{len(entries)} program{'s' if len(entries) != 1 else ''} in the app menu" if not broken
                    else f"{len(broken)} of {len(entries)} entries name a launcher the desktop cannot find (hidden from the menu)",
                    fix="vstenv menu update"))
+    ws = webview2.status(p)
+    if ws["apps"]:
+        c.append(Check("WebView2 runtime for embedded-Edge apps", ws["installed"],
+                       (f"present; apps using it: {', '.join(ws['apps'])} (their UI may still not render or take keys under Wine)" if ws["installed"]
+                        else f"missing; {', '.join(ws['apps'])} will crash at startup — install it"),
+                       fix="vstenv webview2  (or Re-run setup / repair)"))
     ds = desktopfix.status()
     if ds["applies"]:
         c.append(Check("Wine windows do not jump to the front (Cinnamon)", ds["ok"],
