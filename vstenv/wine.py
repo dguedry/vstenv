@@ -390,11 +390,6 @@ done"""
     def reg_add(self, key: str, name: str, value: str, kind="REG_SZ"):
         cp = self.run([self.REG64, "add", key, "/v", name, "/t", kind, "/d", str(value), "/f"], timeout=60)
         if cp.returncode != 0: raise RuntimeError(f"reg add failed: {key}\\{name}: {cp.stderr.strip()}")
-
-    def reg_set_default(self, key: str, value: str, kind="REG_SZ"):
-        """Set a key's (Default) value. reg add /ve, not /v (which needs a name)."""
-        cp = self.run([self.REG64, "add", key, "/ve", "/t", kind, "/d", str(value), "/f"], timeout=60)
-        if cp.returncode != 0: raise RuntimeError(f"reg set default failed: {key}: {cp.stderr.strip()}")
     def reg_query(self, key: str) -> dict[str, str]:
         cp = self.run([self.REG64, "query", key], timeout=60)
         vals = {}

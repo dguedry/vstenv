@@ -11,7 +11,7 @@ from .download import fetch
 from . import tools
 from .progress import null_reporter
 from .wine import Prefix
-from . import fontalias, urlfilter
+from . import fontalias
 
 # winetricks ucrtbase2019 source: last VC2019 redist that still ships ucrtbase.dll
 UCRT_URL = "https://download.visualstudio.microsoft.com/download/pr/85d47aa9-69ae-4162-8300-e6b7e4bf3cf3/52B196BBE9016488C735E7B41805B651261FFA5D7AA86EB6A1D0095BE83687B2/VC_redist.x64.exe"
@@ -174,16 +174,12 @@ def install(p: Prefix, reporter=None):
     except Exception as e:
         r = null_reporter(reporter); r.step("Segoe UI font family for DirectWrite (dialog text)"); r.fail(str(e)[:100])
     vc_runtime(p, reporter); registry(p, reporter)
-    try: urlfilter.install(p, reporter)
-    except Exception as e:
-        r = null_reporter(reporter); r.step("URL filter (drop vendor storefront tab-spam)"); r.fail(str(e)[:100])
 
 def status(p: Prefix) -> dict:
     s32 = p.drive_c / "windows/system32"
     st = {"fonts": (p.drive_c / "windows/Fonts/DejaVuSans.ttf").exists(),
           "ucrtbase": (s32 / "ucrtbase.dll.wine-builtin.bak").exists(),
           "vc_runtime": (s32 / "vcruntime140.dll.bak").exists(),
-          "segoe": fontalias.status(p)["installed"],
-          "url_filter": urlfilter.installed(p)}
+          "segoe": fontalias.status(p)["installed"]}
     st["prepared"] = st["fonts"] and st["vc_runtime"]
     return st

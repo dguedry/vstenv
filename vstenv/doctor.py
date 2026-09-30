@@ -59,9 +59,6 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
         c.append(Check("real ucrtbase.dll", rs["ucrtbase"], fix="vstenv setup"))
         c.append(Check("VC++ 2022 runtime", rs["vc_runtime"], fix="vstenv setup"))
         c.append(Check("Segoe UI font family for DirectWrite", rs["segoe"], "" if rs["segoe"] else "programs drawing dialog text with DirectWrite (Steinberg's) show blank dialogs", fix="vstenv setup"))
-        c.append(Check("URL filter (vendor storefront tab-spam)", rs.get("url_filter", False),
-                       "" if rs.get("url_filter") else "IK plugins can open a browser tab per sound pack; the filter drops those store URLs",
-                       fix="vstenv setup"))
     foreign = p.foreign_dlls()
     c.append(Check("prefix files from this wine", not foreign,
                    f"{', '.join(foreign)} were written by another Wine (a DAW using the host wine?)" if foreign else "", fix="vstenv setup (refreshes them)"))

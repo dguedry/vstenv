@@ -43,15 +43,10 @@ the program does and what the app does about it.
   live from ikmultimedia.com and calls out to the system browser for its own
   in-app links (the logo, My Products, the user area), so ordinary clicking opens
   a stream of tabs; the app patches the bundle to keep IK's own links in the
-  window, and other links still open in the browser. IK *plugins* do the same in
-  a different way: SampleTank (and others) open a browser page for each of their
-  sound packs through Wine's URL handler, dozens of tabs while you use the
-  plugin. The app installs a filter on the prefix's http handler that drops IK's
-  storefront and content-scan URLs and passes every other link through, so the
-  fix covers all IK plugins at once. Its own zip extraction can also stop partway
-  under Wine, leaving a truncated installer that fails its integrity check ("the
-  setup files are corrupted"); the app re-extracts the installer from the
-  downloaded zip and checks its size before running it.
+  window, and other links still open in the browser. Its own zip extraction can
+  also stop partway under Wine, leaving a truncated installer that fails its
+  integrity check ("the setup files are corrupted"); the app re-extracts the
+  installer from the downloaded zip and checks its size before running it.
 - **Steinberg.** The installer chain is Java/JavaFX and .NET: the Download
   Assistant runs a .NET Install Assistant whose PowerShell steps are signed for a
   Windows trust check that fails under Wine, so it declines to install
