@@ -129,7 +129,7 @@ class Window(Adw.ApplicationWindow):
         header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=m))
         # Activity indicator: visible on every page while a task runs or a vendor
         # manager is open, so nothing the app does looks like a hang. Click → Progress.
-        self._activity = {"task": None, "manager": None}
+        self._activity = {"task": None, "manager": None, "refresh": None}; self._refreshing = 0
         abox = Gtk.Box(spacing=6); self._activity_spin = Gtk.Spinner(); self._activity_label = Gtk.Label()
         abox.append(self._activity_spin); abox.append(self._activity_label)
         self._activity_btn = Gtk.Button(child=abox, has_frame=False, visible=False, tooltip_text="Show progress")
@@ -157,10 +157,52 @@ class Window(Adw.ApplicationWindow):
         """Set (or clear with None) what the header indicator says for 'task' or 'manager'."""
         def go():
             self._activity[kind] = text
-            cur = self._activity["task"] or self._activity["manager"]
+            cur = self._activity["task"] or self._activity["manager"] or self._activity.get("refresh")
             self._activity_btn.set_visible(bool(cur)); self._activity_spin.set_spinning(bool(cur))
             if cur: self._activity_label.set_text(cur)
         ui(go)
+
+    def _loading_row(self, subtitle="Loading…"):
+        r = Adw.ActionRow(title="Loading…", subtitle=subtitle)
+        r.add_suffix(Gtk.Spinner(spinning=True, valign=Gtk.Align.CENTER))
+        return r
+
+    def loading(self, *groups):
+        """Show a spinner row in each group now, and light the header 'Loading…'
+        indicator, until the matching refresh replaces the rows. Called on the main
+        thread right before a refresh's worker starts."""
+        for g in groups:
+            self._fill(g, [self._loading_row()])
+        self._refreshing = getattr(self, "_refreshing", 0) + 1
+        self._refresh_activity()
+
+    def done_loading(self):
+        self._refreshing = max(0, getattr(self, "_refreshing", 0) - 1)
+        self._refresh_activity()
+
+    def starting(self, name, seconds=8):
+        """Show a header 'Starting <name>…' indicator for a few seconds: a Wine app
+        takes a moment to draw its first window, and a toast alone is easy to miss."""
+        tag = f"Starting {name}…"
+        def go():
+            self._activity["manager"] = tag; self._refresh_activity_now()
+            def clear():
+                if self._activity.get("manager") == tag:
+                    self._activity["manager"] = None; self._refresh_activity_now()
+                return False
+            GLib.timeout_add_seconds(seconds, clear)
+        ui(go)
+
+    def _refresh_activity_now(self):
+        """Recompute the header indicator from the current activity slots. Main thread only."""
+        self._activity["refresh"] = "Loading…" if getattr(self, "_refreshing", 0) > 0 else None
+        cur = self._activity.get("task") or self._activity.get("manager") or self._activity.get("refresh")
+        self._activity_btn.set_visible(bool(cur)); self._activity_spin.set_spinning(bool(cur))
+        if cur: self._activity_label.set_text(cur)
+
+    def _refresh_activity(self):
+        ui(self._refresh_activity_now)
+
     def run_bg(self, title, fn, done=None):
         """Run fn(reporter) in a thread on the Progress page."""
         if self.busy: self.toast("Another task is still running"); return
@@ -217,6 +259,7 @@ class Window(Adw.ApplicationWindow):
         return box
     def refresh_plugins(self):
         if not self.is_ready(): return
+        self.loading(self.bridged_group, *self.product_groups.values())
         def work():
             prods = {v.id: v.products(self.prefix) for v in vendors.all()}
             notes = {}
@@ -264,6 +307,7 @@ class Window(Adw.ApplicationWindow):
                 brows = [Adw.ActionRow(title=GLib.markup_escape_text(b["name"]), subtitle=GLib.markup_escape_text(b["info"])) for b in bridged]
                 if not brows: brows.append(Adw.ActionRow(title="No bridged plugins yet", subtitle="Install a product, then Bridge plugins now"))
                 self._fill(self.bridged_group, brows)
+                self.done_loading()
             ui(show)
         threading.Thread(target=work, daemon=True).start()
 
@@ -281,6 +325,7 @@ class Window(Adw.ApplicationWindow):
         page.add(g); return page
     def refresh_programs(self):
         if not self.is_ready(): return
+        self.loading(self.programs_group)
         def work():
             progs = programs.installed(self.prefix)
             notes = {}
@@ -309,12 +354,13 @@ class Window(Adw.ApplicationWindow):
                     rows.append(row)
                 if not rows: rows.append(Adw.ActionRow(title="No programs found", subtitle="Install one below, or a vendor's manager from the Install tab"))
                 self._fill(self.programs_group, rows)
+                self.done_loading()
             ui(show)
         threading.Thread(target=work, daemon=True).start()
     def run_program(self, prog):
         v = vendors.for_program(prog)
         if v is not None and v.is_manager_program(prog): return self.open_manager(v)
-        try: proc = programs.run(self.prefix, prog); self.toast(f"{prog.name} is starting…")
+        try: proc = programs.run(self.prefix, prog); self.toast(f"{prog.name} is starting…"); self.starting(prog.name)
         except Exception as e: self.toast(str(e)); return
         def watch():           # a program may install plugins while it runs: bridge whatever appeared
             proc.wait(); ui(lambda: self.after_change(f"Bridging plugins after {prog.name}"))
@@ -372,7 +418,7 @@ class Window(Adw.ApplicationWindow):
         if not v.manager_installed(self.prefix): self.toast(f"{v.manager_name} is not installed yet — get it from {v.name} and pick the installer here"); return
         try: proc = v.launch_manager(self.prefix)
         except Exception as e: self.toast(str(e)); return
-        self.toast(f"{v.manager_name} is starting…"); t0 = time.time()
+        self.toast(f"{v.manager_name} is starting…"); self.starting(v.manager_name); t0 = time.time()
         def watch():
             # While the manager runs: rescue an install it drives that stopped making
             # progress, and bridge plugins as they appear (people install a product and
