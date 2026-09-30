@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.20" date="2026-09-30">
+      <description>
+        <p>Bridge each VST3 once: stop registering subfolders of the VST3 root</p>
+      </description>
+    </release>
     <release version="0.1.19" date="2026-09-30">
       <description>
         <p>Set a default VST2 install path so installers stop asking where to put the plugin</p>
