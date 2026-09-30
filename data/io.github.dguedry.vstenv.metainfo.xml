@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.26" date="2026-09-30">
+      <description>
+        <p>Audio Modeling module: finish the Software Center's aborted SWAM installs</p>
+      </description>
+    </release>
     <release version="0.1.25" date="2026-09-30">
       <description>
         <p>webview2: install the pinned standalone runtime, not the bootstrapper</p>
