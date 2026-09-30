@@ -23,10 +23,14 @@ from .download import fetch
 from .progress import null_reporter
 from .wine import Prefix
 
-# Evergreen (auto-updating) runtime bootstrapper. Small; it downloads the current
-# runtime on first run. A fixed pinned version would be more reproducible but is a
-# ~150 MB CAB behind a generated URL; the bootstrapper is the supported entry point.
-URL = "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
+# The Evergreen *standalone* installer: the full runtime in one checksummed file,
+# so nothing is downloaded from inside Wine (the tiny bootstrapper fetches the
+# payload through Wine's networking, which is the fragile part). This is the same
+# pinned artifact Bottles' "webview2" dependency installs -- the configuration the
+# "works with the Soda runner" reports are based on.
+URL = ("https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/"
+       "79f5276c-391e-481d-9e0f-50d730ae66a9/MicrosoftEdgeWebView2RuntimeInstallerX64.exe")
+SHA256 = "91d82975e73cf4c0b1315679282c9f67e6cdbfeefc0ac6eaf2e68e5be71e982e"
 # The runtime registers itself here (the GUID is Microsoft's WebView2 client id).
 CLIENT_KEY = r"HKLM\Software\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
 
@@ -79,7 +83,8 @@ def install(p: Prefix, reporter=None, force=False) -> bool:
     r.step("Microsoft WebView2 runtime (for embedded-Edge apps)")
     if installed(p) and not force:
         r.skip("already"); return True
-    exe = fetch(URL, paths.DOWNLOADS / "MicrosoftEdgeWebView2Setup.exe", reporter=r, label="WebView2 runtime")
+    exe = fetch(URL, paths.DOWNLOADS / "MicrosoftEdgeWebView2RuntimeInstallerX64.exe",
+                sha256=SHA256, reporter=r, label="WebView2 runtime (193 MB)")
     dst = p.user_dir / "MicrosoftEdgeWebView2Setup.exe"
     try:
         import shutil; dst.parent.mkdir(parents=True, exist_ok=True); shutil.copy2(exe, dst)
