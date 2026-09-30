@@ -197,7 +197,16 @@ def plugin_dirs(p: Prefix, extras=()) -> list[Path]:
         try: rel = str(d.resolve().relative_to(p.drive_c.resolve()))
         except ValueError: rel = None
         if rel is not None and rel.rstrip("/") in BROAD or rel == ".": return
-        if d not in out: out.append(d)
+        # yabridge scans each registered dir recursively, so a dir already covered
+        # by an ancestor in the list would bridge its plugins a second time (a
+        # plugin in Common Files/VST3/Soundtoys, with VST3 itself registered, was
+        # bridged both flat and under Soundtoys/ -> doubled in DAWs). Skip a dir
+        # nested under one already added, and drop any already-added dir that this
+        # one is an ancestor of.
+        rd = d.resolve()
+        if any(rd == a.resolve() or rd.is_relative_to(a.resolve()) for a in out): return
+        out[:] = [a for a in out if not a.resolve().is_relative_to(rd)]
+        out.append(d)
     from . import vendors
     for rel in STANDARD_DIRS + [d for v in vendors.all() for d in v.plugin_dirs()]:
         d = p.drive_c / rel; d.mkdir(parents=True, exist_ok=True); add(d)
@@ -251,6 +260,17 @@ def sync(p: Prefix, reporter=None, extras=()) -> dict:
     dirs = plugin_dirs(p, extras)
     r.step("Registering plugin directories")
     env = _yctl_env(p)
+    # Remove our own dirs that we no longer register (e.g. a VST3 subfolder that a
+    # past version added and that the parent VST3 dir now covers). yabridgectl only
+    # ever gains dirs from `add`; a stale one keeps re-bridging its plugins, which a
+    # DAW then lists twice. Only touch dirs under *this* prefix; foreign ones are
+    # handled below, and third-party dirs are left alone.
+    from . import prefixes
+    wanted = {str(Path(d).resolve()) for d in dirs}
+    for reg in prefixes.yabridgectl_dirs(status(p)):
+        owner = prefixes.prefix_of_dir(reg)
+        if owner is not None and prefixes._same(owner, p.path) and str(Path(reg).resolve()) not in wanted:
+            subprocess.run([str(YCTL), "rm", reg], capture_output=True, env=env)
     for d in dirs:
         subprocess.run([str(YCTL), "add", str(d)], capture_output=True, env=env)
     r.ok(f"{len(dirs)} directories")

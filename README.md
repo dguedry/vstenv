@@ -176,6 +176,13 @@ Bridged plugins land in `~/.vst/yabridge`, `~/.vst3/yabridge` and
 `~/.clap/yabridge`; point your DAW there if it does not scan them already. They
 are ordinary bundles: nothing about how a DAW is started matters.
 
+Each plugin is bridged once per format it ships: a plugin that has both a VST2
+and a VST3 build appears as both, and a VST2-only plugin (some older ones, IK's
+Sonik Synth) is bridged only as VST2. A host that scans only VST3 (Performer
+does; it hosts VST3, LV2 and LADSPA, not VST2) will not list a VST2-only plugin,
+that is the host's format support, not a bridging failure. If a host shows a
+plugin twice after an update, rescan its plugin folder so it drops stale entries.
+
 For playing them live, [Performer](https://github.com/dguedry/linux-performer)
 is a companion project: a live-performance plugin host for Linux that loads the
 Windows VST3s vstenv bridges alongside native VST3, LV2 and LADSPA, a program
