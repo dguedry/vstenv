@@ -74,6 +74,24 @@ install cleanly and draw through Direct2D, so they use the same Wine graphics
 handling as the programs above. The Plugins tab labels every product that needed
 work and states what it was.
 
+### Known limitation: WebView2 logins
+
+Some vendors build their app's window on Microsoft's WebView2 control (an
+embedded Edge/Chromium). Orchestral Tools' SINE Player is one. Its window draws
+under Wine, but its text fields do not accept keyboard input: Wine does not route
+key messages from the host window into the embedded browser, so a login form
+shows a blinking cursor yet takes no typing. This is a Wine limitation in how it
+delivers input to a hosted WebView2 (not the same as an ordinary Electron app,
+whose Chromium pumps its own input and works, the IK and NI managers sign in
+fine). No app-side flag or runtime swap fixed it in testing, and the affected
+apps do not officially support Linux.
+
+The practical way around it: authorize the app once on a real Windows machine or
+a Windows VM. It writes its activation and library registration to disk, and
+after that the plugin itself, which vstenv bridges like any other, plays in a
+Linux DAW, because playback never uses the WebView2 login. Expect any
+WebView2-based login or store window to have this problem, not just SINE.
+
 ## Tested
 
 Verified end to end on this setup: Ubuntu 24.04, Linux Mint 22.3 (Cinnamon) and
