@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.24" date="2026-09-30">
+      <description>
+        <p>WebView2 renders: enable DXVK's dummy composition swapchain by default</p>
+      </description>
+    </release>
     <release version="0.1.23" date="2026-09-30">
       <description>
         <p>ole32: survive a stale drop target at RevokeDragDrop (WebView2 apps crashed)</p>
