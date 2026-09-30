@@ -270,3 +270,57 @@ class RunThroughAppTest(unittest.TestCase):
                      "Ozone 9 Advanced", "iLok License Manager", "PACE License Support Win64", "Bonjour",
                      "Steinberg Activation Manager", "Steinberg Library Manager", "Steinberg MediaBay"):
             self.assertFalse(vendors.run_through_app(self._prog(name)), name)
+
+
+class AudioModelingFinishInstallsTest(unittest.TestCase):
+    """The Software Center's BitRock installers abort under Wine in GUI mode; the
+    am module finds the staged download and finishes it unattended."""
+    def _prefix(self, tmp):
+        from vstenv.wine import Prefix, WineBuild
+        p = Prefix(Path(tmp) / "prefix", WineBuild(Path(tmp) / "wine"))
+        (p.drive_c / "users/me").mkdir(parents=True)
+        return p
+
+    def _stage(self, p, product="SWAMViolin", ver="3.12.3-2944"):
+        d = p.user_dir / "AppData/Roaming/Audio Modeling/Software Center/temp/Svl3_123"
+        d.mkdir(parents=True, exist_ok=True)
+        exe = d / f"{product}-{ver}-windows-x64-installer.exe"
+        exe.write_bytes(b"MZ")
+        return exe
+
+    def test_staged_found_and_installed_product_skipped(self):
+        import tempfile
+        v = vendors.get("am")
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._prefix(tmp); self._stage(p)
+            self.assertEqual([n for n, _ in v.staged_installs(p)], ["SWAMViolin"])
+            # once the product dir exists (spaces vs no spaces), it is skipped
+            (p.drive_c / "Program Files/Audio Modeling/SWAM Violin").mkdir(parents=True)
+            self.assertEqual(v.staged_installs(p), [])
+
+    def test_finish_runs_unattended(self):
+        import tempfile, subprocess
+        from unittest import mock
+        v = vendors.get("am")
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._prefix(tmp); self._stage(p)
+            with mock.patch.object(p, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
+                done = v.finish_installs(p)
+            args = run.call_args[0][0]
+            self.assertIn("--mode", args); self.assertIn("unattended", args)
+            self.assertTrue(args[0].startswith("C:\\") and args[0].endswith("-windows-x64-installer.exe"))
+            self.assertEqual(done, [{"vendor": "am", "product": "SWAMViolin", "ok": True}])
+
+    def test_after_install_finishes_silently_only_when_staged(self):
+        import tempfile, subprocess
+        from unittest import mock
+        v = vendors.get("am")
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._prefix(tmp)
+            with mock.patch.object(p, "run") as run:
+                v.after_install(p)                    # nothing staged -> no run
+            run.assert_not_called()
+            self._stage(p)
+            with mock.patch.object(p, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
+                v.after_install(p)
+            run.assert_called_once()

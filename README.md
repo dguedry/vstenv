@@ -8,9 +8,10 @@ ordinary VST2 / VST3 / CLAP plugins through [yabridge](https://github.com/robber
 desktop's application menu like any other app.
 
 Vendor support lives in **modules**. Native Instruments (Native Access, Kontakt,
-the NTK daemon, library registration), IK Multimedia (IK Product Manager) and
-Steinberg (Download Assistant, Activation Manager, Library Manager, HALion) are
-built in; a separate package can add another vendor without touching the core.
+the NTK daemon, library registration), IK Multimedia (IK Product Manager),
+Steinberg (Download Assistant, Activation Manager, Library Manager, HALion) and
+Audio Modeling (Software Center, SWAM) are built in; a separate package can add
+another vendor without touching the core.
 vstenv is the vendor-modular successor to [nilinux](https://github.com/dguedry/nilinux).
 
 Not affiliated with or endorsed by Native Instruments GmbH, IK Multimedia Production srl or Steinberg Media Technologies GmbH.
@@ -93,6 +94,12 @@ typing:
   swapchain WebView2 renders through, leaving a blank white window. With it the
   embedded browser paints and takes input.
 
+The Software Center's own product installs still abort under Wine (its BitRock
+installer GUI shows an unknown-mode error, the screen flickers and the pointer
+disappears for a moment); the Audio Modeling module then finishes the staged
+download silently in the installer's unattended mode, on the next change, from
+"Finish interrupted installs", or with `vstenv finish-installs`.
+
 One known holdout: **SINE Player's login renders but does not accept keyboard
 input.** SINE hosts WebView2 through JUCE, whose focus handoff into the embedded
 browser Wine does not deliver; no flag or runtime swap fixed it in testing. For
@@ -118,7 +125,7 @@ through yabridge, including [Performer](https://github.com/dguedry/linux-perform
 | Xfer Records (no module: plain Windows installer) | Serum 2 (2.1.5) installer | Bridged as VST3 and playing out of the box |
 | iZotope (no module: plain Windows installer) | Product Portal 1.4, Ozone 9 Advanced 9.13 installer | Every Ozone module bridged as VST3 and VST2, working out of the box. Its installer hands off to a helper (the app waits for it) and leaves the Electron Product Portal running, which crash-loops under Wine; the app stops that so it cannot starve loaded plugins |
 | Spitfire Audio (no module: plain Windows installer) | Spitfire Audio app 3.4 | Draws and signs in only with the app's patched dcomp.dll and dxgi.dll and Wine's own Direct3D, which the app applies to any program that imports DirectComposition (JUCE 8) |
-| Audio Modeling (no module: plain Windows installer) | Software Center 1.x (WebView2) | Launches, renders and its sign-in takes input, via the on-demand WebView2 runtime, the patched ole32.dll and DXVK's dummy composition swapchain |
+| Audio Modeling | Software Center 1.x (WebView2) | Signs in and downloads products; its BitRock installers abort under Wine in GUI mode, so the app finishes them unattended from the staged download (SWAM Violin installed and bridged this way) |
 
 Health lists every check behind these; when one fails it names the fix.
 
