@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.21" date="2026-09-30">
+      <description>
+        <p>GUI: loading spinners for tab data and a "Starting…" indicator for launches</p>
+      </description>
+    </release>
     <release version="0.1.20" date="2026-09-30">
       <description>
         <p>Bridge each VST3 once: stop registering subfolders of the VST3 root</p>
