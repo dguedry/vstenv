@@ -69,6 +69,26 @@ the output's refresh rate from wined3d and sleeping to the next period boundary.
 Verified 2026-09-28: the Spitfire Audio app draws and signs in. A candidate
 for upstreaming.
 
+## ole32-dragdrop-stale-target-<version>.patch
+
+`RevokeDragDrop` crashed WebView2-based apps (Audio Modeling's Software Center,
+a Rust/wry app) at startup. Wine stores the registered `IDropTarget` pointer in
+the public `"OleDropTargetInterface"` window property "for compatibility with
+Windows" and blindly `Release`s whatever is there at revoke time. WebView2's
+embedded browser registers its own drop target (a Chromium-heap pointer), pokes
+that public property, and can free its heap without revoking; the host's revoke
+during window destruction then dereferenced a stale pointer (page fault in
+ole32, `mov (%rax),%rdx` on the vtable read). Windows never dereferences that
+property at revoke, so this never crashes there.
+
+The patch keeps a Wine-private authoritative copy of the pointer in a
+`"WineOleDropTargetInterface"` property (the public one stays write-only compat),
+resolves the drag-time wrapper through it, removes the properties before the
+paired release, and guards the release with `__TRY/__EXCEPT_PAGE_FAULT`, leaking
+the object rather than crashing when it is already gone. Verified 2026-09-30:
+the Software Center runs past the point it crashed; HALion Sonic (OLE-heavy)
+unaffected. A candidate for upstreaming.
+
 ## dcomp-steinberg-<version>.patch
 
 DirectComposition for Steinberg's current products. Their GUI library

@@ -1,0 +1,76 @@
+--- a/dlls/ole32/ole2.c
++++ b/dlls/ole32/ole2.c
+@@ -42,6 +42,7 @@
+ #include "ole2ver.h"
+ 
+ #include "compobj_private.h"
++#include "wine/exception.h"
+ #include "olestd.h"
+ #include "wine/list.h"
+ 
+@@ -112,6 +113,12 @@
+ 
+ /* property to store IDropTarget pointer */
+ static const WCHAR prop_oledroptarget[] = L"OleDropTargetInterface";
++/* Wine-private authoritative copy of the registered drop target. The public
++ * "OleDropTargetInterface" prop exists only for compatibility with Windows,
++ * where it is not what RevokeDragDrop consumes; WebView2's embedded browser is
++ * known to poke it and to free its target before revoking, so it cannot be
++ * trusted for the paired Release. */
++static const WCHAR prop_winedroptarget[] = L"WineOleDropTargetInterface";
+ 
+ /* property to store Marshalled IDropTarget pointer */
+ static const WCHAR prop_marshalleddroptarget[] = L"WineMarshalledDropTarget";
+@@ -418,7 +425,8 @@
+ static inline HRESULT get_target_from_wrapper( IDropTarget *wrapper, IDropTarget **target )
+ {
+     DropTargetWrapper* This = impl_from_IDropTarget( wrapper );
+-    *target = GetPropW( This->hwnd, prop_oledroptarget );
++    *target = GetPropW( This->hwnd, prop_winedroptarget );
++    if (!*target) *target = GetPropW( This->hwnd, prop_oledroptarget );
+     if (!*target) return DRAGDROP_E_NOTREGISTERED;
+     IDropTarget_AddRef( *target );
+     return S_OK;
+@@ -607,6 +615,7 @@
+     {
+       IDropTarget_AddRef(pDropTarget);
+       SetPropW(hwnd, prop_oledroptarget, pDropTarget);
++      SetPropW(hwnd, prop_winedroptarget, pDropTarget);
+       SetPropW(hwnd, prop_marshalleddroptarget, map);
+     }
+     else
+@@ -644,12 +653,32 @@
+   if (!(map = get_droptarget_handle(hwnd)))
+     return DRAGDROP_E_NOTREGISTERED;
+ 
+-  drop_target = GetPropW(hwnd, prop_oledroptarget);
+-  if(drop_target) IDropTarget_Release(drop_target);
++  drop_target = GetPropW(hwnd, prop_winedroptarget);
++  if (!drop_target) drop_target = GetPropW(hwnd, prop_oledroptarget);
+ 
+   RemovePropW(hwnd, prop_oledroptarget);
++  RemovePropW(hwnd, prop_winedroptarget);
+   RemovePropW(hwnd, prop_marshalleddroptarget);
+ 
++  if (drop_target)
++  {
++      /* The paired Release for RegisterDragDrop's AddRef. The object can already
++       * be gone: WebView2's embedded browser registers its own target, frees its
++       * heap without revoking, and the host then revokes during window
++       * destruction (its target pointer may also have been overwritten in the
++       * public prop). Windows does not dereference this value at revoke time, so
++       * do not let a stale pointer crash the process. */
++      __TRY
++      {
++          IDropTarget_Release(drop_target);
++      }
++      __EXCEPT_PAGE_FAULT
++      {
++          WARN("drop target %p is stale (freed or overwritten); leaking it\n", drop_target);
++      }
++      __ENDTRY
++  }
++
+   hr = create_stream_from_map(map, &stream);
+   if(SUCCEEDED(hr))
+   {

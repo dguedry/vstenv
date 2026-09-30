@@ -88,11 +88,14 @@ only a blank window, because WebView2's renderer cannot paint under Wine either.
 No app-side flag or runtime swap fixed either problem in testing, and the
 affected apps do not officially support Linux.
 
-The app does one thing here: it installs the Microsoft WebView2 runtime into the
-prefix when it sees an app that needs one, because without it the app does not
-just fail, it crashes at startup. With the runtime present the app launches, even
-if its window then draws blank or takes no typing (`vstenv webview2` installs it
-by hand; Health flags it).
+The app does two things here. It installs the Microsoft WebView2 runtime into
+the prefix when it sees an app that needs one, because without it the app does
+not just fail, it crashes at startup (`vstenv webview2` installs it by hand;
+Health flags it). And a patched ole32.dll makes OLE drag-drop teardown survive
+the stale target pointer WebView2's embedded browser leaves behind, which
+crashed these apps seconds after launch even with the runtime present. With
+both, the app launches and stays up, even if its window then draws blank or
+takes no typing.
 
 The practical way around the rest: authorize the app once on a real Windows
 machine or a Windows VM. It writes its activation and library registration to
