@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.18" date="2026-09-30">
+      <description>
+        <p>Clarify the two install rows (they were the same action) and document unzip/where</p>
+      </description>
+    </release>
     <release version="0.1.17" date="2026-09-30">
       <description>
         <p>Revert the IK URL filter (v0.1.15): it never intercepted anything</p>
