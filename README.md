@@ -94,11 +94,19 @@ typing:
   swapchain WebView2 renders through, leaving a blank white window. With it the
   embedded browser paints and takes input.
 
-The Software Center's own product installs still abort under Wine (its BitRock
-installer GUI shows an unknown-mode error, the screen flickers and the pointer
-disappears for a moment); the Audio Modeling module then finishes the staged
-download silently in the installer's unattended mode, on the next change, from
-"Finish interrupted installs", or with `vstenv finish-installs`.
+Two Software Center quirks get their own fixes. Its product installs fail under
+Wine: the Center passes the installer's `--mode unattended` as one mis-quoted
+argument, so BitRock falls back to its GUI mode, which cannot start here (an
+unknown-mode error, screen flicker, the pointer disappearing), and the Center
+then deletes the download. While the Center runs, the app snapshots every
+installer it downloads and finishes the install itself the moment the Center's
+attempt fails — so expect the Center to report a failed install, then show the
+product installed on the next Refresh (leftovers: "Finish interrupted installs"
+or `vstenv finish-installs`). And its product TRY videos flicker constantly
+under GPU compositing, so setup points the Center at software compositing
+through WebView2's policy registry key — the documented
+`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` variable is ignored under Wine, where
+every process counts as elevated.
 
 One known holdout: **SINE Player's login renders but does not accept keyboard
 input.** SINE hosts WebView2 through JUCE, whose focus handoff into the embedded
@@ -125,7 +133,7 @@ through yabridge, including [Performer](https://github.com/dguedry/linux-perform
 | Xfer Records (no module: plain Windows installer) | Serum 2 (2.1.5) installer | Bridged as VST3 and playing out of the box |
 | iZotope (no module: plain Windows installer) | Product Portal 1.4, Ozone 9 Advanced 9.13 installer | Every Ozone module bridged as VST3 and VST2, working out of the box. Its installer hands off to a helper (the app waits for it) and leaves the Electron Product Portal running, which crash-loops under Wine; the app stops that so it cannot starve loaded plugins |
 | Spitfire Audio (no module: plain Windows installer) | Spitfire Audio app 3.4 | Draws and signs in only with the app's patched dcomp.dll and dxgi.dll and Wine's own Direct3D, which the app applies to any program that imports DirectComposition (JUCE 8) |
-| Audio Modeling | Software Center 1.x (WebView2) | Signs in and downloads products; its BitRock installers abort under Wine in GUI mode, so the app finishes them unattended from the staged download (SWAM Violin installed and bridged this way) |
+| Audio Modeling | Software Center 1.x (WebView2) | Signs in and downloads products; its own install attempts fail under Wine (mis-quoted installer arguments), so the app rescues each download and finishes it unattended (SWAM Violin and String Sections installed and bridged this way) |
 
 Health lists every check behind these; when one fails it names the fix.
 

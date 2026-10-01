@@ -325,10 +325,62 @@ class AudioModelingFinishInstallsTest(unittest.TestCase):
                 v.after_install(p)
             run.assert_called_once()
 
-    def test_center_gets_software_compositing_env(self):
+    def test_prepare_sets_the_webview2_software_compositing_policy(self):
+        # WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS is ignored under Wine (elevated);
+        # the policy registry key is the channel that works -- Center only.
+        import tempfile, subprocess
+        from unittest import mock
+        v = vendors.get("am")
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._prefix(tmp)
+            with mock.patch.object(p, "run") as run:
+                v.prepare(p)                          # no Center installed -> no key
+            run.assert_not_called()
+            (p.drive_c / "Program Files/Audio Modeling/Software Center").mkdir(parents=True)
+            with mock.patch.object(p, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
+                v.prepare(p)
+            args = run.call_args[0][0]
+            self.assertEqual(args[0], "reg")
+            self.assertIn(r"Edge\WebView2\AdditionalBrowserArguments", args[2])
+            self.assertIn("Audio Modeling Software Center.exe", args)
+            self.assertIn("--disable-gpu", args)
+
+    def test_watcher_rescues_the_download_the_center_deletes(self):
+        # The Center spawns `installer.exe "--mode unattended"` as one argument,
+        # the install fails, and it deletes the download: the watcher's hard link
+        # must survive that cleanup and feed staged_installs.
+        import shutil, tempfile
+        v = vendors.get("am")
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._prefix(tmp); exe = self._stage(p)
+            self.assertTrue(v._center_attempt_pending(p))
+            v._rescue_snapshot(p)
+            shutil.rmtree(exe.parent.parent)          # the Center's cleanup
+            self.assertFalse(v._center_attempt_pending(p))
+            staged = v.staged_installs(p)
+            self.assertEqual([n for n, _ in staged], ["SWAMViolin"])
+            self.assertEqual(staged[0][1].read_bytes(), b"MZ")
+            # once the product is in, the rescue copy goes
+            (p.drive_c / "Program Files/Audio Modeling/SWAM Violin").mkdir(parents=True)
+            v._rescue_clean(p)
+            self.assertEqual(v.staged_installs(p), [])
+            self.assertEqual(list(v._rescue_dir(p).glob("*.exe")), [])
+
+    def test_watch_program_finishes_leftovers_once_the_center_exits(self):
+        import subprocess, tempfile
+        from unittest import mock
         from vstenv import programs
         v = vendors.get("am")
-        center = programs.Program(name="Audio Modeling Software Center", exe=r"C:\x\c.exe")
-        swam = programs.Program(name="SWAM Violin", exe=r"C:\x\v.exe")
-        self.assertIn("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", v.launch_env(None, center))
-        self.assertEqual(v.launch_env(None, swam), {})
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._prefix(tmp); self._stage(p)
+            center = programs.Program(name="Audio Modeling Software Center", exe=r"C:\x\c.exe")
+            proc = mock.Mock(); proc.poll.return_value = 0          # already exited
+            with mock.patch.object(p, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
+                v.watch_program(p, center, proc)
+            argv = [c[0][0] for c in run.call_args_list if c[0][0][0] != "reg"]
+            self.assertEqual(len(argv), 1)
+            self.assertEqual(argv[0][1:], ["--mode", "unattended", "--unattendedmodeui", "none"])
+            swam = programs.Program(name="SWAM Violin", exe=r"C:\x\v.exe")
+            with mock.patch.object(p, "run") as run:
+                v.watch_program(p, swam, proc)                      # not the Center
+            run.assert_not_called()

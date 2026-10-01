@@ -133,6 +133,11 @@ class Vendor:
         """Extra environment for starting this vendor's program (merged over the
         prefix env; a variable the user already set in their session wins)."""
         return {}
+    def watch_program(self, p: "Prefix", prog, proc):
+        """Runs on a background thread while this vendor's program runs (proc is
+        its Popen) and may keep working briefly after it exits. For work that has
+        to observe the live program -- e.g. rescuing an installer download the
+        program deletes again when its own install attempt fails."""
 
     def plugin_dll_overrides(self, p: "Prefix") -> list[tuple[str, str]]:
         """(plugin path substring, WINEDLLOVERRIDES) pairs for bridged plugins: the
