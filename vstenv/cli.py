@@ -103,6 +103,7 @@ def cmd_run(a):
     elif getattr(proc, "vstenv_watch", None) is not None:
         proc.vstenv_watch.join()     # the vendor is observing the program (e.g. rescuing
                                      # its installs); exiting now would kill that thread
+        setup.after_change(p, r)     # it may have installed something: bridge and sync
 
 def cmd_uninstall(a):
     p = _prefix(); r = ConsoleReporter()
