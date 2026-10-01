@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.39" date="2026-10-01">
+      <description>
+        <p>README: four WebView2 arrangements; Tested rows for Audio Modeling (current) and Orchestral Tools</p>
+      </description>
+    </release>
     <release version="0.1.38" date="2026-10-01">
       <description>
         <p>README: SINE rough edges after sign-in (stuck web overlay, video-dialog input lag)</p>
