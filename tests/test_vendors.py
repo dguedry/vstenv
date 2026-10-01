@@ -375,11 +375,15 @@ class AudioModelingFinishInstallsTest(unittest.TestCase):
             p = self._prefix(tmp); self._stage(p)
             center = programs.Program(name="Audio Modeling Software Center", exe=r"C:\x\c.exe")
             proc = mock.Mock(); proc.poll.return_value = 0          # already exited
-            with mock.patch.object(p, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
+            with mock.patch.object(p, "run", return_value=subprocess.CompletedProcess([], 0)) as run, \
+                 mock.patch("vstenv.host.notify") as notify:
                 v.watch_program(p, center, proc)
             argv = [c[0][0] for c in run.call_args_list if c[0][0][0] != "reg"]
             self.assertEqual(len(argv), 1)
             self.assertEqual(argv[0][1:], ["--mode", "unattended", "--unattendedmodeui", "none"])
+            # the Center showed its own install failing; the desktop says what really happened
+            notify.assert_called_once()
+            self.assertIn("SWAM Violin installed", notify.call_args[0][0])
             swam = programs.Program(name="SWAM Violin", exe=r"C:\x\v.exe")
             with mock.patch.object(p, "run") as run:
                 v.watch_program(p, swam, proc)                      # not the Center

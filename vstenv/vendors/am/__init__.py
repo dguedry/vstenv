@@ -38,6 +38,11 @@ from .. import Vendor, Product, Note
 from ...wine import Prefix
 
 _INSTALLER = re.compile(r"-windows(-x64)?-installer\.exe$", re.I)
+
+def _pretty(name: str) -> str:
+    """'SWAMDoubleReeds' -> 'SWAM Double Reeds' (installer file names squeeze the
+    product name; notifications should not)."""
+    return re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])|(?<=[a-z0-9])(?=[A-Z])", " ", name)
 CENTER_EXE = "Audio Modeling Software Center.exe"
 # WebView2 reads per-app browser arguments from this policy key (value name = exe).
 _POLICY_KEY = r"HKLM\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments"
@@ -148,15 +153,27 @@ class AudioModeling(Vendor):
                 self._rescue_snapshot(p)
                 if not self._center_attempt_pending(p):
                     self._rescue_clean(p)
-                    if self.staged_installs(p): self.finish_installs(p)
+                    if self.staged_installs(p): self._finish_and_tell(p)
             except Exception:
                 pass
             time.sleep(3)
         try:        # the Center is gone: complete whatever is left, racing no one
             self._rescue_snapshot(p); self._rescue_clean(p)
-            if self.staged_installs(p): self.finish_installs(p)
+            if self.staged_installs(p): self._finish_and_tell(p)
         except Exception:
             pass
+
+    def _finish_and_tell(self, p: Prefix):
+        """Finish rescued installs and say so on the desktop: the Center has just
+        shown the user its own install failing, and nothing else tells them the
+        install still happened."""
+        from ... import host
+        for d in self.finish_installs(p):
+            if d["ok"]:
+                host.notify(f"{_pretty(d['product'])} installed",
+                            "The Software Center's own install fails under Wine, so the "
+                            "error it shows is expected; vstenv finished the install from "
+                            "the downloaded installer. Press Refresh in the Center to see it.")
 
     def finish_installs(self, p: Prefix, r=None) -> list[dict]:
         """Run each staged installer in InstallBuilder's unattended mode, the

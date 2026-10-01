@@ -86,3 +86,11 @@ def desktop_tool(cmd: list[str], timeout=30) -> subprocess.CompletedProcess | No
     if which(cmd[0]) is None: return None
     try: return run(cmd, capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.SubprocessError): return None
+
+def notify(summary: str, body: str = "") -> None:
+    """A desktop notification, shown by the host's notification daemon. Best
+    effort: background work (e.g. an install finished behind a vendor app's
+    back) should be announced, never fail over a missing notify-send."""
+    from . import APP_ID, APP_NAME
+    desktop_tool(["notify-send", "--app-name", APP_NAME, "--icon", APP_ID,
+                  summary, *([body] if body else [])], timeout=15)

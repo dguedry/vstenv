@@ -100,9 +100,10 @@ argument, so BitRock falls back to its GUI mode, which cannot start here (an
 unknown-mode error, screen flicker, the pointer disappearing), and the Center
 then deletes the download. While the Center runs, the app snapshots every
 installer it downloads and finishes the install itself the moment the Center's
-attempt fails — so expect the Center to report a failed install, then show the
-product installed on the next Refresh (leftovers: "Finish interrupted installs"
-or `vstenv finish-installs`). And its window constantly flashes half-drawn
+attempt fails — so expect the Center to report a failed install, a desktop
+notification that the install went through anyway, and the product installed on
+the next Refresh (leftovers: "Finish interrupted installs" or
+`vstenv finish-installs`). And its window constantly flashes half-drawn
 sections: Chromium repaints only each frame's damaged region and trusts the
 DirectComposition swapchain to keep the rest, which does not hold under DXVK,
 so the buffers alternate between different half-updated frames. Setup gives the
