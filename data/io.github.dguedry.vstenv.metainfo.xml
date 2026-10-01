@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.37" date="2026-10-01">
+      <description>
+        <p>Full-frame presentation flags for every WebView2 host</p>
+      </description>
+    </release>
     <release version="0.1.36" date="2026-10-01">
       <description>
         <p>SINE login: it types fine, it just does not show it -- sign in blind</p>
