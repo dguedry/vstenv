@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.41" date="2026-10-01">
+      <description>
+        <p>SWAM first-run notes: Authorize All for licenses, expression for sound</p>
+      </description>
+    </release>
     <release version="0.1.40" date="2026-10-01">
       <description>
         <p>NI section shows only NI; IK sound content does not reinstall forever</p>
