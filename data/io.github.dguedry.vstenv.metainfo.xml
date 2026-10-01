@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.36" date="2026-10-01">
+      <description>
+        <p>SINE login: it types fine, it just does not show it -- sign in blind</p>
+      </description>
+    </release>
     <release version="0.1.35" date="2026-10-01">
       <description>
         <p>Kill the Center's doomed installer run so its error dialog barely shows</p>
