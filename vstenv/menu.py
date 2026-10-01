@@ -34,11 +34,21 @@ def _q(s: str) -> str:
 def launcher() -> str:
     """The command the desktop can run to reach this app. The desktop loads an
     entry only if its Exec program exists on PATH (GDesktopAppInfo drops it
-    otherwise, silently), so a source checkout without the `vstenv` script must
-    point at its interpreter instead."""
+    otherwise, silently). A sync run from a source checkout must not write an
+    Exec that only works in that checkout: `python -m vstenv` fails from any
+    other working directory when the package is not installed (a dev sync once
+    broke every menu entry this way). Prefer the installed Flatpak -- it shares
+    the same prefix -- and only fall back to a cwd-independent python command."""
     if host.in_flatpak(): return f"flatpak run --command={APP_NAME} {APP_ID}"
     if host.which(APP_NAME): return APP_NAME
-    return f"{_q(sys.executable)} -m {APP_NAME}"
+    if host.which("flatpak"):
+        try:
+            import subprocess
+            if subprocess.run(["flatpak", "info", APP_ID], capture_output=True, timeout=10).returncode == 0:
+                return f"flatpak run --command={APP_NAME} {APP_ID}"
+        except Exception: pass
+    pkg_parent = Path(__file__).resolve().parent.parent      # the dir that holds the vstenv package
+    return f"env PYTHONPATH={_q(str(pkg_parent))} {_q(sys.executable)} -m {APP_NAME}"
 
 def exec_line(name: str) -> str:
     """How the desktop starts the program: through this app, so quirks and vendor launchers apply."""
@@ -95,9 +105,13 @@ def exec_resolves(desktop: Path) -> bool:
     try:
         line = next((l for l in desktop.read_text(errors="replace").splitlines() if l.startswith("Exec=")), "")
     except OSError: return False
-    m = re.match(r'Exec=(?:"([^"]+)"|(\S+))', line)
-    if not m: return False
-    prog = m.group(1) or m.group(2)
+    rest = line[len("Exec="):].strip()
+    # an `env VAR=value ...` prefix is valid in Exec lines; check the real program
+    toks = [a or b for a, b in re.findall(r'"([^"]+)"|(\S+)', rest)]
+    if toks and toks[0] == "env":
+        toks = [t for t in toks[1:] if "=" not in t]      # drop the VAR=value assignments
+    if not toks: return False
+    prog = toks[0]
     return Path(prog).is_file() if "/" in prog else host.which(prog) is not None
 
 def sync(p: Prefix, reporter=None) -> dict:

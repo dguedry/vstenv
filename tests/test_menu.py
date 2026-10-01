@@ -34,7 +34,7 @@ class MenuTest(unittest.TestCase):
             self.assertEqual(menu.exec_line("Kontakt 8"), 'vstenv run "Kontakt 8"')
         with mock.patch.object(host, "in_flatpak", return_value=False), mock.patch.object(menu.host, "which", return_value=None):
             # a source checkout: the desktop hides an entry whose Exec program is not on PATH, so use the interpreter
-            self.assertEqual(menu.exec_line("Kontakt 8"), f'"{menu.sys.executable}" -m vstenv run "Kontakt 8"')
+            self.assertEqual(menu.exec_line("Kontakt 8"), f'{menu.launcher()} run "Kontakt 8"')
         with mock.patch.object(host, "in_flatpak", return_value=True): self.assertIn("flatpak run --command=vstenv io.github.dguedry.vstenv run", menu.exec_line("Kontakt 8"))
         self.assertTrue(menu.exec_resolves(f), "the entry must name a launcher the desktop can find")
         broken = self.apps / "io.github.dguedry.vstenv.program.broken.desktop"
@@ -56,3 +56,28 @@ class MenuTest(unittest.TestCase):
         self.assertEqual(menu.remove_all(), 1); self.assertEqual(menu.ours(), []); self.assertTrue(foreign.exists())
 
 if __name__ == "__main__": unittest.main()
+
+
+class LauncherExecTest(unittest.TestCase):
+    """A menu Exec must work from any working directory: prefer the installed
+    Flatpak when syncing from a source checkout, else a PYTHONPATH-pinned python."""
+    def test_prefers_installed_flatpak_over_bare_python(self):
+        import subprocess
+        from unittest import mock
+        from vstenv import host
+        which = lambda name: "/usr/bin/flatpak" if name == "flatpak" else None
+        with mock.patch.object(host, "in_flatpak", return_value=False), \
+             mock.patch.object(host, "which", side_effect=which), \
+             mock.patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
+            self.assertIn("flatpak run --command=vstenv", menu.launcher())
+
+    def test_fallback_is_cwd_independent(self):
+        import subprocess
+        from unittest import mock
+        from vstenv import host
+        with mock.patch.object(host, "in_flatpak", return_value=False), \
+             mock.patch.object(host, "which", return_value=None), \
+             mock.patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 1)):
+            line = menu.launcher()
+        self.assertIn("PYTHONPATH=", line)             # importable from anywhere
+        self.assertIn("-m vstenv", line)
