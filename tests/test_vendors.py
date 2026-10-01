@@ -411,3 +411,45 @@ class AudioModelingDoomedAttemptTest(unittest.TestCase):
                  mock.patch.object(p, "kill_pids") as kp:
                 v._kill_doomed_attempt(p)
             kp.assert_not_called()
+
+
+class NIForeignNKSRecordsTest(unittest.TestCase):
+    """SWAM and iZotope installers drop NKS records into NI's installed_products
+    folder; they are not NI products and must not appear in the NI section."""
+    def test_third_party_records_filtered_out(self):
+        import json, tempfile
+        from vstenv.wine import Prefix, WineBuild
+        from vstenv.vendors.ni import products as nip
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Prefix(Path(tmp) / "prefix", WineBuild(Path(tmp) / "wine"))
+            d = nip.installed_products_dir(p); d.mkdir(parents=True)
+            (d / "Kontakt 8.json").write_text(json.dumps(
+                {"InstallDir": r"C:\Program Files\Native Instruments\Kontakt 8"}))
+            (d / "SWAM Violin 3.json").write_text(json.dumps(
+                {"ContentDir": r"C:\Program Files\Common Files\Audio Modeling\SWAM Violin 3"}))
+            (d / "iZotope-Ozone 9.json").write_text(json.dumps(
+                {"ContentDir": r"C:\Program Files\iZotope\Ozone 9\NKS\Ozone 9"}))
+            self.assertEqual([x.name for x in nip.installed(p)], ["Kontakt 8"])
+
+
+class IKSoundContentNoLoopTest(unittest.TestCase):
+    """A SampleTank sound-content pack writes no program record, so the finish
+    pass can never see it as installed -- the marker written after a successful
+    run is what stops it re-running on every Product Manager close."""
+    def test_marker_stops_the_rerun_until_a_newer_download(self):
+        import os, tempfile, time
+        from unittest import mock
+        from vstenv.wine import Prefix, WineBuild
+        from vstenv import programs
+        v = vendors.get("ik")
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Prefix(Path(tmp) / "prefix", WineBuild(Path(tmp) / "wine"))
+            (p.drive_c / "users/me").mkdir(parents=True)
+            sub = v._downloads_dir(p) / "London Grooves"; sub.mkdir(parents=True)
+            exe = sub / "Install London Grooves Sound Content.exe"; exe.write_bytes(b"MZ")
+            with mock.patch.object(programs, "installed", return_value=[]):
+                self.assertEqual([n for n, _ in v.staged_installs(p)], ["London Grooves"])
+                (sub / v._DONE).write_text("")          # a finish run succeeded
+                self.assertEqual(v.staged_installs(p), [])
+                os.utime(exe, (time.time() + 5, time.time() + 5))   # IK downloaded a newer build
+                self.assertEqual([n for n, _ in v.staged_installs(p)], ["London Grooves"])

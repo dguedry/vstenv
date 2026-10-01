@@ -152,6 +152,18 @@ class IKMultimedia(Vendor):
         exe = next((x for x in sorted(sub.glob("*.exe")) if "uninstall" not in x.name.lower()), None)
         return exe
 
+    _DONE = ".vstenv-finished"     # written after a successful finish run
+
+    def _finished(self, sub: Path) -> bool:
+        """This download folder's installer already ran to completion, and IK has
+        not downloaded anything newer into it since. Needed because sound-content
+        packs (SampleTank libraries) write no program record at all -- without
+        the marker every Product Manager close would run their installer again."""
+        m = sub / self._DONE
+        if not m.exists(): return False
+        payload = [x.stat().st_mtime for x in sub.iterdir() if x.suffix.lower() in (".zip", ".exe")]
+        return not payload or m.stat().st_mtime >= max(payload)
+
     def staged_installs(self, p: Prefix) -> list:
         """Downloaded IK product installers that are present but whose product is
         not installed yet: [(product name, folder)]. The installer .exe is
@@ -162,7 +174,7 @@ class IKMultimedia(Vendor):
         installed = {x.name.lower() for x in programs.installed(p)}
         out = []
         for sub in sorted(d.iterdir()):
-            if not sub.is_dir(): continue
+            if not sub.is_dir() or self._finished(sub): continue
             if any(sub.name.lower() in n or n in sub.name.lower() for n in installed): continue
             if any(sub.glob("*.zip")) or any(x for x in sub.glob("*.exe") if "uninstall" not in x.name.lower()):
                 out.append((sub.name, sub))
@@ -184,6 +196,9 @@ class IKMultimedia(Vendor):
             try:
                 rc = programs.install(p, exe, rr)
                 done.append({"vendor": self.id, "product": name, "ok": rc == 0})
+                if rc == 0:
+                    try: (sub / self._DONE).write_text("")   # sound content leaves no program record
+                    except OSError: pass
             except Exception as e:
                 rr.fail(str(e)[:100]); done.append({"vendor": self.id, "product": name, "ok": False})
         return done

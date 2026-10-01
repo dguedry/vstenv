@@ -69,7 +69,12 @@ def hive_keys(p: Prefix) -> dict[str, dict[str, str]]:
 
 def installed(p: Prefix) -> list[NIProduct]:
     """Installed products = daemon's installed_products records, enriched with
-    catalogue, registry and license state."""
+    catalogue, registry and license state.
+
+    Third-party installers with NKS support (SWAM, iZotope Ozone) drop records
+    in the same folder so Komplete Kontrol can browse them. Those are not NI
+    products: they are kept out by requiring the record to be in NA's catalogue
+    or to point into a Native Instruments directory."""
     cat = hints(p); keys = hive_keys(p); lic = {f.stem: f.stat().st_size > 0 for f in ras3_dir(p).glob("*.jwt")} if ras3_dir(p).exists() else {}
     out = []
     d = installed_products_dir(p)
@@ -77,6 +82,8 @@ def installed(p: Prefix) -> list[NIProduct]:
         for f in sorted(d.glob("*.json")):
             try: j = json.loads(f.read_text(errors="replace"))
             except Exception: j = {}
+            if f.stem not in cat and "native instruments" not in (j.get("ContentDir", "") + j.get("InstallDir", "")).lower():
+                continue                        # another vendor's NKS registration
             pr = cat.get(f.stem) or NIProduct(name=f.stem, regkey=f.stem)
             pr.content_dir = j.get("ContentDir", ""); pr.install_dir = j.get("InstallDir", "")
             pr.version = j.get("ContentVersion", "")
