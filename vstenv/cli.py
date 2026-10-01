@@ -100,6 +100,9 @@ def cmd_run(a):
     except RuntimeError as e: sys.exit(str(e))
     if a.wait:
         proc.wait(); setup.after_change(p, r)           # the program may have installed plugins
+    elif getattr(proc, "vstenv_watch", None) is not None:
+        proc.vstenv_watch.join()     # the vendor is observing the program (e.g. rescuing
+                                     # its installs); exiting now would kill that thread
 
 def cmd_uninstall(a):
     p = _prefix(); r = ConsoleReporter()

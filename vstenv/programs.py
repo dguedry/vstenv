@@ -263,13 +263,15 @@ def run(p: Prefix, prog: Program, reporter=None):
         venv = {k: val for k, val in (v.launch_env(p, prog) or {}).items() if k not in os.environ}
         if venv: env = venv; r.log("launch environment: " + ", ".join(f"{k}={val}" for k, val in venv.items()))
     proc = p.spawn(argv, cwd=str(cwd) if cwd and cwd.is_dir() else None, env=env)
-    if v is not None:
-        # the vendor may need to observe the live program (Vendor.watch_program);
-        # `vstenv run` and the GUI both outlive the program, so the thread does too
+    if v is not None and type(v).watch_program is not vendors.Vendor.watch_program:
+        # this vendor observes the live program (Vendor.watch_program). Daemon
+        # thread so the GUI can quit mid-run; proc.vstenv_watch lets the CLI
+        # join it instead of exiting right after the spawn and killing it.
         def _watch(v=v):
             try: v.watch_program(p, prog, proc)
             except Exception: pass
-        threading.Thread(target=_watch, daemon=True, name=f"watch:{prog.name}").start()
+        t = threading.Thread(target=_watch, daemon=True, name=f"watch:{prog.name}")
+        t.start(); proc.vstenv_watch = t
     r.ok(prog.exe); return proc
 
 def uninstall_argv(uninstall: str) -> list[str]:

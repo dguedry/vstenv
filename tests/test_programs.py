@@ -246,3 +246,32 @@ class MergeSlashStyleTest(unittest.TestCase):
                 out = programs.installed(p)
             names = [x.name for x in out if "SWAM" in x.name]
             self.assertEqual(names, ["SWAM Violin"])
+
+
+class WatchProgramThreadTest(unittest.TestCase):
+    """run() hands the live program to a vendor that observes it (watch_program)
+    on a thread the caller can join -- and only to a vendor that overrides it."""
+    def test_watcher_started_and_attached_only_when_overridden(self):
+        import tempfile, threading
+        from unittest import mock
+        from vstenv import vendors
+        from vstenv.wine import Prefix, WineBuild
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Prefix(Path(tmp) / "prefix", WineBuild(Path(tmp) / "wine"))
+            prog = programs.Program(name="X", exe=r"C:\x\x.exe")
+            seen = threading.Event()
+            class Watching(vendors.Vendor):
+                id = "t"; name = "T"
+                def watch_program(self, p, prog, proc): seen.set()
+            class Plain(vendors.Vendor):
+                id = "u"; name = "U"
+            class Proc: pass
+            with mock.patch("vstenv.vendors.for_program", return_value=Watching()), \
+                 mock.patch.object(p, "spawn", return_value=Proc()):
+                proc = programs.run(p, prog)
+            self.assertTrue(seen.wait(2), "the overriding vendor's watcher must run")
+            self.assertIsNotNone(proc.vstenv_watch); proc.vstenv_watch.join(2)
+            with mock.patch("vstenv.vendors.for_program", return_value=Plain()), \
+                 mock.patch.object(p, "spawn", return_value=Proc()):
+                proc = programs.run(p, prog)
+            self.assertFalse(hasattr(proc, "vstenv_watch"), "no thread for the default no-op")
