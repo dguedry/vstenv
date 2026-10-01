@@ -62,3 +62,33 @@ class WebView2DetectTest(unittest.TestCase):
 
 
 if __name__ == "__main__": unittest.main()
+
+
+class PresentationFlagsTest(unittest.TestCase):
+    """Every WebView2 host gets the full-frame presentation flags through the
+    policy key, but a value someone (or a vendor module) already set stays."""
+    def test_flags_set_for_hosts_without_a_value(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Prefix(Path(tmp) / "prefix", WineBuild(Path(tmp) / "wine"))
+            exe = p.drive_c / "Program Files/SINE Player/SINE Player.exe"
+            exe.parent.mkdir(parents=True); exe.write_bytes(b"MZ" + b"CoreWebView2")
+            other = p.drive_c / "Program Files/Audio Modeling/Software Center/Audio Modeling Software Center.exe"
+            other.parent.mkdir(parents=True); other.write_bytes(b"MZ" + b"WebView2Loader")
+            with mock.patch.object(p, "reg_query", return_value={"Audio Modeling Software Center.exe": "--disable-gpu"}), \
+                 mock.patch.object(p, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
+                n = webview2.apply_presentation_flags(p)
+            self.assertEqual(n, 1)                       # only the host with no value
+            args = run.call_args[0][0]
+            self.assertIn("SINE Player.exe", args)
+            self.assertIn(webview2.PRESENTATION_FLAGS, args)
+
+    def test_bundled_runtime_app_counts_even_without_marker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Prefix(Path(tmp) / "prefix", WineBuild(Path(tmp) / "wine"))
+            d = p.drive_c / "Program Files/SINE Player"
+            (d / "BrowserRuntime").mkdir(parents=True)
+            (d / "BrowserRuntime/msedgewebview2.exe").write_bytes(b"MZ")
+            (d / "SINE Player.exe").write_bytes(b"MZ plain")
+            (d / "unins000.exe").write_bytes(b"MZ plain")
+            self.assertEqual(webview2.host_exes(p), ["SINE Player.exe"])

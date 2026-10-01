@@ -78,12 +78,13 @@ class AudioModeling(Vendor):
                                    install_dir=str(sub)))
         return out
 
-    FLAGS = "--disable-direct-composition --ui-disable-partial-swap"
+    FLAGS = "--disable-direct-composition --ui-disable-partial-swap"   # = webview2.PRESENTATION_FLAGS
 
     def prepare(self, p, r=None):
         """Make the Center present full frames through a plain swapchain (see the
-        module docstring): the WebView2 policy key is the one channel Wine does
-        not ignore."""
+        module docstring). webview2.apply_presentation_flags covers hosts without
+        a value; this one FORCES the value, so a stale flag set by an older
+        version of this app is corrected rather than kept."""
         if not (self._products_dir(p) / "Software Center").is_dir(): return
         from ...progress import null_reporter
         rr = null_reporter(r)

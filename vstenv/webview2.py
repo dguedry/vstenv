@@ -71,6 +71,56 @@ def _exe_uses_webview2(exe: Path) -> bool:
     except OSError: return False
     return b"CoreWebView2" in b or b"msedgewebview2" in b or b"WebView2Loader" in b
 
+# Chromium presents WebView2 content through DirectComposition and repaints only
+# each frame's damaged region, trusting the swapchain to preserve the rest;
+# neither assumption holds under Wine with DXVK, so half-drawn regions alternate
+# and embedded video churns (the Audio Modeling catalog, SINE's tips video).
+# These flags make the browser present full frames through a plain swapchain.
+# They can only be delivered through WebView2's per-app policy registry key:
+# the documented WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS variable is ignored
+# under Wine, where every process counts as elevated.
+PRESENTATION_FLAGS = "--disable-direct-composition --ui-disable-partial-swap"
+POLICY_KEY = r"HKLM\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments"
+
+def host_exes(p: Prefix) -> list[str]:
+    """Exe names of installed programs that host a WebView2 control -- the policy
+    key's per-app value names. The exe carrying the marker, or (next to a bundled
+    BrowserRuntime) every exe but the uninstaller."""
+    out = set()
+    for base in ("Program Files", "Program Files (x86)"):
+        root = p.drive_c / base
+        if not root.is_dir(): continue
+        for d in root.iterdir():
+            if not d.is_dir(): continue
+            rel = str(d.relative_to(p.drive_c)).replace("\\", "/")
+            if any(part in rel for part in _RUNTIME_DIRS): continue
+            for sub in [d, *[x for x in d.rglob("*") if x.is_dir() and len(x.relative_to(d).parts) <= 2]]:
+                if any(r in str(sub) for r in _RUNTIME_DIRS): continue
+                exes = list(sub.glob("*.exe"))
+                out.update(e.name for e in exes if _exe_uses_webview2(e))
+                if (sub / "BrowserRuntime/msedgewebview2.exe").exists():
+                    out.update(e.name for e in exes if not e.name.lower().startswith("unins"))
+    return sorted(out)
+
+def apply_presentation_flags(p: Prefix, reporter=None) -> int:
+    """Give every WebView2 host the presentation flags, where no per-app value
+    exists yet (a vendor module that needs different flags owns its own value)."""
+    r = null_reporter(reporter)
+    exes = host_exes(p)
+    if not exes: return 0
+    try: have = p.reg_query(POLICY_KEY)
+    except Exception: have = {}
+    missing = [x for x in exes if x not in have]
+    if not missing: return 0
+    r.step("WebView2 apps: stable frame presentation")
+    n = 0
+    for exe in missing:
+        cp = p.run(["reg", "add", POLICY_KEY, "/v", exe, "/t", "REG_SZ",
+                    "/d", PRESENTATION_FLAGS, "/f"], timeout=120)
+        if cp.returncode == 0: n += 1
+    (r.ok if n == len(missing) else r.fail)(", ".join(missing))
+    return n
+
 def needed(p: Prefix) -> bool:
     """A WebView2 app is present but no runtime is installed."""
     return not installed(p) and bool(apps_present(p))

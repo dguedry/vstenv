@@ -22,6 +22,7 @@ def prepare(p: Prefix, reporter=None):
     _guarded(r, "nilinux leftovers", lambda: yabridge.remove_nilinux_leftovers(r))
     _guarded(r, "Plugin DLL overrides", lambda: yabridge.write_plugin_overrides(dcomp.all_plugin_overrides(p)))
     _guarded(r, "DirectComposition programs", lambda: dcomp.apply_program_overrides(p, dcomp.program_exes(p), r))
+    _guarded(r, "WebView2 presentation flags", lambda: webview2.apply_presentation_flags(p, r))
     for v in vendors.all():
         _guarded(r, f"{v.name}: preparing", lambda v=v: v.prepare(p, r))
     _guarded(r, "URL handlers", lambda: urlschemes.register_all(p, r))
@@ -79,6 +80,7 @@ def after_change(p: Prefix, reporter=None) -> dict:
     # embedded-Edge UI under Wine, but launching beats crashing.
     if webview2.needed(p):
         _guarded(r, "Microsoft WebView2 runtime", lambda: webview2.install(p, r))
+    _guarded(r, "WebView2 presentation flags", lambda: webview2.apply_presentation_flags(p, r))
     _guarded(r, "Plugin DLL overrides", lambda: yabridge.write_plugin_overrides(dcomp.all_plugin_overrides(p)))
     res = yabridge.sync(p, r)
     _guarded(r, "Desktop menu entries", lambda: menu.sync(p, r))

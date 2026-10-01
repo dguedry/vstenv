@@ -93,6 +93,15 @@ typing:
   every launch unless you set your own): DXVK otherwise refuses the composition
   swapchain WebView2 renders through, leaving a blank white window. With it the
   embedded browser paints and takes input.
+- **Full-frame presentation flags** (`--disable-direct-composition
+  --ui-disable-partial-swap`) are set per app for every WebView2 host, through
+  WebView2's policy registry key — the documented
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` variable is ignored under Wine, where
+  every process counts as elevated. Chromium otherwise repaints only each
+  frame's damaged region and trusts the swapchain to keep the rest, which does
+  not hold here: half-drawn regions alternate and embedded video churns (the
+  Center's catalog once flashed constantly; SINE's tips video was an empty
+  flickering box).
 
 Two Software Center quirks get their own fixes. Its product installs fail under
 Wine: the Center passes the installer's `--mode unattended` as one mis-quoted
@@ -103,15 +112,9 @@ installer it downloads and finishes the install itself the moment the Center's
 attempt fails — so expect the Center to report a failed install, a desktop
 notification that the install went through anyway, and the product installed on
 the next Refresh (leftovers: "Finish interrupted installs" or
-`vstenv finish-installs`). And its window constantly flashes half-drawn
-sections: Chromium repaints only each frame's damaged region and trusts the
-DirectComposition swapchain to keep the rest, which does not hold under DXVK,
-so the buffers alternate between different half-updated frames. Setup gives the
-Center `--disable-direct-composition --ui-disable-partial-swap` (present full
-frames through a plain swapchain) via WebView2's policy registry key — the
-documented `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` variable is ignored under
-Wine, where every process counts as elevated. With that the window is
-pixel-stable and the TRY videos play.
+`vstenv finish-installs`). Its once constantly-flashing window is covered by
+the presentation flags above: with them it is pixel-stable and the TRY videos
+play.
 
 One known quirk: **SINE Player's login takes your typing but does not display
 it.** The login card is native JUCE (not the embedded browser, as it long
