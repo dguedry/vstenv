@@ -113,12 +113,18 @@ documented `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` variable is ignored under
 Wine, where every process counts as elevated. With that the window is
 pixel-stable and the TRY videos play.
 
-One known holdout: **SINE Player's login renders but does not accept keyboard
-input.** SINE hosts WebView2 through JUCE, whose focus handoff into the embedded
-browser Wine does not deliver; no flag or runtime swap fixed it in testing. For
-SINE only: authorize once on a real Windows machine or VM, its activation is
-written to disk, and the bridged SINE Player plugin then plays in a Linux DAW,
-because playback never uses the login window.
+One known quirk: **SINE Player's login takes your typing but does not display
+it.** The login card is native JUCE (not the embedded browser, as it long
+looked): the fields receive every keystroke and the whole flow works — typing a
+bad address and pressing Activate answers "Email is missing @ or domain", and
+made-up credentials come back from Orchestral Tools' servers as "User not found
+or invalid credentials". Only the glyphs inside the editable fields never draw
+(a Wine Direct2D editable-text gap; everything else, including the red
+responses, renders). So you can sign in blind: click the upper field, type your
+email, click the lower field, type your password, click Activate — the red text
+under the button tells you if a typo slipped in. Once signed in, the bridged
+SINE Player plugin plays in a Linux DAW as usual. (Authorizing once on a
+Windows machine or VM also still works, if you prefer not to type blind.)
 
 ## Tested
 
