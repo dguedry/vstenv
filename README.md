@@ -129,6 +129,13 @@ under the button tells you if a typo slipped in. Once signed in, the bridged
 SINE Player plugin plays in a Linux DAW as usual. (Authorizing once on a
 Windows machine or VM also still works, if you prefer not to type blind.)
 
+Two SINE rough edges remain after signing in. Close the "getting started"
+video with its own ✕ before switching tabs — while it is open, tab clicks are
+processed with a long delay. And a web tab (Store, My Licenses) leaves its
+page stuck over the native views when you switch away: Wine does not hide the
+embedded browser's window when SINE asks it to, so after visiting the Store,
+restart SINE to get the Library view back. The Store itself browses fine.
+
 ## Tested
 
 Verified end to end on this setup: Ubuntu 24.04, Linux Mint 22.3 (Cinnamon) and
