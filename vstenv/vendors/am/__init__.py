@@ -17,13 +17,17 @@ things do fail under Wine, and this module carries the fix for both:
   documented unattended mode. Leftovers are also picked up by "Finish
   interrupted installs" and `vstenv finish-installs`.
 
-* Its product TRY pages embed a video that flickers constantly: the page
-  composites fine through DXVK's dummy composition swapchain, but video takes
-  Chromium's overlay path. --disable-gpu renders page and video through one
-  software path. WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS is ignored here (Wine
-  processes count as elevated, and elevated apps ignore flags from the local
-  device environment), but WebView2's policy registry key is honored, so
-  prepare() sets it for the Center's exe.
+* Its window constantly flashes half-drawn sections. Chromium presents through
+  DirectComposition and repaints only the damaged region of each frame,
+  trusting the swapchain to keep the rest -- under DXVK that trust is
+  misplaced, so the two buffers alternate between different half-updated
+  frames. --disable-direct-composition (present through a plain HWND
+  swapchain) plus --ui-disable-partial-swap (always redraw the full frame)
+  makes the window pixel-stable and the TRY videos play (measured: zero
+  changed frames over 4s idle). WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS is
+  ignored here (Wine processes count as elevated, and elevated apps ignore
+  flags from the local device environment), but WebView2's policy registry key
+  is honored, so prepare() sets the flags there for the Center's exe.
 """
 from __future__ import annotations
 
@@ -69,17 +73,20 @@ class AudioModeling(Vendor):
                                    install_dir=str(sub)))
         return out
 
+    FLAGS = "--disable-direct-composition --ui-disable-partial-swap"
+
     def prepare(self, p, r=None):
-        """Make the Center composite in software (see the module docstring): the
-        WebView2 policy key is the one channel Wine does not ignore."""
+        """Make the Center present full frames through a plain swapchain (see the
+        module docstring): the WebView2 policy key is the one channel Wine does
+        not ignore."""
         if not (self._products_dir(p) / "Software Center").is_dir(): return
         from ...progress import null_reporter
         rr = null_reporter(r)
-        rr.step("Software Center: video through software compositing")
+        rr.step("Software Center: stable frame presentation")
         cp = p.run(["reg", "add", _POLICY_KEY, "/v", CENTER_EXE,
-                    "/t", "REG_SZ", "/d", "--disable-gpu", "/f"], timeout=120)
+                    "/t", "REG_SZ", "/d", self.FLAGS, "/f"], timeout=120)
         (rr.ok if cp.returncode == 0 else rr.fail)(
-            "--disable-gpu (WebView2 policy)" if cp.returncode == 0 else f"reg exit {cp.returncode}")
+            "WebView2 policy flags" if cp.returncode == 0 else f"reg exit {cp.returncode}")
 
     # -- finishing the Software Center's failed installs ----------------------------------
     def staged_installs(self, p: Prefix) -> list:
@@ -179,8 +186,9 @@ class AudioModeling(Vendor):
     def product_notes(self, p):
         return [Note("Software Center", "patched",
                      "A WebView2 (embedded Edge) app: it needs the WebView2 runtime the app installs, the patched ole32.dll "
-                     "and DXVK's dummy composition swapchain to draw and take typing; its videos play through software "
-                     "compositing. Its product installs fail under Wine (it mis-quotes the installer's arguments), so the "
+                     "and DXVK's dummy composition swapchain to draw and take typing; flicker-free full-frame presentation "
+                     "comes from WebView2 policy flags the app sets. Its product installs fail under Wine (it mis-quotes "
+                     "the installer's arguments), so the "
                      "app rescues each download and finishes the install itself -- expect the Center to report a failed "
                      "install, then show the product installed on the next Refresh."),
                 Note("SWAM", "patched",

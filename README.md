@@ -102,11 +102,15 @@ then deletes the download. While the Center runs, the app snapshots every
 installer it downloads and finishes the install itself the moment the Center's
 attempt fails — so expect the Center to report a failed install, then show the
 product installed on the next Refresh (leftovers: "Finish interrupted installs"
-or `vstenv finish-installs`). And its product TRY videos flicker constantly
-under GPU compositing, so setup points the Center at software compositing
-through WebView2's policy registry key — the documented
-`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` variable is ignored under Wine, where
-every process counts as elevated.
+or `vstenv finish-installs`). And its window constantly flashes half-drawn
+sections: Chromium repaints only each frame's damaged region and trusts the
+DirectComposition swapchain to keep the rest, which does not hold under DXVK,
+so the buffers alternate between different half-updated frames. Setup gives the
+Center `--disable-direct-composition --ui-disable-partial-swap` (present full
+frames through a plain swapchain) via WebView2's policy registry key — the
+documented `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` variable is ignored under
+Wine, where every process counts as elevated. With that the window is
+pixel-stable and the TRY videos play.
 
 One known holdout: **SINE Player's login renders but does not accept keyboard
 input.** SINE hosts WebView2 through JUCE, whose focus handoff into the embedded

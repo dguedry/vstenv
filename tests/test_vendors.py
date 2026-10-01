@@ -343,7 +343,7 @@ class AudioModelingFinishInstallsTest(unittest.TestCase):
             self.assertEqual(args[0], "reg")
             self.assertIn(r"Edge\WebView2\AdditionalBrowserArguments", args[2])
             self.assertIn("Audio Modeling Software Center.exe", args)
-            self.assertIn("--disable-gpu", args)
+            self.assertIn("--disable-direct-composition --ui-disable-partial-swap", args)
 
     def test_watcher_rescues_the_download_the_center_deletes(self):
         # The Center spawns `installer.exe "--mode unattended"` as one argument,
