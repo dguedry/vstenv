@@ -388,3 +388,26 @@ class AudioModelingFinishInstallsTest(unittest.TestCase):
             with mock.patch.object(p, "run") as run:
                 v.watch_program(p, swam, proc)                      # not the Center
             run.assert_not_called()
+
+
+class AudioModelingDoomedAttemptTest(unittest.TestCase):
+    """The Center's own installer run (fused "--mode unattended" argument) only
+    ever ends in a ~10s native error dialog; the watcher kills it on sight. The
+    app's rescue runs carry --unattendedmodeui and must be spared."""
+    def test_center_run_killed_rescue_run_spared(self):
+        import tempfile
+        from unittest import mock
+        from vstenv.wine import Prefix, WineBuild
+        v = vendors.get("am")
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Prefix(Path(tmp) / "prefix", WineBuild(Path(tmp) / "wine"))
+            procs = [(111, r"C:\t\X-windows-x64-installer.exe --mode unattended"),
+                     (222, r"C:\t\X-windows-x64-installer.exe --mode unattended --unattendedmodeui none")]
+            with mock.patch.object(p, "processes", return_value=procs), \
+                 mock.patch.object(p, "kill_pids") as kp:
+                v._kill_doomed_attempt(p)
+            kp.assert_called_once_with([111], wait=0)
+            with mock.patch.object(p, "processes", return_value=[procs[1]]), \
+                 mock.patch.object(p, "kill_pids") as kp:
+                v._kill_doomed_attempt(p)
+            kp.assert_not_called()

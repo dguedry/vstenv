@@ -143,6 +143,16 @@ class AudioModeling(Vendor):
         t = self._temp_dir(p)
         return t.is_dir() and any(_INSTALLER.search(x.name) for x in t.glob("*/*.exe"))
 
+    def _kill_doomed_attempt(self, p: Prefix):
+        """The Center's own installer run can only end in a native error dialog
+        ("Unknown option: --mode unattended", its mis-quoted arguments) that sits
+        on screen for ~10 seconds; kill it as soon as it shows up so the dialog
+        barely flashes. The app's own rescue runs always carry --unattendedmodeui
+        and are left alone."""
+        doomed = [pid for pid, cmd in p.processes("-installer.exe")
+                  if "--unattendedmodeui" not in cmd]
+        if doomed: p.kill_pids(doomed, wait=0)
+
     def watch_program(self, p, prog, proc):
         """While the Center runs: snapshot what it downloads, and finish each install
         from the snapshot as soon as the Center's own attempt failed and was cleaned
@@ -151,12 +161,13 @@ class AudioModeling(Vendor):
         while proc.poll() is None:
             try:
                 self._rescue_snapshot(p)
+                self._kill_doomed_attempt(p)
                 if not self._center_attempt_pending(p):
                     self._rescue_clean(p)
                     if self.staged_installs(p): self._finish_and_tell(p)
             except Exception:
                 pass
-            time.sleep(3)
+            time.sleep(2)
         try:        # the Center is gone: complete whatever is left, racing no one
             self._rescue_snapshot(p); self._rescue_clean(p)
             if self.staged_installs(p): self._finish_and_tell(p)
