@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.31" date="2026-10-01">
+      <description>
+        <p>vstenv run outlives the program when its vendor is watching it</p>
+      </description>
+    </release>
     <release version="0.1.30" date="2026-10-01">
       <description>
         <p>Center installs rescued and finished; video flags through the WebView2 policy key</p>
