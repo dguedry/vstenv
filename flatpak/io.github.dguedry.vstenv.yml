@@ -98,4 +98,4 @@ modules:
       # the working tree (type: dir) for local development builds.
       - type: git
         url: https://github.com/dguedry/vstenv.git
-        tag: v0.1.39   # kept current by scripts/bump.py at every release
+        tag: v0.1.40   # kept current by scripts/bump.py at every release
