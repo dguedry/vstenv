@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.32" date="2026-10-01">
+      <description>
+        <p>Bridge and sync after a watched program session finished installs</p>
+      </description>
+    </release>
     <release version="0.1.31" date="2026-10-01">
       <description>
         <p>vstenv run outlives the program when its vendor is watching it</p>
