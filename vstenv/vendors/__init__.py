@@ -129,6 +129,11 @@ class Vendor:
         """Compatibility notes for this vendor's products and programs, kept next
         to the fixes they describe. Matched by name (see Note)."""
         return []
+    def launch_env(self, p: "Prefix", prog) -> dict:
+        """Extra environment for starting this vendor's program (merged over the
+        prefix env; a variable the user already set in their session wins)."""
+        return {}
+
     def plugin_dll_overrides(self, p: "Prefix") -> list[tuple[str, str]]:
         """(plugin path substring, WINEDLLOVERRIDES) pairs for bridged plugins: the
         yabridge host applies them when the plugin it loads matches. Per-program

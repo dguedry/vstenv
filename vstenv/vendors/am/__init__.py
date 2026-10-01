@@ -85,6 +85,14 @@ class AudioModeling(Vendor):
         change is safe (unlike vendors whose installers open windows)."""
         if self.staged_installs(p): self.finish_installs(p, r)
 
+    def launch_env(self, p, prog):
+        if "software center" not in prog.name.lower(): return {}
+        # The Center's page renders fine GPU-composited (DXVK's dummy composition
+        # swapchain), but embedded video (the product TRY pages play a YouTube
+        # clip) takes Chromium's overlay path and flickers constantly. Software
+        # compositing renders the whole page, video included, through one path.
+        return {"WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": "--disable-gpu"}
+
     def product_notes(self, p):
         return [Note("Software Center", "patched",
                      "A WebView2 (embedded Edge) app: it needs the WebView2 runtime the app installs, the patched ole32.dll "

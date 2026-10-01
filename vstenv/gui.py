@@ -145,6 +145,10 @@ class Window(Adw.ApplicationWindow):
         self.task_page.set_visible(False)
         b = wine.installed_build(); self.prefix = wine.Prefix(paths.PREFIX, b) if b else None
         if not self.is_ready(): self.run_setup(first=True)
+        elif setup.needs_upgrade_pass():
+            # first launch after an update: land the new fixes (patched DLLs,
+            # launcher blocks, registry keys) without waiting for a manual repair
+            self.run_bg("Applying this update's fixes", lambda r: setup.upgrade_pass(self.prefix, r))
         else: self.refresh_all()
         if os.environ.get("VSTENV_PAGE"): self.stack.set_visible_child_name(os.environ["VSTENV_PAGE"])
         act = os.environ.get("VSTENV_ACTION")   # test hook: run an action at startup
@@ -237,6 +241,7 @@ class Window(Adw.ApplicationWindow):
             b = wine.provision(r); self.prefix = wine.Prefix(paths.PREFIX, b); setup.setup(self.prefix, r); return True
         def done(res, err):
             if err or self.task.reporter.failed: return
+            setup.mark_version_ran()
             self.toast("Environment ready"); self.stack.set_visible_child_name("install")
         self.run_bg("Preparing the environment" if first else "Repairing setup", fn, done)
     def after_change(self, title="Finishing up"):

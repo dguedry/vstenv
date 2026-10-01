@@ -1,7 +1,7 @@
 """Setting the environment up and keeping it consistent: the core steps, then
 every vendor module's own, in one idempotent pass."""
 from pathlib import Path
-from . import runtime, dxvk, yabridge, menu, urlschemes, vendors, tools, winefixes, dcomp, desktopfix, webview2
+from . import paths, runtime, dxvk, yabridge, menu, urlschemes, vendors, tools, winefixes, dcomp, desktopfix, webview2
 from .progress import null_reporter
 from .wine import Prefix
 
@@ -43,6 +43,29 @@ def setup(p: Prefix, reporter=None, installer: Path | None = None):
             if v.manager_installed(p):
                 _guarded(r, f"{v.manager_name}: repair", lambda v=v: v.repair_manager(p, r)); changed = True
     if changed: _guarded(r, "Desktop menu entries", lambda: menu.sync(p, r))   # prepare() already synced once
+
+STAMP = paths.DATA / "last-run-version"
+
+def needs_upgrade_pass() -> bool:
+    """True on the first run after the app's version changed: the code ships new
+    fixes (patched Wine DLLs, launcher blocks, registry keys) that only land when
+    prepare() runs, and a ready-looking environment would otherwise keep the old
+    ones until a manual repair."""
+    from . import __version__
+    try: return STAMP.read_text().strip() != __version__
+    except OSError: return True
+
+def mark_version_ran():
+    from . import __version__
+    try: STAMP.parent.mkdir(parents=True, exist_ok=True); STAMP.write_text(__version__)
+    except OSError: pass
+
+def upgrade_pass(p: Prefix, reporter=None):
+    """prepare() is idempotent and cheap when everything is in place; running it on
+    the first launch after an update is how existing users pick up new fixes
+    without knowing to press repair."""
+    prepare(p, reporter)
+    mark_version_ran()
 
 def after_change(p: Prefix, reporter=None) -> dict:
     """The epilogue of every install or removal: vendor bookkeeping (libraries

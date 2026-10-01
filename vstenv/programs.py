@@ -18,7 +18,7 @@ needs it (a vendor module asks for it, or the user installs it from the
 Install tab). No embedded browser (Gecko) is installed: nothing supported
 needs one. Vendor modules contribute extra program sources (Vendor.programs).
 """
-import re, shlex, struct, time
+import os, re, shlex, struct, time
 from dataclasses import dataclass, field
 from pathlib import Path, PureWindowsPath
 from .progress import null_reporter
@@ -258,7 +258,11 @@ def run(p: Prefix, prog: Program, reporter=None):
     extra = quirks.launch_args(p, prog.name, prog.install_dir) if prog.install_dir else []
     if extra: r.log(f"launch arguments: {' '.join(extra)}")
     argv = [prog.exe, *(shlex.split(prog.args, posix=False) if prog.args else []), *extra]
-    proc = p.spawn(argv, cwd=str(cwd) if cwd and cwd.is_dir() else None)
+    env = None
+    if v is not None:
+        venv = {k: val for k, val in (v.launch_env(p, prog) or {}).items() if k not in os.environ}
+        if venv: env = venv; r.log("launch environment: " + ", ".join(f"{k}={val}" for k, val in venv.items()))
+    proc = p.spawn(argv, cwd=str(cwd) if cwd and cwd.is_dir() else None, env=env)
     r.ok(prog.exe); return proc
 
 def uninstall_argv(uninstall: str) -> list[str]:

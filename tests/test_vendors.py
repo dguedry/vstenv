@@ -324,3 +324,11 @@ class AudioModelingFinishInstallsTest(unittest.TestCase):
             with mock.patch.object(p, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
                 v.after_install(p)
             run.assert_called_once()
+
+    def test_center_gets_software_compositing_env(self):
+        from vstenv import programs
+        v = vendors.get("am")
+        center = programs.Program(name="Audio Modeling Software Center", exe=r"C:\x\c.exe")
+        swam = programs.Program(name="SWAM Violin", exe=r"C:\x\v.exe")
+        self.assertIn("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", v.launch_env(None, center))
+        self.assertEqual(v.launch_env(None, swam), {})
