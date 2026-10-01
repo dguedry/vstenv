@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.42" date="2026-10-01">
+      <description>
+        <p>Presentation flags also for yabridge hosts when a plugin embeds WebView2</p>
+      </description>
+    </release>
     <release version="0.1.41" date="2026-10-01">
       <description>
         <p>SWAM first-run notes: Authorize All for licenses, expression for sound</p>
