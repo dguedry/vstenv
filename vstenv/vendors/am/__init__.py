@@ -222,6 +222,9 @@ class AudioModeling(Vendor):
                      "install, then show the product installed on the next Refresh."),
                 Note("SWAM", "patched",
                      "JUCE 8 GUIs: they draw through DirectComposition, so they run on the app's patched dcomp.dll and "
-                     "dxgi.dll with Wine's own Direct3D, applied automatically.")]
+                     "dxgi.dll with Wine's own Direct3D, applied automatically. Two first-run notes: if an instrument says "
+                     "unlicensed, click Authorize All in the Software Center (its own install flow would have done that, "
+                     "but it fails under Wine and this app finishes only the install); and SWAM instruments are silent "
+                     "without an expression signal by design -- raise the Expression slider or send CC11.")]
 
 VENDOR = AudioModeling()

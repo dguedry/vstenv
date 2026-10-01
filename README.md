@@ -114,7 +114,12 @@ notification that the install went through anyway, and the product installed on
 the next Refresh (leftovers: "Finish interrupted installs" or
 `vstenv finish-installs`). Its once constantly-flashing window is covered by
 the presentation flags above: with them it is pixel-stable and the TRY videos
-play.
+play. Two first-run notes for the installed instruments: if one says
+unlicensed, click **Authorize All** in the Center (its own flow would have
+authorized after installing, but that flow is what fails under Wine); and a
+silent SWAM instrument is usually by design — they need an expression signal
+(CC11) to make sound, so raise the Expression slider in the plugin or map a
+controller to it.
 
 One known quirk: **SINE Player's login takes your typing but does not display
 it.** The login card is native JUCE (not the embedded browser, as it long
