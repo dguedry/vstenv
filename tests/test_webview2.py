@@ -92,3 +92,11 @@ class PresentationFlagsTest(unittest.TestCase):
             (d / "SINE Player.exe").write_bytes(b"MZ plain")
             (d / "unins000.exe").write_bytes(b"MZ plain")
             self.assertEqual(webview2.host_exes(p), ["SINE Player.exe"])
+
+    def test_webview2_plugin_pulls_in_the_yabridge_hosts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Prefix(Path(tmp) / "prefix", WineBuild(Path(tmp) / "wine"))
+            mod = p.drive_c / "Program Files/Common Files/VST3/SINE Player.vst3/Contents/x86_64-win/SINE Player.vst3"
+            mod.parent.mkdir(parents=True); mod.write_bytes(b"MZ" + b"WebView2Loader")
+            self.assertIn("yabridge-host.exe", webview2.host_exes(p))
+            self.assertIn("yabridge-host-32.exe", webview2.host_exes(p))

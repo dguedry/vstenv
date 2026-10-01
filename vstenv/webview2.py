@@ -85,7 +85,9 @@ POLICY_KEY = r"HKLM\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserA
 def host_exes(p: Prefix) -> list[str]:
     """Exe names of installed programs that host a WebView2 control -- the policy
     key's per-app value names. The exe carrying the marker, or (next to a bundled
-    BrowserRuntime) every exe but the uninstaller."""
+    BrowserRuntime) every exe but the uninstaller. A PLUGIN that hosts WebView2
+    (SINE Player's VST3) runs inside yabridge's host processes, so those exe
+    names are included when such a plugin is in the prefix."""
     out = set()
     for base in ("Program Files", "Program Files (x86)"):
         root = p.drive_c / base
@@ -100,6 +102,9 @@ def host_exes(p: Prefix) -> list[str]:
                 out.update(e.name for e in exes if _exe_uses_webview2(e))
                 if (sub / "BrowserRuntime/msedgewebview2.exe").exists():
                     out.update(e.name for e in exes if not e.name.lower().startswith("unins"))
+    vst3 = p.drive_c / "Program Files/Common Files/VST3"
+    if vst3.is_dir() and any(f.is_file() and _exe_uses_webview2(f) for f in vst3.rglob("*.vst3")):
+        out.update(("yabridge-host.exe", "yabridge-host-32.exe"))
     return sorted(out)
 
 def apply_presentation_flags(p: Prefix, reporter=None) -> int:
