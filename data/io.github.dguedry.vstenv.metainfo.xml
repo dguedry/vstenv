@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.30" date="2026-10-01">
+      <description>
+        <p>Center installs rescued and finished; video flags through the WebView2 policy key</p>
+      </description>
+    </release>
     <release version="0.1.29" date="2026-10-01">
       <description>
         <p>Upgrade pass on first launch after an update; Center video via software compositing</p>
