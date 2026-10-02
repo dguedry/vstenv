@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.43" date="2026-10-02">
+      <description>
+        <p>One install funnel: pick any installer, the app recognizes what it is</p>
+      </description>
+    </release>
     <release version="0.1.42" date="2026-10-01">
       <description>
         <p>Presentation flags also for yabridge hosts when a plugin embeds WebView2</p>
