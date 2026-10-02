@@ -6,8 +6,9 @@ Qt's D3D backend all import dcomp.dll. Under Wine they need three things this
 app arranges: the patched dcomp.dll from the wine-fixes channel (winefixes.py),
 Wine's own Direct3D 11 instead of DXVK for that one program (DXVK has no
 composition swap chains, and the compositor blits between them with wined3d),
-and a dxgi.dll whose WaitForVBlank returns instead of E_NOTIMPL (JUCE's vblank
-thread never exits otherwise, and its main thread waits for it forever).
+and patched dxgi/wined3d/win32u that implement real DXGI composition swapchains
+(ported from the giang17/wine fork), so a program rendering through them presents
+into its window instead of deadlocking on Wine's hidden-window emulation.
 
 This module finds them by their import tables: a program whose exe, or a DLL
 next to it, imports dcomp.dll gets a per-exe DllOverrides key; a bridged

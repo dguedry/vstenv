@@ -158,7 +158,7 @@ through yabridge, including [Performer](https://github.com/dguedry/linux-perform
 | Valhalla DSP (no module: plain Windows installer) | ValhallaFreqEcho 1.2 installer | Bridged as VST3 and VST2, flawless out of the box |
 | Xfer Records (no module: plain Windows installer) | Serum 2 (2.1.5) installer | Bridged as VST3 and playing out of the box |
 | iZotope (no module: plain Windows installer) | Product Portal 1.4, Ozone 9 Advanced 9.13 installer | Every Ozone module bridged as VST3 and VST2, working out of the box. Its installer hands off to a helper (the app waits for it) and leaves the Electron Product Portal running, which crash-loops under Wine; the app stops that so it cannot starve loaded plugins |
-| Spitfire Audio (no module: plain Windows installer) | Spitfire Audio app 3.4 | **Partially working**: reaches its Sign In page live (patched dxgi backs composition swapchains with a mapped window), but stalls again within about a minute — the placeholder window’s GPU work does not reliably progress. A proper composition-swapchain implementation is the planned fix; the bridged plugins and installed libraries are unaffected |
+| Spitfire Audio (no module: plain Windows installer) | Spitfire Audio app 3.4 | Reaches and holds its Sign In page and browses normally: the patched dxgi/wined3d/win32u give it real DXGI composition swapchains (ported from giang17/wine) that present straight into its window, where Wine's hidden-window emulation deadlocked. Draws through the same patched dcomp.dll + Wine Direct3D as any JUCE 8 program |
 | Audio Modeling | Software Center 1.x (WebView2) | Signs in, downloads products, TRY videos play; its own install attempts fail under Wine (mis-quoted installer arguments), so the app rescues each download and finishes it unattended, announced by a desktop notification (nine SWAM products installed and bridged this way) |
 | Orchestral Tools (no module: plain Windows installer) | SINE Player (JUCE + WebView2) | Installs and bridges; sign-in works against Orchestral Tools' servers, typed blind — the fields take input but do not display it (see "WebView2 apps"); the Store browses and the tips video plays; a web tab's page sticks over the native views until a restart |
 
@@ -344,8 +344,11 @@ own Direct3D, and installs a "Segoe UI" font family (Microsoft's open-source
 Selawik, renamed) so their dialogs have text. The patches are under
 `patches/wine/` and are built by CI for the pinned Wine. The same treatment
 is applied to any program or bridged plugin whose import table names
-DirectComposition (JUCE 8 GUIs such as Spitfire Audio's), and a third patched
-DLL, dxgi.dll, makes WaitForVBlank return so JUCE's vblank thread can exit.
+DirectComposition (JUCE 8 GUIs such as Spitfire Audio's). Patched dxgi.dll,
+wined3d.dll and win32u.dll add real DXGI composition swapchains (ported from
+the giang17/wine fork) so apps that render through them — the Spitfire Audio
+app, and WebView2/Chromium hosts — present into their window instead of
+deadlocking on Wine's hidden-window emulation.
 
 ## Command line
 

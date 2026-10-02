@@ -22,7 +22,7 @@ OUT="${2:-$PWD}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 PATCHES=("$HERE"/patches/wine/*-"$VERSION".patch)
 [ -f "${PATCHES[0]}" ] || { echo "no patches for Wine $VERSION under $HERE/patches/wine" >&2; exit 1; }
-DLLS=(dcomp advapi32 dxgi ole32)
+DLLS=(dcomp advapi32 dxgi ole32 wined3d win32u)
 # WINE_FIXES_WORK=<dir> keeps the patched tree (unstripped DLL for symbols).
 if [ -n "${WINE_FIXES_WORK:-}" ]; then WORK="$WINE_FIXES_WORK"; mkdir -p "$WORK"; else WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT; fi
 cd "$WORK"

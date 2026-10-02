@@ -32,9 +32,11 @@ from .progress import null_reporter
 RELEASE_REPO = wine.RELEASE_REPO
 PE_DIR = "lib/wine/x86_64-windows"
 MARKER_NAME = "vstenv-wine-fixes.json"
-FIXES = {"dcomp.dll": "DirectComposition (Steinberg's VSTGUI: HALion Sonic 7, Cubase, Dorico; JUCE 8 GUIs: Spitfire Audio)",
-         "dxgi.dll": "WaitForVBlank paced to the display refresh, and composition swapchains backed by a "
-                     "mapped window (JUCE 8 GUIs hung on Wine's E_NOTIMPL and deadlocked presenting to an unmapped one)",
+FIXES = {"dcomp.dll": "DirectComposition (Steinberg's VSTGUI: HALion Sonic 7, Cubase, Dorico; JUCE 8 GUIs: Spitfire Audio), "
+                     "and hands composition-swapchain content to the host window",
+         "dxgi.dll": "DXGI composition swapchains that present into the host window (JUCE 8 apps like the Spitfire app)",
+         "wined3d.dll": "keep-back-buffers swapchains and the composition GL present path (composition swapchains)",
+         "win32u.dll": "window and OpenGL plumbing for composition swapchains",
          "advapi32.dll": "credential attributes (Steinberg's License Engine keeps its sign-in)",
          "ole32.dll": "drag-drop teardown survives a stale target (WebView2 apps crashed at startup)"}
 

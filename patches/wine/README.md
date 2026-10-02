@@ -57,17 +57,25 @@ commented-out stub, so HALion Sonic, which closes its wait-chain session on
 exit, raised a stub exception instead of quitting and showed its crash
 reporter on every close.
 
-## dxgi-waitforvblank-<version>.patch
+## dcomp-swapchain-present-<version>.patch
 
-`IDXGIOutput::WaitForVBlank` returned `E_NOTIMPL` (a stub). JUCE 8's Direct2D
-window peer paces its painting on that call from a vblank thread whose loop
-only checks its exit flag after a successful wait, so on `E_NOTIMPL` the thread
-spins forever and the main thread hangs in `stopThread` before the first window
-is shown (Spitfire Audio's app; any JUCE 8 GUI). DXVK sleeps for the refresh
-period and returns `S_OK`; this patch does the same with Wine's dxgi, reading
-the output's refresh rate from wined3d and sleeping to the next period boundary.
-Verified 2026-09-28: the Spitfire Audio app draws and signs in. A candidate
-for upstreaming.
+Real DXGI composition swap chains, ported from the audio-focused Wine fork
+github.com/giang17/wine (branch `d2d1-dcomp-11.17`). Wine's own
+`CreateSwapChainForComposition` fakes a hidden window; presenting to it jams in
+the GL layer and deadlocks the application's renderer (the Spitfire Audio app
+froze on its sign-in screen — its JUCE 8 Direct2D peer waited forever on a
+present that never completed). This gives the composition swapchain a real
+backing window (`WineDCompSwapchain`) that the dcomp compositor re-targets to
+the hosting window via `WM_WINE_DCOMP_SET_TARGET`, so frames GL-present straight
+into it. Touches dxgi (the window + retarget), wined3d and win32u (keep-back-
+buffers swapchains, the dcomp leaf layer, the GL present path, and the window/
+opengl plumbing), and dcomp (post the retarget message instead of blitting;
+`dcomp_layer.h` is new). It also replaces the earlier `WaitForVBlank` pacing
+stub with the fork's. Layers on `dcomp-steinberg` (needs its real dcomp
+device). Verified 2026-10-02 cold and concurrent: the Spitfire app holds its UI;
+HALion Sonic 7, SWAM (incl. overlay dialogs) and the Audio Modeling Software
+Center render unchanged. The largest patch here by far — wined3d and win32u are
+central DLLs, so re-test the full Tested table on every Wine bump.
 
 ## ole32-dragdrop-stale-target-<version>.patch
 
