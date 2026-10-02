@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.49" date="2026-10-02">
+      <description>
+        <p>dxgi: composition swapchains get a mapped window; Spitfire unfreezes</p>
+      </description>
+    </release>
     <release version="0.1.48" date="2026-10-02">
       <description>
         <p>Spitfire app: blocked at its consent screen for now; scan no longer flags runtimes</p>
