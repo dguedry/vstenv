@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.50" date="2026-10-02">
+      <description>
+        <p>README: Spitfire is partially working — live briefly, then stalls; proper composition swapchains are the planned fix</p>
+      </description>
+    </release>
     <release version="0.1.49" date="2026-10-02">
       <description>
         <p>dxgi: composition swapchains get a mapped window; Spitfire unfreezes</p>
