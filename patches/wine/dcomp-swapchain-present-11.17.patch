@@ -6659,6 +6659,16 @@ Audio Modeling Software Center render with no regression, cold session, concurre
  #endif
  
  typedef struct
+--- a/include/Makefile.in
++++ b/include/Makefile.in
+@@ -1119,6 +1119,7 @@
+ 	wine/atsvc.idl \
+ 	wine/condrv.h \
+ 	wine/dcetypes.idl \
++	wine/dcomp_layer.h \
+ 	wine/debug.h \
+ 	wine/dplaysp.h \
+ 	wine/epm.idl \
 --- /dev/null
 +++ b/include/wine/dcomp_layer.h
 @@ -0,0 +1,159 @@
