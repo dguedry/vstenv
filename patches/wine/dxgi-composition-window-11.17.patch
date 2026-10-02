@@ -1,0 +1,31 @@
+dxgi: Back composition swapchains with a mapped off-screen window.
+
+CreateSwapChainForComposition's placeholder window was created hidden, and
+presents to an unmapped window eventually block in wined3d's command stream
+(no completion for unmapped X windows). The application's render loop then
+jams -- JUCE 8's Direct2D renderer (Spitfire Audio app) froze after its first
+frames with its paint thread stuck in d3d11_swapchain_GetBuffer behind the
+wined3d mutex, which dcomp's composite thread held across the same device's
+jammed queue in dxgi_surface_GetDC -> wined3d_texture_get_dc ->
+wined3d_cs_finish. A disabled, no-activate tool window parked at -32000 is
+mapped, so presents complete, but can never be seen, focused or clicked.
+
+--- a/dlls/dxgi/factory.c
++++ b/dlls/dxgi/factory.c
+@@ -395,7 +395,15 @@
+     FIXME("iface %p, device %p, desc %p, output %p, swapchain %p stub!\n",
+             iface, device, desc, output, swapchain);
+ 
+-    hwnd = CreateWindowA("static", NULL, WS_POPUP, 0, 0, desc->Width, desc->Height, 0, 0, 0, NULL);
++    /* The window backing the composition swapchain must be MAPPED: presents to
++     * an unmapped window eventually block in the command stream (no completion
++     * for unmapped X windows), which jams the application's render loop and
++     * deadlocks anyone waiting on that device (JUCE 8's Direct2D renderer froze
++     * after its first frames). An off-screen, disabled tool window is mapped
++     * but can never be seen, focused or clicked. */
++    hwnd = CreateWindowExA(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, "static", NULL,
++            WS_POPUP | WS_DISABLED, -32000, -32000, desc->Width, desc->Height, 0, 0, 0, NULL);
++    ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+     return dxgi_factory_CreateSwapChainForHwnd(iface, device, hwnd, desc, NULL, output, swapchain);
+ }
+ 

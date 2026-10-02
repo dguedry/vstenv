@@ -33,7 +33,8 @@ RELEASE_REPO = wine.RELEASE_REPO
 PE_DIR = "lib/wine/x86_64-windows"
 MARKER_NAME = "vstenv-wine-fixes.json"
 FIXES = {"dcomp.dll": "DirectComposition (Steinberg's VSTGUI: HALion Sonic 7, Cubase, Dorico; JUCE 8 GUIs: Spitfire Audio)",
-         "dxgi.dll": "WaitForVBlank paced to the display refresh (JUCE 8 GUIs hang on Wine's E_NOTIMPL)",
+         "dxgi.dll": "WaitForVBlank paced to the display refresh, and composition swapchains backed by a "
+                     "mapped window (JUCE 8 GUIs hung on Wine's E_NOTIMPL and deadlocked presenting to an unmapped one)",
          "advapi32.dll": "credential attributes (Steinberg's License Engine keeps its sign-in)",
          "ole32.dll": "drag-drop teardown survives a stale target (WebView2 apps crashed at startup)"}
 
