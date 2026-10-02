@@ -359,6 +359,12 @@ class Window(Adw.ApplicationWindow):
                     rows.append(row)
                 if not rows: rows.append(Adw.ActionRow(title="No programs found", subtitle="Install one below, or a vendor's manager from the Install tab"))
                 self._fill(self.programs_group, rows)
+                # the Install tab's store rows: Open when the store app is installed
+                for name, _vend, _url in vendors.STORES:
+                    prog = next((x for x in progs if name.lower() in x.name.lower() and x.exe), None)
+                    self._store_prog[name] = prog
+                    self.store_open[name].set_visible(prog is not None)
+                    self.store_get[name].set_visible(prog is None)
                 self.done_loading()
             ui(show)
         threading.Thread(target=work, daemon=True).start()
@@ -399,7 +405,19 @@ class Window(Adw.ApplicationWindow):
             gr = _row(f"Get {v.manager_name} from {v.name}", "Download it, then pick it under “Install Windows software…” above.",
                       "web-browser-symbolic", lambda v=v: self.open_url(v.download_page))
             self.get_rows[v.id] = gr; g.add(gr)
+        # store-like apps without a manager module: ordinary programs, same listing
+        self.store_open = {}; self.store_get = {}; self._store_prog = {}
+        for name, vend, url in vendors.STORES:
+            o = _row(f"Open {name}", f"{vend}'s store app.", "go-next-symbolic", lambda n=name: self.open_store(n))
+            o.set_visible(False); self.store_open[name] = o; g.add(o)
+            gr = _row(f"Get {name} from {vend}", "Download it, then pick its installer under “Install Windows software…” above.",
+                      "web-browser-symbolic", lambda u=url: self.open_url(u))
+            self.store_get[name] = gr; g.add(gr)
         page.add(g); return page
+    def open_store(self, name):
+        prog = self._store_prog.get(name)
+        if prog is None: self.toast(f"{name} is not installed yet"); return
+        self.run_program(prog)
     def open_url(self, url):
         if url: Gtk.UriLauncher(uri=url).launch(self, None, lambda l, res: l.launch_finish(res))
     def install_manager(self, v, path):

@@ -194,6 +194,21 @@ def for_manager_installer(f: Path) -> Vendor | None:
 def for_product_installer(f: Path) -> Vendor | None:
     return next((v for v in all() if v.accepts_product_installer(Path(f))), None)
 
+# Store-like vendor apps without a full manager module: they need no launch
+# wrapper, so they are ordinary programs here (quirks, launch_env and
+# watch_program still apply when they run). The GUI's Vendor stores group lists
+# them next to the managers -- Open when installed, a Get link when not -- so a
+# new user can see every supported storefront in one place.
+# (program name to match, vendor label, where to get it)
+STORES = [
+    ("Audio Modeling Software Center", "Audio Modeling", "https://audiomodeling.com/"),
+    ("SINE Player", "Orchestral Tools", "https://www.orchestraltools.com/sine"),
+    ("Arturia Software Center", "Arturia", "https://www.arturia.com/support/downloads&manuals"),
+    ("Spitfire Audio", "Spitfire Audio", "https://www.spitfireaudio.com/library-manager"),
+    ("Product Portal", "iZotope", "https://www.izotope.com/en/products/product-portal.html"),
+    ("iLok License Manager", "PACE (iLok)", "https://www.ilok.com/"),
+]
+
 def classify_installer(f: Path) -> tuple[str, Vendor | None]:
     """What a downloaded installer is: ('manager', vendor) for a vendor manager's
     own installer, ('product', vendor) for a vendor product's, ('program', None)

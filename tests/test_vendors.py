@@ -472,3 +472,17 @@ class ClassifyInstallerTest(unittest.TestCase):
             kind, v = vendors.classify_installer(Path("q-product-1.0.exe"))
             self.assertEqual((kind, v.id), ("product", "q"))
             self.assertEqual(vendors.classify_installer(Path("whatever.exe")), ("program", None))
+
+
+class StoresTableTest(unittest.TestCase):
+    """Every supported storefront is listed: the manager-module vendors plus the
+    store-like apps (Audio Modeling, SINE, Arturia, Spitfire, iZotope, iLok)."""
+    def test_entries_are_well_formed_and_unique(self):
+        names = [n for n, _, _ in vendors.STORES]
+        self.assertEqual(len(names), len(set(names)))
+        for name, vend, url in vendors.STORES:
+            self.assertTrue(name and vend)
+            self.assertTrue(url.startswith("https://"), url)
+        # the ones with a full module are NOT duplicated here
+        managers = {v.manager_name for v in vendors.with_manager()}
+        self.assertFalse(managers & set(names))
