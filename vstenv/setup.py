@@ -68,10 +68,59 @@ def upgrade_pass(p: Prefix, reporter=None):
     prepare(p, reporter)
     mark_version_ran()
 
-def after_change(p: Prefix, reporter=None) -> dict:
+CHANGE_SIG = paths.DATA / "after-change.sig"
+
+def change_signature(p: Prefix) -> str:
+    """A cheap fingerprint of everything the after-install pass reacts to:
+    the program tree (two levels), every plugin directory in full, NI's
+    installed-products records and the vendors' staged downloads. Host-side
+    stats only -- no Wine calls -- so it costs well under a second."""
+    import hashlib, os
+    h = hashlib.sha1()
+    def feed(s: str): h.update(s.encode(errors="replace")); h.update(b"\0")
+    for base in ("Program Files", "Program Files (x86)"):
+        root = p.drive_c / base
+        if not root.is_dir(): continue
+        for d in sorted(root.iterdir()):
+            try: feed(f"{d.name}:{d.stat().st_mtime_ns}")
+            except OSError: continue
+            if d.is_dir():
+                for sub in sorted(d.iterdir()):
+                    try: feed(f"{d.name}/{sub.name}:{sub.stat().st_mtime_ns}")
+                    except OSError: pass
+    for rel in yabridge.STANDARD_DIRS + [d for v in vendors.all() for d in v.plugin_dirs()]:
+        for dirpath, dirs, files in os.walk(p.drive_c / rel):
+            dirs.sort(); feed(dirpath)
+            for f in sorted(files):
+                try: st = os.stat(os.path.join(dirpath, f)); feed(f"{f}:{st.st_size}:{st.st_mtime_ns}")
+                except OSError: pass
+    ipd = p.public_docs / "Native Instruments/installed_products"
+    if ipd.is_dir():
+        for f in sorted(ipd.glob("*.json")):
+            try: feed(f"{f.name}:{f.stat().st_mtime_ns}")
+            except OSError: pass
+    for v in vendors.all():
+        try:
+            for name, _src in v.staged_installs(p): feed(f"staged:{v.id}:{name}")
+        except Exception: pass
+    return h.hexdigest()
+
+def after_change(p: Prefix, reporter=None, force=False) -> dict:
     """The epilogue of every install or removal: vendor bookkeeping (libraries
-    registered, ...), plugins bridged, menu entries current."""
+    registered, ...), plugins bridged, menu entries current. Skipped outright
+    when nothing it reacts to has changed since the last completed pass -- a
+    manager opened and closed without installing anything used to cost the full
+    ten-second pass anyway."""
     r = null_reporter(reporter)
+    try: sig = change_signature(p)
+    except Exception: sig = None
+    if not force and sig is not None:
+        try:
+            if CHANGE_SIG.read_text() == sig:
+                r.step("After-install bookkeeping")
+                r.skip("nothing changed since the last pass")
+                return {"skipped": True}
+        except OSError: pass
     for v in vendors.all():
         _guarded(r, f"{v.name}: after install", lambda v=v: v.after_install(p, r))
     _guarded(r, "DirectComposition programs", lambda: dcomp.apply_program_overrides(p, dcomp.program_exes(p), r))
@@ -84,4 +133,8 @@ def after_change(p: Prefix, reporter=None) -> dict:
     _guarded(r, "Plugin DLL overrides", lambda: yabridge.write_plugin_overrides(dcomp.all_plugin_overrides(p)))
     res = yabridge.sync(p, r)
     _guarded(r, "Desktop menu entries", lambda: menu.sync(p, r))
+    try:   # the pass itself changes things (bridges, menu): fingerprint the result
+        CHANGE_SIG.parent.mkdir(parents=True, exist_ok=True)
+        CHANGE_SIG.write_text(change_signature(p))
+    except Exception: pass
     return res
