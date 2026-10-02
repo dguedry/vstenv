@@ -53,7 +53,12 @@ class TaskPage(Gtk.Box):
     """Step list + progress bar + collapsible log; used by setup and installs."""
     def __init__(self, title):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin_top=18, margin_bottom=18, margin_start=24, margin_end=24)
-        self.group = Adw.PreferencesGroup(title=title); self.append(self.group)
+        # The step list scrolls: a long pass adds a row per step, and without a
+        # scroller each row raised the window's MINIMUM height until it ran off
+        # the bottom of the screen and could not be resized back.
+        self.group = Adw.PreferencesGroup(title=title)
+        self.append(Gtk.ScrolledWindow(child=self.group, vexpand=True, min_content_height=220,
+                                       hscrollbar_policy=Gtk.PolicyType.NEVER))
         self.bar = Gtk.ProgressBar(show_text=True); self.append(self.bar)
         self.logbuf = Gtk.TextBuffer(); tv = Gtk.TextView(buffer=self.logbuf, editable=False, monospace=True)
         sw = Gtk.ScrolledWindow(min_content_height=140, child=tv)

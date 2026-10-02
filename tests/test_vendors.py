@@ -486,3 +486,21 @@ class StoresTableTest(unittest.TestCase):
         # the ones with a full module are NOT duplicated here
         managers = {v.manager_name for v in vendors.with_manager()}
         self.assertFalse(managers & set(names))
+
+
+class NIHiveCacheTest(unittest.TestCase):
+    """system.reg is multi-MB and was re-parsed several times per refresh; the
+    parse is cached by the file's size and mtime."""
+    def test_unchanged_hive_is_not_reparsed(self):
+        import tempfile
+        from unittest import mock
+        from vstenv.wine import Prefix, WineBuild
+        from vstenv.vendors.ni import products as nip
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Prefix(Path(tmp) / "prefix", WineBuild(Path(tmp) / "wine"))
+            p.path.mkdir(parents=True)
+            (p.path / "system.reg").write_text('[Software\\\\Native Instruments\\\\Kontakt 8] 1\n"ContentDir"="C:\\\\K"\n')
+            first = nip.hive_keys(p)
+            self.assertEqual(first["Kontakt 8"]["ContentDir"], "C:\\K")
+            with mock.patch.object(Path, "read_text", side_effect=AssertionError("re-parse of an unchanged hive")):
+                self.assertEqual(nip.hive_keys(p), first)

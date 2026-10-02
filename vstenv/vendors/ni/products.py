@@ -50,11 +50,20 @@ def hints(p: Prefix) -> dict[str, NIProduct]:
                            deps=[(d.text, d.get("minVersion")) for d in pr.findall("Dependencies/AppDependency")])
     return out
 
+_hive_cache: dict = {"stamp": None, "keys": {}}
+
 def hive_keys(p: Prefix) -> dict[str, dict[str, str]]:
     """HKLM\\Software\\Native Instruments\\* from the on-disk hive (fast, may lag a
-    running wineserver by up to a minute). Values are strings."""
+    running wineserver by up to a minute). Values are strings. Parsing the
+    multi-MB hive took seconds and ran several times per refresh, so the result
+    is cached by the file's size and mtime."""
     reg = p.path / "system.reg"; out = {}
     if not reg.exists(): return out
+    try:
+        st = reg.stat(); stamp = (str(reg), st.st_size, st.st_mtime)
+        if _hive_cache["stamp"] == stamp: return _hive_cache["keys"]
+    except OSError:
+        stamp = None
     cur = None
     for line in reg.read_text(errors="ignore").splitlines():
         m = re.match(r"^\[Software\\\\Native Instruments\\\\([^\]]+)\]", line)
@@ -65,6 +74,8 @@ def hive_keys(p: Prefix) -> dict[str, dict[str, str]]:
             if mv:
                 v = mv.group(2) if mv.group(2) is not None else (mv.group(4) if mv.group(4) is not None else str(int(mv.group(3), 16)))
                 out[cur][mv.group(1)] = v.replace("\\\\", "\\") if isinstance(v, str) else v
+    if stamp is not None:
+        _hive_cache["stamp"] = stamp; _hive_cache["keys"] = out
     return out
 
 def installed(p: Prefix) -> list[NIProduct]:
