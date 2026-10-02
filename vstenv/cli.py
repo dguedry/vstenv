@@ -73,8 +73,12 @@ def cmd_products(a):
 
 def cmd_install(a):
     p = _prefix(); r = ConsoleReporter(); src = Path(a.installer)
-    v = vendors.for_product_installer(src)
-    if v is not None and not a.generic:
+    kind, v = ("program", None) if a.generic else vendors.classify_installer(src)
+    if kind == "manager":
+        print(f"  recognized: the {v.manager_name} installer")
+        v.install_manager(p, src, r)
+    elif kind == "product":
+        print(f"  recognized: a {v.name} product installer")
         res = v.install_product(p, src, r, keep_trace=a.keep_trace)
         print(f"  {res['name']}: installed via {res['method']}")
     else:
@@ -222,7 +226,7 @@ def main(argv=None):
     s.add_argument("vendor"); s.add_argument("action", choices=["install", "launch", "repair", "status"]); s.add_argument("file", nargs="?")
     s.add_argument("--wait", action="store_true", help="launch: wait for it to exit, then finish installs and bridge"); s.add_argument("args", nargs="*"); s.set_defaults(f=cmd_manager)
     s = sp.add_parser("products", help="list what the vendors' managers installed"); s.add_argument("--vendor"); s.set_defaults(f=cmd_products)
-    s = sp.add_parser("install", help="install from an installer: a vendor's product setup (driven silently, finished by hand if it fails) or any Windows installer")
+    s = sp.add_parser("install", help="install any downloaded Windows installer: a vendor's manager or product is recognized and installed with its fixes, anything else runs as a plain installer")
     s.add_argument("installer"); s.add_argument("--generic", action="store_true", help="run it interactively even if a vendor module recognises it")
     s.add_argument("--keep-trace", action="store_true"); s.add_argument("--no-sync", action="store_true"); s.set_defaults(f=cmd_install)
     s = sp.add_parser("sync", help="bridge the prefix's plugins to Linux DAWs with yabridge and refresh the menu"); s.add_argument("dirs", nargs="*", help="extra plugin directories"); s.set_defaults(f=cmd_sync)

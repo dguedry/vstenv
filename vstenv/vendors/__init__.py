@@ -194,6 +194,17 @@ def for_manager_installer(f: Path) -> Vendor | None:
 def for_product_installer(f: Path) -> Vendor | None:
     return next((v for v in all() if v.accepts_product_installer(Path(f))), None)
 
+def classify_installer(f: Path) -> tuple[str, Vendor | None]:
+    """What a downloaded installer is: ('manager', vendor) for a vendor manager's
+    own installer, ('product', vendor) for a vendor product's, ('program', None)
+    for a plain Windows installer. One funnel: the user picks a file and the
+    matching flow, with its fixes, is chosen here -- never by the user."""
+    v = for_manager_installer(f)
+    if v is not None: return "manager", v
+    v = for_product_installer(f)
+    if v is not None: return "product", v
+    return "program", None
+
 def for_program(prog: "Program") -> Vendor | None:
     """The vendor a program belongs to, by its Publisher or by being that vendor's manager."""
     for v in all():

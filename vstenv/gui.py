@@ -322,8 +322,8 @@ class Window(Adw.ApplicationWindow):
         self.programs_group = Adw.PreferencesGroup(title="Installed programs", description="Everything with an installer record or a Start Menu shortcut in the prefix, plus the vendors' managers. Each also appears in your desktop's application menu.")
         page.add(self.programs_group)
         g = Adw.PreferencesGroup(title="Install")
-        g.add(_menu_row("Install from a Windows installer", "Pick a .exe or .msi (unzip a downloaded .zip first). Its window opens; anything it installs, app or plugin, is set up and plugins are bridged. Same as the Install tab's installer.", "document-open-symbolic",
-                        lambda: self.pick_file("Choose an installer (.exe or .msi)", self.install_program, downloads=True),
+        g.add(_menu_row("Install Windows software…", "Pick any installer (.exe or .msi; unzip a downloaded .zip first). A vendor's manager or product is recognized and installed with its fixes; anything else runs as a plain installer. Same as the Install tab's installer.", "document-open-symbolic",
+                        lambda: self.pick_file("Choose an installer (.exe or .msi)", self.install_any, downloads=True),
                         [("Refresh the list and the app menu", lambda: self.run_bg("Updating the app menu", lambda r: menu.sync(self.prefix, r)))]))
         self._rows_limits = _row("What runs here", "Click for the limits of this environment.", "dialog-information-symbolic", lambda: self.toast(programs.LIMITS, 12))
         g.add(self._rows_limits)
@@ -377,33 +377,28 @@ class Window(Adw.ApplicationWindow):
 
     # ---- install page -------------------------------------------------------------------
     def build_install(self):
-        page = Adw.PreferencesPage(); self.manager_rows = {}; self.open_rows = {}; self.get_rows = {}
-        for v in vendors.with_manager():
-            g = Adw.PreferencesGroup(title=v.name)
-            items = [(f"Get {v.manager_name} from {v.name}", lambda v=v: self.open_url(v.download_page)),
-                     (f"Update {v.manager_name} from a downloaded installer",
-                      lambda v=v: self.pick_file(f"Choose the {v.manager_name} installer", lambda f, v=v: self.install_manager(v, f), downloads=True))]
-            if type(v).install_product is not vendors.Vendor.install_product:
-                items.append((f"Install a {v.name} product from its installer",
-                              lambda v=v: self.pick_file(f"Choose a {v.name} product installer", lambda f, v=v: self.install_product(v, f))))
-            # Once the manager is installed this is the whole group: open it; the rest sits behind "…"
-            o = _menu_row(f"Open {v.manager_name}", "Sign in, install or update products; new plugins are bridged as they appear.", "go-next-symbolic",
-                          lambda v=v: self.open_manager(v), items)
-            o.set_visible(False); self.open_rows[v.id] = o; g.add(o)
-            # Until then: get it, then install it
-            gr = _row(f"Get {v.manager_name} from {v.name}", v.download_page or "", "web-browser-symbolic", lambda v=v: self.open_url(v.download_page))
-            self.get_rows[v.id] = gr; g.add(gr)
-            r = _row(f"Install {v.manager_name} from a downloaded installer", f"Pick {v.installer_hint}.", "document-open-symbolic",
-                     lambda v=v: self.pick_file(f"Choose the {v.manager_name} installer", lambda f, v=v: self.install_manager(v, f), downloads=True))
-            self.manager_rows[v.id] = r; g.add(r)
-            page.add(g)
-        g = Adw.PreferencesGroup(title="Other plugins")
-        g.add(_menu_row("Install from a Windows installer", "Pick a .exe or .msi (unzip a downloaded .zip first). Its window opens; plugins it installs are bridged, apps are set up. Same as the Programs tab's installer.", "document-open-symbolic",
-                        lambda: self.pick_file("Choose an installer (.exe or .msi)", self.install_program, downloads=True),
+        # One funnel: any downloaded installer goes through install_any, which
+        # recognizes vendor managers and products and applies their fixes --
+        # the user never has to know which kind of installer they picked.
+        page = Adw.PreferencesPage(); self.open_rows = {}; self.get_rows = {}
+        g = Adw.PreferencesGroup(title="Install")
+        g.add(_menu_row("Install Windows software…",
+                        "Pick any installer (.exe or .msi; unzip a downloaded .zip first). A vendor's manager or product is recognized and installed with its fixes; anything else runs as a plain installer. Plugins are bridged either way.",
+                        "document-open-symbolic",
+                        lambda: self.pick_file("Choose an installer (.exe or .msi)", self.install_any, downloads=True),
                         [("Add a plugin folder", self.pick_folder),
                          ("Bridge plugins now", self.sync),
                          ("Finish interrupted installs", self.finish_installs),
                          ("Install the .NET runtime (Wine Mono)", self.install_mono)]))
+        page.add(g)
+        g = Adw.PreferencesGroup(title="Vendor stores",
+                                 description="Each vendor's own app: sign in, then install and update its products there. New plugins are bridged as they appear.")
+        for v in vendors.with_manager():
+            o = _row(f"Open {v.manager_name}", "Sign in, install or update products.", "go-next-symbolic", lambda v=v: self.open_manager(v))
+            o.set_visible(False); self.open_rows[v.id] = o; g.add(o)
+            gr = _row(f"Get {v.manager_name} from {v.name}", "Download it, then pick it under “Install Windows software…” above.",
+                      "web-browser-symbolic", lambda v=v: self.open_url(v.download_page))
+            self.get_rows[v.id] = gr; g.add(gr)
         page.add(g); return page
     def open_url(self, url):
         if url: Gtk.UriLauncher(uri=url).launch(self, None, lambda l, res: l.launch_finish(res))
@@ -418,6 +413,18 @@ class Window(Adw.ApplicationWindow):
         def fn(r):
             res = v.install_product(self.prefix, path, r); setup.after_change(self.prefix, r); return res
         self.run_bg(f"Installing {path.name}", fn, lambda res, err: self.toast(f"{res['name']} installed ({res['method']})") if res else None)
+    def install_any(self, path):
+        """The one install funnel: recognize what the picked installer is and run
+        the matching flow with its fixes, saying what was recognized."""
+        kind, v = vendors.classify_installer(path)
+        if kind == "manager":
+            self.toast(f"Recognized the {v.manager_name} installer — installing it with {v.name}'s fixes")
+            self.install_manager(v, path)
+        elif kind == "product":
+            self.toast(f"Recognized a {v.name} product installer")
+            self.install_product(v, path)
+        else:
+            self.install_program(path)
     def open_manager(self, v):
         if not self.is_ready(): self.toast("Run setup first"); return
         if not v.manager_installed(self.prefix): self.toast(f"{v.manager_name} is not installed yet — get it from {v.name} and pick the installer here"); return
@@ -520,20 +527,19 @@ class Window(Adw.ApplicationWindow):
             notes = {v.id: v.manager_notice(self.prefix) for v in vendors.with_manager()}
             def show():
                 for vid, n in notes.items():
-                    v = vendors.get(vid); row = self.manager_rows.get(vid)
-                    if row: row.set_subtitle(GLib.markup_escape_text(n or f"Pick {v.installer_hint}."))
+                    row = self.get_rows.get(vid)
+                    if row and n: row.set_subtitle(GLib.markup_escape_text(n))
             ui(show)
         threading.Thread(target=work, daemon=True).start()
     def refresh_install(self):
-        """Offer "Open" only for an installed manager; the installer row reads
-        Install or Update accordingly."""
+        """A vendor's row is Open when its manager is installed, Get when not."""
         ready = self.is_ready()
         for v in vendors.with_manager():
             installed = ready and v.manager_installed(self.prefix)
             self.open_rows[v.id].set_visible(installed)
-            self.get_rows[v.id].set_visible(not installed); self.manager_rows[v.id].set_visible(not installed)
+            self.get_rows[v.id].set_visible(not installed)
             ver = (v.manager_version(self.prefix) or "") if installed else ""
-            self.open_rows[v.id].set_subtitle(f"{ver} · sign in, install or update products; new plugins are bridged as they appear." if ver else "Sign in, install or update products; new plugins are bridged as they appear.")
+            self.open_rows[v.id].set_subtitle(f"{ver} · sign in, install or update products." if ver else "Sign in, install or update products.")
     def refresh_all(self): self.refresh_install(); self.refresh_plugins(); self.refresh_programs(); self.refresh_health(); self.refresh_notices()
 
 class App(Adw.Application):

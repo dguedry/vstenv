@@ -453,3 +453,22 @@ class IKSoundContentNoLoopTest(unittest.TestCase):
                 self.assertEqual(v.staged_installs(p), [])
                 os.utime(exe, (time.time() + 5, time.time() + 5))   # IK downloaded a newer build
                 self.assertEqual([n for n, _ in v.staged_installs(p)], ["London Grooves"])
+
+
+class ClassifyInstallerTest(unittest.TestCase):
+    """One install funnel: a picked file is recognized as a vendor manager's
+    installer, a vendor product's, or a plain program installer -- in that order."""
+    def test_manager_then_product_then_program(self):
+        from unittest import mock
+        class M(vendors.Vendor):
+            id = "m"; name = "M"; manager_name = "M App"
+            def accepts_manager_installer(self, f): return "m-setup" in f.name
+        class Q(vendors.Vendor):
+            id = "q"; name = "Q"
+            def accepts_product_installer(self, f): return "q-product" in f.name
+        with mock.patch.object(vendors, "all", return_value=[M(), Q()]):
+            kind, v = vendors.classify_installer(Path("m-setup.exe"))
+            self.assertEqual((kind, v.id), ("manager", "m"))
+            kind, v = vendors.classify_installer(Path("q-product-1.0.exe"))
+            self.assertEqual((kind, v.id), ("product", "q"))
+            self.assertEqual(vendors.classify_installer(Path("whatever.exe")), ("program", None))
