@@ -64,12 +64,43 @@ def apps_present(p: Prefix) -> list[str]:
                 # an exe in this dir that hosts WebView2 (its name need not match the dir)
                 if any(_exe_uses_webview2(exe) for exe in sub.glob("*.exe")):
                     out.append(sub.name); break
+    _save_cache()
     return sorted(set(out))
 
+# Marker-scan cache: reading every vendor exe and VST3 module costs hundreds of
+# MB of disk per setup pass; a (size, mtime) entry per file makes the rescans a
+# stat() each. Same pattern as the DirectComposition import scan's cache.
+_SCAN_CACHE = paths.DATA / "webview2-scan.json"
+_cache: dict | None = None
+
+def _load_cache() -> dict:
+    global _cache
+    if _cache is None:
+        try:
+            import json; _cache = json.loads(_SCAN_CACHE.read_text())
+        except Exception:
+            _cache = {}
+    return _cache
+
+def _save_cache():
+    if _cache is None: return
+    try:
+        import json
+        _SCAN_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        _SCAN_CACHE.write_text(json.dumps(_cache))
+    except OSError: pass
+
 def _exe_uses_webview2(exe: Path) -> bool:
+    try: st = exe.stat()
+    except OSError: return False
+    c = _load_cache(); key = str(exe)
+    hit = c.get(key)
+    if hit and hit[0] == st.st_size and hit[1] == st.st_mtime: return hit[2]
     try: b = exe.read_bytes()
     except OSError: return False
-    return b"CoreWebView2" in b or b"msedgewebview2" in b or b"WebView2Loader" in b
+    found = b"CoreWebView2" in b or b"msedgewebview2" in b or b"WebView2Loader" in b
+    c[key] = [st.st_size, st.st_mtime, found]
+    return found
 
 # Chromium presents WebView2 content through DirectComposition and repaints only
 # each frame's damaged region, trusting the swapchain to preserve the rest;
@@ -105,6 +136,7 @@ def host_exes(p: Prefix) -> list[str]:
     vst3 = p.drive_c / "Program Files/Common Files/VST3"
     if vst3.is_dir() and any(f.is_file() and _exe_uses_webview2(f) for f in vst3.rglob("*.vst3")):
         out.update(("yabridge-host.exe", "yabridge-host-32.exe"))
+    _save_cache()
     return sorted(out)
 
 def apply_presentation_flags(p: Prefix, reporter=None) -> int:

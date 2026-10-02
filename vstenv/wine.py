@@ -201,10 +201,20 @@ class Prefix:
         self.path.mkdir(parents=True, exist_ok=True)
         self.run(["wineboot", "-u"], timeout=900)
         self.run(["winecfg", "/v", windows_version], timeout=120)
-        self.wait_idle(); r.ok(str(self.path))
+        self.wait_idle(force=True); r.ok(str(self.path))
 
-    def wait_idle(self, timeout=120):
-        """Wait for wineserver to exit so registry hives are flushed."""
+    def wait_idle(self, timeout=120, force=False):
+        """Wait for wineserver to exit so registry hives are flushed. Unless
+        forced (fresh-prefix creation, where only transient services linger),
+        skipped when anything holds the server open -- a DAW's plugin hosts or a
+        vendor daemon never exit, the wait would just burn the full timeout (it
+        used to cost every setup pass two minutes), and a held server flushes
+        its hives periodically anyway."""
+        if not force:
+            try:
+                if self.processes(): return
+            except Exception:
+                pass
         try: host.run([str(self.build.wineserver), "-w"], env=self.wine_env(), timeout=timeout)
         except subprocess.TimeoutExpired: pass
 

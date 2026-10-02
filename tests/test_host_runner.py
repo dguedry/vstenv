@@ -63,3 +63,28 @@ class HostRunnerTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WaitIdleSkipsBusyServerTest(unittest.TestCase):
+    """wineserver -w never returns while a DAW's plugin hosts or a vendor daemon
+    hold the server; the wait is skipped then (it cost every setup pass two
+    minutes), except on fresh-prefix creation, which forces it."""
+    def test_skipped_when_busy_unless_forced(self):
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+        from vstenv import wine
+        with tempfile.TemporaryDirectory() as tmp:
+            p = wine.Prefix(Path(tmp) / "prefix", wine.WineBuild(Path(tmp) / "wine"))
+            with mock.patch.object(p, "processes", return_value=[(1, "yabridge-host.exe.so")]), \
+                 mock.patch.object(wine.host, "run") as run:
+                p.wait_idle()
+            run.assert_not_called()
+            with mock.patch.object(p, "processes", return_value=[(1, "yabridge-host.exe.so")]), \
+                 mock.patch.object(wine.host, "run") as run:
+                p.wait_idle(force=True)
+            run.assert_called_once()
+            with mock.patch.object(p, "processes", return_value=[]), \
+                 mock.patch.object(wine.host, "run") as run:
+                p.wait_idle()
+            run.assert_called_once()

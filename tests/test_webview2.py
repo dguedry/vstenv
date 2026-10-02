@@ -6,6 +6,9 @@ from unittest import mock
 from vstenv import webview2
 from vstenv.wine import Prefix, WineBuild
 
+import tempfile as _tf
+webview2._SCAN_CACHE = Path(_tf.mkdtemp(prefix="wv2cache")) / "scan.json"   # keep test scans out of the user's data dir
+
 
 class WebView2DetectTest(unittest.TestCase):
     def _prefix(self, tmp):
@@ -100,3 +103,13 @@ class PresentationFlagsTest(unittest.TestCase):
             mod.parent.mkdir(parents=True); mod.write_bytes(b"MZ" + b"WebView2Loader")
             self.assertIn("yabridge-host.exe", webview2.host_exes(p))
             self.assertIn("yabridge-host-32.exe", webview2.host_exes(p))
+
+    def test_marker_scan_is_cached_by_size_and_mtime(self):
+        import os, time
+        with tempfile.TemporaryDirectory() as tmp:
+            exe = Path(tmp) / "a.exe"; exe.write_bytes(b"MZ CoreWebView2")
+            self.assertTrue(webview2._exe_uses_webview2(exe))
+            with mock.patch.object(Path, "read_bytes", side_effect=AssertionError("re-read of an unchanged file")):
+                self.assertTrue(webview2._exe_uses_webview2(exe))      # cache hit
+            exe.write_bytes(b"MZ plain"); os.utime(exe, (time.time() + 5, time.time() + 5))
+            self.assertFalse(webview2._exe_uses_webview2(exe))         # changed file is re-read
