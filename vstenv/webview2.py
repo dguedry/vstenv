@@ -129,7 +129,8 @@ def host_exes(p: Prefix) -> list[str]:
             if any(part in rel for part in _RUNTIME_DIRS): continue
             for sub in [d, *[x for x in d.rglob("*") if x.is_dir() and len(x.relative_to(d).parts) <= 2]]:
                 if any(r in str(sub) for r in _RUNTIME_DIRS): continue
-                exes = list(sub.glob("*.exe"))
+                if sub.name == "BrowserRuntime": continue      # a bundled runtime's own exes are not hosts
+                exes = [e for e in sub.glob("*.exe") if e.name.lower() != "msedgewebview2.exe"]
                 out.update(e.name for e in exes if _exe_uses_webview2(e))
                 if (sub / "BrowserRuntime/msedgewebview2.exe").exists():
                     out.update(e.name for e in exes if not e.name.lower().startswith("unins"))
