@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.48" date="2026-10-02">
+      <description>
+        <p>Spitfire app: blocked at its consent screen for now; scan no longer flags runtimes</p>
+      </description>
+    </release>
     <release version="0.1.47" date="2026-10-02">
       <description>
         <p>Skip the after-install pass when nothing changed</p>
