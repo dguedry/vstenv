@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.51" date="2026-10-02">
+      <description>
+        <p>Real DirectComposition swapchains: the Spitfire app (and more) now work</p>
+      </description>
+    </release>
     <release version="0.1.50" date="2026-10-02">
       <description>
         <p>README: Spitfire is partially working — live briefly, then stalls; proper composition swapchains are the planned fix</p>
