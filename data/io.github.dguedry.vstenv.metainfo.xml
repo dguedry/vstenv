@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.47" date="2026-10-02">
+      <description>
+        <p>Skip the after-install pass when nothing changed</p>
+      </description>
+    </release>
     <release version="0.1.46" date="2026-10-02">
       <description>
         <p>Progress page scrolls (the window could outgrow the screen); NI hive parse cached</p>
