@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.44" date="2026-10-02">
+      <description>
+        <p>Vendor stores lists every supported storefront, module or not</p>
+      </description>
+    </release>
     <release version="0.1.43" date="2026-10-02">
       <description>
         <p>One install funnel: pick any installer, the app recognizes what it is</p>
