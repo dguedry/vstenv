@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.52" date="2026-10-02">
+      <description>
+        <p>dcomp-swapchain-present: register wine/dcomp_layer.h in include/Makefile.in</p>
+      </description>
+    </release>
     <release version="0.1.51" date="2026-10-02">
       <description>
         <p>Real DirectComposition swapchains: the Spitfire app (and more) now work</p>
