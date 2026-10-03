@@ -64,18 +64,27 @@ github.com/giang17/wine (branch `d2d1-dcomp-11.17`). Wine's own
 `CreateSwapChainForComposition` fakes a hidden window; presenting to it jams in
 the GL layer and deadlocks the application's renderer (the Spitfire Audio app
 froze on its sign-in screen — its JUCE 8 Direct2D peer waited forever on a
-present that never completed). This gives the composition swapchain a real
-backing window (`WineDCompSwapchain`) that the dcomp compositor re-targets to
-the hosting window via `WM_WINE_DCOMP_SET_TARGET`, so frames GL-present straight
-into it. Touches dxgi (the window + retarget), wined3d and win32u (keep-back-
-buffers swapchains, the dcomp leaf layer, the GL present path, and the window/
-opengl plumbing), and dcomp (post the retarget message instead of blitting;
-`dcomp_layer.h` is new). It also replaces the earlier `WaitForVBlank` pacing
-stub with the fork's. Layers on `dcomp-steinberg` (needs its real dcomp
-device). Verified 2026-10-02 cold and concurrent: the Spitfire app holds its UI;
-HALion Sonic 7, SWAM (incl. overlay dialogs) and the Audio Modeling Software
-Center render unchanged. The largest patch here by far — wined3d and win32u are
-central DLLs, so re-test the full Tested table on every Wine bump.
+present that never completed).
+
+Each composition swapchain gets a real backing window (`WineDCompSwapchain`).
+The swapchain runs in the fork's GDI composition mode
+(`WM_WINE_DCOMP_SET_CHILD_MODE`): every present renders into a DIB published as
+window properties on the backing window, and the dcomp compositor blits that
+buffer into the hosting window on every composite tick. Two designs were tried
+and rejected: GL-presenting into the hosting window needs the fork's unix-side
+win32u, which a PE-only DLL set cannot ship; and re-pointing the swapchain's
+device window at the hosting window let wined3d's window hook run on the app's
+message thread, where it blocked cross-thread on activation and wedged the
+message loop (the app took no clicks or keys). Messages to the backing window
+are posted, never sent — the composite thread holds dcomp_cs and a synchronous
+send to the app thread deadlocks.
+
+Touches dxgi (backing window, child mode), wined3d and win32u (keep-back-
+buffers swapchains, the dcomp leaf layer, the comp-buffer GDI present), and
+dcomp (per-tick blit; `dcomp_layer.h` is new). It also replaces the earlier
+`WaitForVBlank` pacing stub with the fork's. Layers on `dcomp-steinberg`.
+The largest patch here by far — wined3d and win32u are central DLLs, so re-test
+the full Tested table on every Wine bump.
 
 ## ole32-dragdrop-stale-target-<version>.patch
 

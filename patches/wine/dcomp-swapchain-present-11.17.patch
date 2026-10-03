@@ -1,29 +1,31 @@
-DirectComposition swapchains that present into the host window (JUCE 8, etc).
+DirectComposition swapchains composited into the host window (JUCE 8, etc).
 
 Ported from github.com/giang17/wine (branch d2d1-dcomp-11.17), the audio-focused
 Wine fork implementing real DXGI composition swap chains for plugin GUI
 frameworks. Wine's own CreateSwapChainForComposition fakes a hidden window;
 presenting to it jams in the GL layer and deadlocks the application's renderer
-(the Spitfire Audio app froze on its sign-in screen). This gives the composition
-swapchain a real backing window, and the dcomp compositor re-targets that
-swapchain to the hosting window so frames GL-present straight into it instead of
-being blitted through a bitmap.
+(the Spitfire Audio app froze on its sign-in screen).
 
-Three layers:
-- dxgi: a WineDCompSwapchain backing window; WM_WINE_DCOMP_SET_TARGET retargets
-  the swapchain to the composition target and chooses GL vs GDI present.
+Architecture (differs from the fork's own top-level handling, which GL-presents
+into the host window and needs the fork's unix-side win32u that a PE-only DLL
+set cannot ship):
+- dxgi: a WineDCompSwapchain backing window per composition swapchain,
+  published as a desktop-window property; WM_WINE_DCOMP_SET_CHILD_MODE puts the
+  swapchain in GDI composition mode, where each present renders into a DIB
+  (comp buffer) published as window properties on the backing window.
 - wined3d + win32u + includes: keep-back-buffers swapchains, the dcomp leaf
-  layer, the GL present path, and the window/opengl plumbing they need.
-- dcomp: when a visual's content is a composition swapchain, post
-  WM_WINE_DCOMP_SET_TARGET to its backing window (located via the desktop-window
-  property dxgi publishes) instead of blitting. POSTED not sent -- the composite
-  thread holds dcomp_cs and a sync send to the app thread deadlocks.
+  layer, the comp-buffer GDI present path, and the plumbing they need.
+- dcomp: a visual whose content is a composition swapchain is composited by
+  blitting the published comp buffer into the target window every composite
+  tick. The swapchain is never retargeted at the application's window: making
+  the app window a wined3d device window lets wined3d's window hook run on the
+  app's message thread, where it blocked cross-thread on activation and wedged
+  the message loop (no clicks, no keys). Messages to the backing window are
+  POSTED, never sent -- the composite thread holds dcomp_cs and a sync send to
+  the app thread deadlocks.
 
-Supersedes the earlier hidden-window and WaitForVBlank-pacing patches. Layers on
-dcomp-steinberg (needs its real dcomp device). Verified: Spitfire Audio reaches
-and holds its sign-in UI; HALion Sonic 7, SWAM (incl. overlay dialogs) and the
-Audio Modeling Software Center render with no regression, cold session, concurrent.
-
+Supersedes the earlier hidden-window and WaitForVBlank-pacing patches. Layers
+on dcomp-steinberg (needs its real dcomp device and composite thread).
 --- a/dlls/dxgi/adapter.c
 +++ b/dlls/dxgi/adapter.c
 @@ -354,13 +354,22 @@
@@ -100,7 +102,7 @@ Audio Modeling Software Center render with no regression, cold session, concurre
  HRESULT d3d11_swapchain_init(struct d3d11_swapchain *swapchain, struct dxgi_device *device,
 --- a/dlls/dxgi/factory.c
 +++ b/dlls/dxgi/factory.c
-@@ -387,16 +387,880 @@
+@@ -387,16 +387,872 @@
      FIXME("iface %p, cookie %#lx stub!\n", iface, cookie);
  }
  
@@ -636,21 +638,13 @@ Audio Modeling Software Center render with no regression, cold session, concurre
 +                 * keep its context off the target (backup DC) so the target never
 +                 * gets a pixel format. */
 +                {
-+                    HWND target_parent_toplevel = GetAncestor(target_hwnd, GA_PARENT);
-+                    BOOL is_toplevel = !target_parent_toplevel
-+                            || target_parent_toplevel == GetDesktopWindow();
-+
-+                    if (is_toplevel)
-+                    {
-+                        wined3d_swapchain_set_force_gdi_present(swapchain->wined3d_swapchain, FALSE);
-+                        wined3d_swapchain_set_prefer_gl_present(swapchain->wined3d_swapchain, TRUE);
-+                        FIXME("DComp: target %p is top-level, using GL present (no GDI readback).\n",
-+                                target_hwnd);
-+                    }
-+                    else
-+                    {
-+                        wined3d_swapchain_set_force_gdi_present(swapchain->wined3d_swapchain, TRUE);
-+                    }
++                    /* GL swap to a top-level target would need the fork's
++                     * unix-side win32u (get_window_unused_drawable); only the
++                     * PE DLLs ship, so the swap lands in a drawable stock
++                     * win32u never maps and the window goes stale. GDI blit
++                     * works against stock win32u for every target. */
++                    wined3d_swapchain_set_prefer_gl_present(swapchain->wined3d_swapchain, FALSE);
++                    wined3d_swapchain_set_force_gdi_present(swapchain->wined3d_swapchain, TRUE);
 +
 +                    wined3d_swapchain_set_device_window(swapchain->wined3d_swapchain, target_hwnd);
 +                    /* Remember the subclassed target for teardown in d3d11_swapchain_Release. */
@@ -1283,23 +1277,26 @@ Audio Modeling Software Center render with no regression, cold session, concurre
  static HRESULT STDMETHODCALLTYPE d3d11_swapchain_ResizeBuffers1(IDXGISwapChain4 *iface,
 --- a/dlls/dcomp/device.c
 +++ b/dlls/dcomp/device.c
-@@ -625,6 +625,39 @@
+@@ -625,6 +625,58 @@
      return visual;
  }
  
-+#define WM_WINE_DCOMP_SET_TARGET (WM_USER + 0x100)
++#define WM_WINE_DCOMP_SET_CHILD_MODE (WM_USER + 0x101)
 +
-+/* Swapchain content presents itself: point its backing window at the target
-+ * (ported contract: dxgi's window switches its swapchain to the target hwnd
-+ * and handles hosting from there). Nothing is blitted for such visuals. */
-+static HRESULT composite_bind_swapchain_window(const struct composition_target *target,
-+        struct composition_visual *visual)
++/* Swapchain content: the swapchain keeps presenting to its own backing
++ * window in GDI composition mode (comp buffer + published comp_dc), and this
++ * compositor blits that buffer to the target every tick.  The swapchain is
++ * never retargeted at the application's window: making the app window a
++ * wined3d device window lets wined3d's window hook run on the app's message
++ * thread, where it blocked cross-thread on activation and wedged the whole
++ * message loop (Spitfire's sign-in took no clicks or keys). */
++static HRESULT composite_blit_swapchain_window(const struct composition_target *target,
++        struct composition_visual *visual, float x, float y)
 +{
 +    WCHAR prop_name[64];
 +    HWND comp_wnd;
-+
-+    if (visual->comp_bound_target == target->hwnd)
-+        return S_OK;
++    HDC comp_dc, target_dc;
++    LPARAM dims;
 +
 +    swprintf(prop_name, ARRAY_SIZE(prop_name), L"__wine_dcomp_wnd_%lu_%I64x",
 +            GetCurrentProcessId(), (UINT64)(UINT_PTR)visual->content);
@@ -1309,28 +1306,44 @@ Audio Modeling Software Center render with no regression, cold session, concurre
 +        return S_OK;
 +    }
 +
-+    /* The composite thread holds dcomp_cs here and the window belongs to the
-+     * application's thread, which may be waiting on that very lock: a
-+     * synchronous send deadlocks (seen as "dcomp_cs wait timed out"). */
-+    PostMessageW(comp_wnd, WM_WINE_DCOMP_SET_TARGET, 0, (LPARAM)target->hwnd);
-+    SetWindowPos(comp_wnd, HWND_BOTTOM, 0, 0, 0, 0,
-+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
-+    visual->comp_bound_target = target->hwnd;
-+    TRACE("Bound swapchain %p to target %p via %p.\n", visual->content, target->hwnd, comp_wnd);
++    if (visual->comp_bound_target != target->hwnd)
++    {
++        /* The composite thread holds dcomp_cs here and the window belongs to
++         * the application's thread, which may be waiting on that very lock: a
++         * synchronous send deadlocks (seen as "dcomp_cs wait timed out"). */
++        PostMessageW(comp_wnd, WM_WINE_DCOMP_SET_CHILD_MODE, 0, 0);
++        SetWindowPos(comp_wnd, HWND_BOTTOM, 0, 0, 0, 0,
++                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
++        visual->comp_bound_target = target->hwnd;
++        TRACE("Swapchain %p composites to target %p from %p.\n",
++                visual->content, target->hwnd, comp_wnd);
++    }
++
++    comp_dc = (HDC)GetPropW(comp_wnd, L"__wine_dcomp_comp_dc");
++    dims = (LPARAM)GetPropW(comp_wnd, L"__wine_dcomp_comp_size");
++    if (!comp_dc || !dims)
++        return S_OK;   /* no frame published yet */
++
++    if ((target_dc = GetDC(target->hwnd)))
++    {
++        BitBlt(target_dc, (int)x, (int)y, LOWORD(dims), HIWORD(dims),
++                comp_dc, 0, 0, SRCCOPY);
++        ReleaseDC(target->hwnd, target_dc);
++    }
 +    return S_OK;
 +}
 +
  /* The visual's offset and, of its transform, the translation and scale; the
   * position accumulates down the tree. */
  static HRESULT do_composite(const struct composition_target *target, struct composition_visual *visual,
-@@ -653,7 +686,12 @@
+@@ -653,7 +705,12 @@
      }
  
      /* Render content */
 -    if (visual->content)
 +    if (visual->content && IsEqualGUID(&visual->content_iid, &IID_IDXGISwapChain1))
 +    {
-+        hr = composite_bind_swapchain_window(target, visual);
++        hr = composite_blit_swapchain_window(target, visual, x, y);
 +        if (FAILED(hr)) return hr;
 +    }
 +    else if (visual->content)
@@ -6576,6 +6589,16 @@ Audio Modeling Software Center render with no regression, cold session, concurre
  
  @ cdecl wined3d_swapchain_state_create(ptr ptr ptr ptr ptr)
  @ cdecl wined3d_swapchain_state_destroy(ptr)
+--- a/include/Makefile.in
++++ b/include/Makefile.in
+@@ -1119,6 +1119,7 @@
+ 	wine/atsvc.idl \
+ 	wine/condrv.h \
+ 	wine/dcetypes.idl \
++	wine/dcomp_layer.h \
+ 	wine/debug.h \
+ 	wine/dplaysp.h \
+ 	wine/epm.idl \
 --- a/include/wine/opengl_driver.h
 +++ b/include/wine/opengl_driver.h
 @@ -274,6 +274,9 @@
@@ -6659,16 +6682,6 @@ Audio Modeling Software Center render with no regression, cold session, concurre
  #endif
  
  typedef struct
---- a/include/Makefile.in
-+++ b/include/Makefile.in
-@@ -1119,6 +1119,7 @@
- 	wine/atsvc.idl \
- 	wine/condrv.h \
- 	wine/dcetypes.idl \
-+	wine/dcomp_layer.h \
- 	wine/debug.h \
- 	wine/dplaysp.h \
- 	wine/epm.idl \
 --- /dev/null
 +++ b/include/wine/dcomp_layer.h
 @@ -0,0 +1,159 @@
