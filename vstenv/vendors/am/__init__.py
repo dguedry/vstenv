@@ -54,6 +54,11 @@ class AudioModeling(Vendor):
     # No manager_name on purpose: the Software Center needs no launch fixes, and a
     # vendor manager would lose its desktop menu entry (vendors.run_through_app).
 
+    def browser_window_exes(self):
+        """The Center's window is a WebView2 control; the SWAM instruments draw
+        their own JUCE windows, even though they ship WebView2 support too."""
+        return (CENTER_EXE,)
+
     def _products_dir(self, p: Prefix) -> Path:
         return p.drive_c / "Program Files/Audio Modeling"
 

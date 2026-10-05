@@ -77,11 +77,40 @@ def imports_dcomp(f: Path, cache: dict | None = None) -> bool:
     if own: _save(cache)
     return res
 
+# A program whose whole window is a WebView2/Chromium control imports dcomp.dll
+# because Chromium does, but the browser draws its content and wants DXVK's
+# Direct3D: the composition-swapchain patches are wrong for it. Forcing Wine's
+# builtin D3D on SINE Player made it lay its panels out at the wrong offsets and
+# left the Store and My Licenses tabs blank -- reported by a user who had both
+# working on an earlier release, and reproduced here.
+#
+# Nothing in the file distinguishes them: a JUCE instrument that merely bundles
+# WebView2 support (Audio Modeling's SWAM) carries the same CoreWebView2 strings
+# and the same import table as a program that IS a WebView2 window. So the
+# vendor modules say which of their programs are browser-drawn, and anything
+# unknown keeps the patches -- that is the case Spitfire and HALion need.
+def browser_window_exes() -> set[str]:
+    from . import vendors
+    out = set()
+    for v in vendors.all():
+        try: out.update(v.browser_window_exes() or ())
+        except Exception: pass
+    out.update(_KNOWN_BROWSER_WINDOWS)
+    return out
+
+# Programs no vendor module claims. SINE Player is Orchestral Tools', which has
+# no module yet.
+_KNOWN_BROWSER_WINDOWS = {"SINE Player.exe"}
+
 def program_exes(p: Prefix) -> list[str]:
     """Exe names of installed programs that draw through DirectComposition: the exe
-    itself, or a DLL beside it, imports dcomp.dll."""
+    itself, or a DLL beside it, imports dcomp.dll.
+
+    WebView2 hosts are left out: they import dcomp through Chromium but their
+    content is the browser's, and the composition patches break it."""
     from . import programs
     cache = _load(); out = set()
+    browser = browser_window_exes()
     for prog in programs.installed(p):
         if not prog.exe or not prog.install_dir: continue
         try: d = p.to_host(prog.install_dir)
@@ -89,7 +118,9 @@ def program_exes(p: Prefix) -> list[str]:
         if not d.is_dir(): continue
         exe = prog.exe.rsplit("\\", 1)[-1]
         files = [f for f in d.iterdir() if f.is_file() and f.suffix.lower() in (".exe", ".dll")]
-        if any(imports_dcomp(f, cache) for f in files): out.add(exe)
+        if not any(imports_dcomp(f, cache) for f in files): continue
+        if exe in browser: continue
+        out.add(exe)
     _save(cache)
     return sorted(out)
 

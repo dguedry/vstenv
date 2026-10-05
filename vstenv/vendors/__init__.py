@@ -105,6 +105,18 @@ class Vendor:
     def programs(self, p: "Prefix") -> list: return []        # extra Program sources (programs.py)
     def plugin_dirs(self) -> list[str]: return []              # prefix-relative dirs to bridge, beyond the standard ones
     def content_dirs(self, p: "Prefix") -> list[str]: return []   # Windows paths of libraries, maybe outside the prefix
+    def browser_window_exes(self) -> tuple[str, ...]:
+        """Exe names whose whole window is a WebView2/Chromium control.
+
+        Such a program imports dcomp.dll because Chromium does, but the browser
+        draws its content and wants DXVK's Direct3D; the composition-swapchain
+        patches are wrong for it (they made SINE Player lay its panels out
+        wrongly and left its Store tab blank). Nothing in the file tells these
+        apart -- a JUCE instrument that merely bundles WebView2 support carries
+        the same strings and the same imports -- so the vendor says which are
+        which."""
+        return ()
+
     def quirks(self) -> dict[str, list[Quirk]]: return {}     # program name (substring) -> quirks
     def launch_args(self) -> dict[str, list[str]]: return {}  # program name (substring) -> extra argv
     def cannot_run(self, p: "Prefix", prog: "Program") -> str | None:
