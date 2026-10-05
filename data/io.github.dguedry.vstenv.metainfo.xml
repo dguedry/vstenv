@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.63" date="2026-10-05">
+      <description>
+        <p>A failed install stops, instead of tidying up after nothing</p>
+      </description>
+    </release>
     <release version="0.1.62" date="2026-10-05">
       <description>
         <p>Catch a browser-drawn window without waiting for someone to report it</p>
