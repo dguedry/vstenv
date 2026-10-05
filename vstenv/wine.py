@@ -139,6 +139,25 @@ def _parse_reg_export(text: str) -> dict[str, str]:
             except ValueError: pass
     return vals
 
+def _exe_of(cmdline: str) -> str:
+    """The program name from a Wine command line.
+
+    Windows paths are backslash-separated and may contain spaces, so neither a
+    plain split() ("C:\\Program Files\\x.exe" -> "C:\\Program") nor shlex
+    (which would eat the backslashes) is right. A quoted first argument is
+    taken whole; otherwise everything up to " --" or " /" is treated as the
+    path, which keeps "SWAM Violin 3.exe" intact."""
+    import re
+    s = (cmdline or "").strip()
+    if not s: return ""
+    if s.startswith('"'):
+        first = s[1:].split('"', 1)[0]
+    else:
+        m = re.match(r"^(.*?\.(?:exe|com|bat|msi))(?:\s|$)", s, re.IGNORECASE)
+        first = m.group(1) if m else s.split()[0]
+    return first.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+
+
 class Prefix:
     """A Wine prefix driven by a specific WineBuild.
 
@@ -217,8 +236,46 @@ class Prefix:
         # code page (cp850 on a German desktop), not UTF-8, so a message with an
         # umlaut would raise UnicodeDecodeError and abort the install.
         if capture: kw.update(encoding="utf-8", errors="replace")
-        return host.run([str(self.build.wine), *args], env=self.wine_env(env, debug), cwd=cwd,
-                        capture_output=capture, text=capture, **kw)
+        try:
+            return host.run([str(self.build.wine), *args], env=self.wine_env(env, debug), cwd=cwd,
+                            capture_output=capture, text=capture, **kw)
+        except subprocess.TimeoutExpired as e:
+            # A Wine step can finish while something it started -- a vendor
+            # daemon, typically -- keeps its stdout open, and reading to end of
+            # file then waits for that process instead of the command. Without
+            # this the wait burns the whole timeout and says nothing about why.
+            # lingering.py explains the mechanism and can name the holder.
+            note = self.lingering_note()
+            if note: e.vstenv_lingering = note
+            raise
+
+    # Wine's own session services are always running and are never what holds
+    # a command's output open; naming them would bury the one process that is.
+    WINE_SERVICES = frozenset({
+        "services.exe", "winedevice.exe", "plugplay.exe", "svchost.exe", "explorer.exe",
+        "rpcss.exe", "lsass.exe", "wineboot.exe", "conhost.exe", "tabtip.exe", "start.exe",
+    })
+
+    def lingering_note(self) -> str:
+        """Which program in this prefix could be holding a command's output open.
+
+        A vendor daemon that a Wine step started keeps that step's stdout open,
+        so reading to end of file waits for the daemon rather than the step
+        (lingering.py). Wine's own services are excluded: they always run.
+        Empty when nothing stands out."""
+        try:
+            procs = self.processes()
+        except Exception:
+            return ""
+        names = set()
+        for _pid, cmd in procs:
+            exe = _exe_of(cmd)
+            if not exe or exe.lower() in self.WINE_SERVICES: continue
+            if exe.lower().startswith(("python", "bash", "sh", "wine")): continue
+            names.add(exe)
+        if not names: return ""
+        return ("still running in the prefix and may be holding this command's output open: "
+                + ", ".join(sorted(names)[:6]))
 
     def spawn(self, args: list[str], *, env: dict | None = None, log: Path | None = None, cwd=None) -> subprocess.Popen:
         """Start a Windows program detached (GUI apps). The returned process ends

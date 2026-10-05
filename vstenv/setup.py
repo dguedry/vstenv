@@ -7,7 +7,13 @@ from .wine import Prefix
 
 def _guarded(r, title, fn):
     try: fn()
-    except Exception as e: r.step(title); r.fail(str(e)[:100])
+    except Exception as e:
+        r.step(title); r.fail(str(e)[:100])
+        # A step that timed out because a vendor daemon held its output open
+        # knows which processes those were; say so instead of leaving a bare
+        # "timed out" (wine.py, lingering.py).
+        note = getattr(e, "vstenv_lingering", "")
+        if note: r.log(note)
 
 def prepare(p: Prefix, reporter=None):
     """Everything that does not need a vendor's manager: prefix, fonts, C runtime,
