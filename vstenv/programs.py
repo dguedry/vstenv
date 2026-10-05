@@ -371,6 +371,16 @@ def _exe_name(cmdline: str) -> str:
     other = re.findall(r"[^\\/ ]+\.(?:tmp|msi)", cmdline, re.I)
     return other[-1] if other else cmdline[:60]
 
+class InstallFailed(RuntimeError):
+    """An installer exited non-zero: the environment is left alone."""
+
+class InstallCancelled(InstallFailed):
+    """The person cancelled the installer; not an error worth a red failure."""
+
+# Windows installer exit codes that are not failures of ours.
+_CANCELLED = {1602}        # ERROR_INSTALL_USEREXIT
+_SUCCESS_REBOOT = {3010}   # ERROR_SUCCESS_REBOOT_REQUIRED -- done, as far as Wine cares
+
 def install(p: Prefix, installer: Path, reporter=None) -> int:
     """Run any Windows installer interactively: .msi through msiexec, anything else
     as a program. Plugins it drops are bridged by the caller (yabridge.sync)."""
@@ -383,7 +393,23 @@ def install(p: Prefix, installer: Path, reporter=None) -> int:
     if installer.suffix.lower() == ".msi": argv = ["msiexec", "/i", str(installer)]
     else: argv = [str(installer)]
     cp = p.run(argv, timeout=7200, capture=False)
-    (r.ok if cp.returncode == 0 else r.fail)(f"exit {cp.returncode}")
+    if cp.returncode in _SUCCESS_REBOOT:
+        # The installer finished and asked for a reboot, which a Wine prefix
+        # does not need; treat it as the success it is.
+        r.ok(f"exit {cp.returncode} (installed; the reboot it asks for is not needed here)")
+    elif cp.returncode != 0:
+        # An installer that failed wrote nothing worth reacting to, and the
+        # steps below -- quirks, bridging, menu entries -- would spend a minute
+        # adjusting the environment for an install that did not happen, which
+        # reads as if it had. Stop here and say so. Codes vendors use for an
+        # ordinary cancel are not failures: 1602 is "user cancelled" and 3010
+        # is "needs a reboot", which under Wine means it finished.
+        r.fail(f"exit {cp.returncode}")
+        if cp.returncode in _CANCELLED:
+            raise InstallCancelled(f"{installer.name} was cancelled (exit {cp.returncode})")
+        raise InstallFailed(f"{installer.name} failed (exit {cp.returncode}); nothing was changed")
+    else:
+        r.ok(f"exit {cp.returncode}")
     # The process we ran may be only a wrapper: the real setup it unpacked and
     # started keeps installing after it returns (iZotope's does), and bridging
     # before that finishes misses every plugin it is about to drop.

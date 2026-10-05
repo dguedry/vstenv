@@ -427,7 +427,18 @@ class Window(Adw.ApplicationWindow):
     def uninstall_program(self, prog):
         self.run_bg(f"Uninstalling {prog.name}", lambda r: (programs.uninstall(self.prefix, prog, r), setup.after_change(self.prefix, r)))
     def install_program(self, path):
-        self.run_bg(f"Installing {path.name}", lambda r: (programs.install(self.prefix, path, r), setup.after_change(self.prefix, r)))
+        def work(r):
+            # A tuple here would evaluate both halves: a failed install would
+            # still run the environment pass, spending a minute bridging and
+            # syncing menus for something that was not installed.
+            programs.install(self.prefix, path, r)
+            setup.after_change(self.prefix, r)
+        def done(_result, err):
+            if isinstance(err, programs.InstallCancelled):
+                self.toast(f"{Path(path).name} was cancelled — nothing was changed")
+            elif isinstance(err, programs.InstallFailed):
+                self.toast(f"{Path(path).name} failed — the environment was left alone")
+        self.run_bg(f"Installing {Path(path).name}", work, done)
 
     # ---- install page -------------------------------------------------------------------
     def build_install(self):

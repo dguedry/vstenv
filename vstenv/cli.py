@@ -102,7 +102,13 @@ def cmd_install(a):
         res = v.install_product(p, src, r, keep_trace=a.keep_trace)
         print(f"  {res['name']}: installed via {res['method']}")
     else:
-        programs.install(p, src, r)
+        try:
+            programs.install(p, src, r)
+        except programs.InstallFailed as e:
+            # Nothing was installed, so there is nothing to bridge or sync; the
+            # environment pass would only make a failure look like a success.
+            print(f"  {e}")
+            raise SystemExit(1)
     if not a.no_sync: setup.after_change(p, r)
 
 def cmd_sync(a):
