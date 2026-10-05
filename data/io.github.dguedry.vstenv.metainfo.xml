@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.58" date="2026-10-05">
+      <description>
+        <p>Every Wine command now names what holds its output open</p>
+      </description>
+    </release>
     <release version="0.1.57" date="2026-10-05">
       <description>
         <p>Say which program is holding a timed-out command's output open</p>
