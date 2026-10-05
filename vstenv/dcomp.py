@@ -89,18 +89,65 @@ def imports_dcomp(f: Path, cache: dict | None = None) -> bool:
 # and the same import table as a program that IS a WebView2 window. So the
 # vendor modules say which of their programs are browser-drawn, and anything
 # unknown keeps the patches -- that is the case Spitfire and HALion need.
-def browser_window_exes() -> set[str]:
+def browser_window_exes(p: Prefix | None = None) -> set[str]:
+    """Exe names whose window is a browser control, from three sources.
+
+    A name is enough on its own; they overlap on purpose, so that a program no
+    vendor claims and no one has named can still be recognised."""
     from . import vendors
-    out = set()
+    out = set(_KNOWN_BROWSER_WINDOWS)
     for v in vendors.all():
         try: out.update(v.browser_window_exes() or ())
         except Exception: pass
-    out.update(_KNOWN_BROWSER_WINDOWS)
+    if p is not None:
+        out.update(_bundled_runtime_exes(p))
     return out
 
 # Programs no vendor module claims. SINE Player is Orchestral Tools', which has
 # no module yet.
 _KNOWN_BROWSER_WINDOWS = {"SINE Player.exe"}
+
+def _bundled_runtime_exes(p: Prefix) -> set[str]:
+    """Exes shipping their own Chromium runtime beside them.
+
+    A program that carries msedgewebview2.exe in its own folder is drawing
+    through that browser, whatever its import table says, so it does not want
+    the composition patches. This catches an app nobody has named -- SINE
+    Player is found by this test as well as by name. It does NOT catch an app
+    using the shared system runtime (Audio Modeling's Center), which is why
+    the vendor list exists too."""
+    out = set()
+    for base in ("Program Files", "Program Files (x86)"):
+        root = p.drive_c / base
+        if not root.is_dir(): continue
+        for d in _program_dirs(root):
+            try:
+                # The runtime must be BELOW the program, not beside it: an Edge
+                # install is not a program bundling a runtime.
+                runtimes = [x for x in d.rglob("msedgewebview2.exe") if x.parent != d]
+                if not runtimes: continue
+                # Only the program's own top-level exes -- the runtime folder is
+                # full of Edge's helpers (notification_helper, mscopilot...),
+                # which are not programs this app ever patches.
+                out.update(x.name for x in d.glob("*.exe")
+                           if x.name.lower() not in ("msedgewebview2.exe", "unins000.exe"))
+            except OSError:
+                continue
+    return out
+
+def _program_dirs(root: Path):
+    """A vendor folder and one level inside it (Audio Modeling/SWAM Violin)."""
+    for d in root.iterdir():
+        if not d.is_dir(): continue
+        rel = str(d.relative_to(root)).replace("\\", "/")
+        if any(part in rel for part in ("Microsoft/EdgeWebView", "Microsoft/EdgeCore", "Microsoft/EdgeUpdate")):
+            continue
+        yield d
+        try:
+            for sub in d.iterdir():
+                if sub.is_dir(): yield sub
+        except OSError:
+            pass
 
 def program_exes(p: Prefix) -> list[str]:
     """Exe names of installed programs that draw through DirectComposition: the exe
@@ -110,7 +157,7 @@ def program_exes(p: Prefix) -> list[str]:
     content is the browser's, and the composition patches break it."""
     from . import programs
     cache = _load(); out = set()
-    browser = browser_window_exes()
+    browser = browser_window_exes(p)
     for prog in programs.installed(p):
         if not prog.exe or not prog.install_dir: continue
         try: d = p.to_host(prog.install_dir)

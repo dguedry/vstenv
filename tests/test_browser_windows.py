@@ -46,3 +46,62 @@ class BrowserWindowTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BundledRuntimeDetectionTest(unittest.TestCase):
+    """Second line of defence: a program shipping its own Chromium runtime is
+    drawing through that browser, whatever its imports say, so it is found
+    without anyone naming it."""
+
+    def _prefix(self, tmp):
+        from pathlib import Path
+        p = mock.Mock()
+        p.drive_c = Path(tmp)
+        return p
+
+    def test_a_program_bundling_a_runtime_is_found(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            app = Path(tmp) / "Program Files" / "Some Player"
+            (app / "BrowserRuntime").mkdir(parents=True)
+            (app / "Some Player.exe").write_bytes(b"MZ")
+            (app / "BrowserRuntime" / "msedgewebview2.exe").write_bytes(b"MZ")
+            found = dcomp._bundled_runtime_exes(self._prefix(tmp))
+        self.assertEqual(found, {"Some Player.exe"})
+
+    def test_a_program_without_a_runtime_is_not_found(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            app = Path(tmp) / "Program Files" / "Some Instrument"
+            app.mkdir(parents=True)
+            (app / "Some Instrument.exe").write_bytes(b"MZ")
+            self.assertEqual(dcomp._bundled_runtime_exes(self._prefix(tmp)), set())
+
+    def test_an_edge_install_is_not_a_program_bundling_a_runtime(self):
+        """The runtime has to sit BELOW the program, not be the program."""
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            edge = Path(tmp) / "Program Files" / "Microsoft" / "EdgeWebView"
+            edge.mkdir(parents=True)
+            (edge / "msedgewebview2.exe").write_bytes(b"MZ")
+            self.assertEqual(dcomp._bundled_runtime_exes(self._prefix(tmp)), set())
+
+    def test_the_runtimes_own_helpers_are_not_reported(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            app = Path(tmp) / "Program Files" / "Player"
+            rt = app / "BrowserRuntime"
+            rt.mkdir(parents=True)
+            (app / "Player.exe").write_bytes(b"MZ")
+            for helper in ("msedgewebview2.exe", "notification_helper.exe", "mscopilot.exe"):
+                (rt / helper).write_bytes(b"MZ")
+            self.assertEqual(dcomp._bundled_runtime_exes(self._prefix(tmp)), {"Player.exe"})
+
+    def test_a_missing_prefix_is_not_an_error(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(dcomp._bundled_runtime_exes(self._prefix(tmp)), set())

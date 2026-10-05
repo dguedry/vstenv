@@ -47,6 +47,23 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
     hok, hdetail = host.available()
     c.append(Check("Wine runs on the host", hok, hdetail, fix="reinstall the current Flatpak build (it grants the org.freedesktop.Flatpak portal)"))
     if not hok: return c
+    # A program cannot sensibly have both: the composition patches hand it
+    # Wine's own Direct3D, while the WebView2 flags are for content the bundled
+    # browser draws through DXVK. SINE Player had both for several releases and
+    # drew its tabs blank. Programs that merely ship WebView2 support beside a
+    # window of their own (the SWAM instruments) are the legitimate overlap, so
+    # this reports rather than fails.
+    try:
+        both = sorted(set(dcomp.program_exes(p)) & set(webview2.host_exes(p)))
+        c.append(Check("DirectComposition and WebView2 settings do not collide", True,
+                       "no program has both" if not both else
+                       f"{', '.join(both[:4])}{'...' if len(both) > 4 else ''}: these draw their own "
+                       "window and only ship WebView2 support, which is fine -- but if one of them "
+                       "renders wrongly, name it in its vendor's browser_window_exes()",
+                       fix="" if not both else "vstenv doctor after the next release, or report the program"))
+    except Exception as e:
+        c.append(Check("DirectComposition and WebView2 settings do not collide", True, f"not checked: {str(e)[:80]}"))
+
     try:
         stuck = wedge.detect(p)
         c.append(Check("DirectComposition programs are not wedged", not stuck,
