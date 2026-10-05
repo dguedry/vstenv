@@ -109,6 +109,36 @@ def installed_build() -> WineBuild | None:
     return WineBuild(dest) if (dest / "bin").exists() else None
 
 
+def _parse_reg_export(text: str) -> dict[str, str]:
+    """Values of the first key in a `reg export` file, as reg_query returned them.
+
+    Handles the three encodings an export uses: a quoted string, dword:<hex>,
+    and hex(2):<bytes> for REG_EXPAND_SZ. Line continuations (a trailing
+    backslash) are joined first, since a long path wraps."""
+    vals: dict[str, str] = {}
+    joined, pending = [], ""
+    for line in text.splitlines():
+        line = pending + line.strip()
+        if line.endswith("\\"): pending = line[:-1]; continue
+        pending = ""; joined.append(line)
+    if pending: joined.append(pending)
+
+    for line in joined:
+        if not line.startswith('"') or "=" not in line: continue
+        name, _, data = line.partition("=")
+        name = name.strip()[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+        data = data.strip()
+        if data.startswith('"'):
+            vals[name] = data[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+        elif data.startswith("dword:"):
+            vals[name] = str(int(data[6:], 16))
+        elif data.startswith("hex(2):"):
+            try:
+                raw = bytes(int(b, 16) for b in data[7:].split(",") if b.strip())
+                vals[name] = raw.decode("utf-16-le").rstrip("\0")
+            except ValueError: pass
+    return vals
+
 class Prefix:
     """A Wine prefix driven by a specific WineBuild.
 
@@ -183,6 +213,10 @@ class Prefix:
             with open(stderr_to, "wb") as f:
                 return host.run([str(self.build.wine), *args], env=self.wine_env(env, debug), cwd=cwd,
                                 stdout=subprocess.DEVNULL, stderr=f, **kw)
+        # Wine's command-line tools write localized messages in the prefix's OEM
+        # code page (cp850 on a German desktop), not UTF-8, so a message with an
+        # umlaut would raise UnicodeDecodeError and abort the install.
+        if capture: kw.update(encoding="utf-8", errors="replace")
         return host.run([str(self.build.wine), *args], env=self.wine_env(env, debug), cwd=cwd,
                         capture_output=capture, text=capture, **kw)
 
@@ -408,12 +442,20 @@ done"""
         cp = self.run([self.REG64, "add", key, "/v", name, "/t", kind, "/d", str(value), "/f"], timeout=60)
         if cp.returncode != 0: raise RuntimeError(f"reg add failed: {key}\\{name}: {cp.stderr.strip()}")
     def reg_query(self, key: str) -> dict[str, str]:
-        cp = self.run([self.REG64, "query", key], timeout=60)
-        vals = {}
-        for line in cp.stdout.splitlines():
-            m = re.match(r"\s+(\S.*?)\s{2,}(REG_\w+)\s{2,}(.*)$", line)
-            if m: vals[m.group(1)] = m.group(3).strip()
-        return vals
+        """The key's values, {} when it does not exist.
+
+        Goes through `reg export`, whose file is UTF-16 regardless of locale.
+        `reg query` prints to a pipe in the prefix's OEM code page, so its
+        output is unreadable for a value holding a non-ASCII path, and its
+        localized "key not found" message cannot be decoded at all."""
+        out = self.drive_c / "vstenv-reg-query.reg"
+        out.unlink(missing_ok=True)
+        self.run([self.REG64, "export", key, self.to_win(out), "/y"], timeout=60)
+        if not out.exists(): return {}          # no such key
+        try: text = out.read_text(encoding="utf-16")
+        except (UnicodeError, OSError): return {}
+        finally: out.unlink(missing_ok=True)
+        return _parse_reg_export(text)
     def reg_import(self, reg_text: str, name="vstenv-import.reg"):
         f = self.drive_c / name
         f.write_text(reg_text, encoding="utf-8")
