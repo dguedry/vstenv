@@ -1,7 +1,7 @@
 """Health checks: the environment's own, then every vendor module's."""
 import os, shutil
 from pathlib import Path
-from . import APP_ID, paths, wine, runtime, yabridge, prefixes, dxvk, host, menu, vendors, winefixes, dcomp, desktopfix, webview2
+from . import APP_ID, paths, wine, runtime, yabridge, prefixes, dxvk, host, menu, vendors, winefixes, dcomp, desktopfix, webview2, wedge
 from .vendors import Check
 
 class _Checks(list):
@@ -47,6 +47,16 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
     hok, hdetail = host.available()
     c.append(Check("Wine runs on the host", hok, hdetail, fix="reinstall the current Flatpak build (it grants the org.freedesktop.Flatpak portal)"))
     if not hok: return c
+    try:
+        stuck = wedge.detect(p)
+        c.append(Check("DirectComposition programs are not wedged", not stuck,
+                       "none hung" if not stuck else
+                       f"{len(stuck)} program(s) hung windowless after loading dcomp.dll (pids "
+                       f"{', '.join(str(s) for s in stuck)}); every DirectComposition GUI stays hung until "
+                       "the Wine session restarts",
+                       fix="vstenv wedge clear (closes running Windows programs, including a DAW's plugins)"))
+    except Exception as e:
+        c.append(Check("DirectComposition programs are not wedged", True, f"not checked: {str(e)[:80]}"))
     scope = p.wineserver_scope()
     c.append(Check("wineserver reachable from here", scope != "foreign",
                    {"none": "not running (starts on first use)", "ours": "running on the host, reachable from here",

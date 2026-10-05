@@ -58,6 +58,26 @@ def cmd_manager(a):
         if n: print(n)
         for k, val in v.status(p).items(): print(f"  {k:<22} {val}")
 
+def cmd_wedge(a):
+    """The DirectComposition wedge: every dcomp GUI hangs until Wine restarts."""
+    from . import wedge
+    p = _prefix(); r = ConsoleReporter()
+    if a.action == "clear":
+        wedge.clear(p, r); return
+    stuck = wedge.stuck_processes(p)
+    if not stuck:
+        print("No DirectComposition program is hung."); return
+    conclusive = wedge.detect(p)
+    for pid in stuck:
+        print(f"  pid {pid}: windowless, no CPU, dcomp.dll loaded")
+    if conclusive:
+        print("\nThis is the session wedge: every DirectComposition program stays hung")
+        print("until the Wine session restarts. Run `vstenv wedge clear` (this closes")
+        print("running Windows programs, a DAW's plugins included).")
+    else:
+        print("\nToo early to call it the session wedge -- a program that is still")
+        print("starting looks the same. Re-run in a minute if it has not drawn a window.")
+
 def cmd_products(a):
     p = _prefix()
     for v in vendors.all():
@@ -247,6 +267,7 @@ def main(argv=None):
     sp.add_parser("prefixes", help="which vstenv prefixes exist, who owns a vendor daemon, what yabridge points at").set_defaults(f=cmd_prefixes)
     s = sp.add_parser("url-handlers", help="desktop handlers for the vendors' sign-in callback links"); s.add_argument("action", nargs="?", default="register", choices=["register", "unregister", "status"]); s.set_defaults(f=cmd_url_handlers)
     s = sp.add_parser("report", help="write a diagnostic bundle to send with a bug report"); s.add_argument("-o", "--output"); s.add_argument("--summary-only", action="store_true"); s.set_defaults(f=cmd_report)
+    s = sp.add_parser("wedge", help="DirectComposition programs all hang windowless: show it, or restart the Wine session"); s.add_argument("action", nargs="?", default="status", choices=["status", "clear"]); s.set_defaults(f=cmd_wedge)
     sp.add_parser("rescue-install", help="an installer has stopped responding: stop it and finish the install from its payload").set_defaults(f=cmd_rescue)
     s = sp.add_parser("finish-installs", help="complete installs a vendor's manager started but did not finish"); s.add_argument("--no-sync", action="store_true"); s.set_defaults(f=cmd_finish_installs)
     a = ap.parse_args(argv); a.f(a)
