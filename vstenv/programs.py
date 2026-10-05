@@ -199,8 +199,33 @@ def find_exe(p: Prefix, install_dir: str) -> str:
     best = max(cands, key=lambda e: e.stat().st_size)
     return install_dir.rstrip("\\") + "\\" + best.name
 
-def installed(p: Prefix) -> list[Program]:
-    """Programs in the prefix, merged from the registry and Start Menu shortcuts."""
+# One refresh of the GUI asks for this list several times: the Plugins page, the
+# Programs page, and dcomp.program_exes() which walks it to read import tables.
+# Each build reads the registry and the Start Menu (about two seconds), so the
+# result is held for a few seconds -- long enough for one pass to reuse it,
+# short enough that an install finishing is still picked up by the refresh that
+# follows it. invalidate() drops it after anything that changes the prefix.
+_CACHE: dict = {}
+_CACHE_TTL = 8.0
+
+def invalidate():
+    """Forget the cached program list (after an install, uninstall or repair)."""
+    _CACHE.clear()
+
+def installed(p: Prefix, fresh: bool = False) -> list[Program]:
+    """Programs in the prefix, merged from the registry and Start Menu shortcuts.
+
+    Cached briefly; pass fresh=True to force a re-read."""
+    import time
+    key = str(p.path)
+    hit = _CACHE.get(key)
+    if not fresh and hit is not None and time.monotonic() - hit[0] < _CACHE_TTL:
+        return hit[1]
+    out = _installed_uncached(p)
+    _CACHE[key] = (time.monotonic(), out)
+    return out
+
+def _installed_uncached(p: Prefix) -> list[Program]:
     from . import vendors
     regs = registry_programs(p) + [x for v in vendors.all() for x in v.programs(p)]; links = shortcut_programs(p)
     by_name: dict[str, Program] = {}

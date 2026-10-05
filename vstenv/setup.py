@@ -1,7 +1,7 @@
 """Setting the environment up and keeping it consistent: the core steps, then
 every vendor module's own, in one idempotent pass."""
 from pathlib import Path
-from . import paths, runtime, dxvk, yabridge, menu, urlschemes, vendors, tools, winefixes, dcomp, desktopfix, webview2
+from . import paths, runtime, dxvk, yabridge, menu, urlschemes, vendors, tools, winefixes, dcomp, desktopfix, webview2, programs
 from .progress import null_reporter
 from .wine import Prefix
 
@@ -112,6 +112,7 @@ def after_change(p: Prefix, reporter=None, force=False) -> dict:
     manager opened and closed without installing anything used to cost the full
     ten-second pass anyway."""
     r = null_reporter(reporter)
+    programs.invalidate()      # an install or removal just changed what is there
     try: sig = change_signature(p)
     except Exception: sig = None
     if not force and sig is not None:

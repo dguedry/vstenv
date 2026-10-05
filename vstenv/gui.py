@@ -6,6 +6,7 @@ gi.require_version("Gtk", "4.0"); gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk, Gio
 from . import __version__, APP_ID, APP_NAME, paths, wine, yabridge, doctor, programs, setup, vendors, menu, runtime, dcomp
 from .progress import Reporter, OK, FAIL, SKIP, RUN
+from .filtering import Filter
 
 TITLE = "VST Environment"
 
@@ -84,6 +85,16 @@ def _row(title, subtitle, icon, cb, tooltip=None):
     r = Adw.ActionRow(title=title, subtitle=subtitle, activatable=True)
     if tooltip: r.set_tooltip_text(tooltip)
     r.add_suffix(Gtk.Image(icon_name=icon)); r.connect("activated", lambda *_: cb()); return r
+
+def _search_bar(on_change, placeholder="Search by name, vendor or format"):
+    """A search entry across the top of a page. Every keystroke re-draws the
+    list from a Filter (the pattern Cabinet's library page uses). Returns
+    (widget, entry)."""
+    entry = Gtk.SearchEntry(placeholder_text=placeholder, hexpand=True)
+    entry.connect("search-changed", lambda *_: on_change())
+    box = Gtk.Box(margin_top=12, margin_start=12, margin_end=12)
+    box.append(entry)
+    return Adw.Clamp(child=box), entry
 
 PILL_CLASS = {"works": "success", "patched": "warning", "limited": "warning", "cannot": "error"}
 def _pill(level):
@@ -256,6 +267,8 @@ class Window(Adw.ApplicationWindow):
     def build_plugins(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.daw_banner = Adw.Banner(revealed=False); box.append(self.daw_banner)
+        bar, self.plugins_search = _search_bar(lambda: self.refresh_plugins(cached=True))
+        box.append(bar)
         page = Adw.PreferencesPage(vexpand=True); box.append(page)
         self.compat_group = Adw.PreferencesGroup(title="Compatibility")
         self.compat_row = Adw.ExpanderRow(title="What needed help, and why", subtitle="Nothing installed yet")
@@ -267,8 +280,60 @@ class Window(Adw.ApplicationWindow):
         self.bridged_group = Adw.PreferencesGroup(title="Bridged plugins", description="Available to Linux DAWs through yabridge (~/.vst, ~/.vst3, ~/.clap).")
         page.add(self.bridged_group)
         return box
-    def refresh_plugins(self):
+    def _plugin_filter(self) -> Filter:
+        return Filter(self.plugins_search.get_text() if hasattr(self, "plugins_search") else "")
+
+    def _draw_plugins(self, prods, notes, progs, bridged, dc, state):
+        """Draw the plugins page from data already fetched. Separate from the
+        fetch so the search box can re-draw without touching the prefix."""
+        self._plugins_data = dict(prods=prods, notes=notes, progs=progs, bridged=bridged, dc=dc, state=state)
+        if state == "missing": self.daw_banner.set_title("Plugins are not bridged: a DAW would run them with the host's wine and damage the prefix — run Re-run setup / repair.")
+        self.daw_banner.set_revealed(state != "active")
+        for vid, g in self.product_groups.items():
+            rows = []
+            for x in self._plugin_filter().apply(prods.get(vid, []), lambda y: (y.name, y.kind, y.version)):
+                flags = [("registered" if x.registered else "not registered", x.registered)]
+                if x.licensed is not None: flags.append(("licensed" if x.licensed else "no license", x.licensed))
+                sfx = [Gtk.Label(label=txt, valign=Gtk.Align.CENTER, css_classes=["caption", "dim-label" if ok else "warning"]) for txt, ok in flags]
+                note = vendors.note_for(x.name, notes.get(vid, []))
+                if note is not None and note.level == "works": note = None      # a pill only where there is something to say
+                rows.append(_noted_row(GLib.markup_escape_text(x.name), GLib.markup_escape_text(f"{x.kind or '?'} {x.version}".strip()), note, sfx))
+            g.set_visible(bool(rows)); self._fill(g, rows)
+        # the compatibility list: every installed product or program with a note that is not plain "works"
+        seen, crows, levels = set(), [], []
+        items = [(v.id, x.name) for v in vendors.all() for x in prods.get(v.id, [])]
+        items += [(v.id, x.name) for x in progs for v in [vendors.for_program(x)] if v is not None]
+        found = [(name, vendors.note_for(name, notes.get(vid, []))) for vid, name in items]
+        # programs no vendor module claims, drawing through DirectComposition (JUCE 8: Spitfire Audio)
+        found += [(x.name, dcomp.note()) for x in progs if vendors.for_program(x) is None and dcomp.is_dcomp_program(x, dc)]
+        for name, n in found:
+            if n is None or n.level == "works" or name in seen: continue
+            seen.add(name); levels.append(n.level)
+            r = Adw.ActionRow(title=GLib.markup_escape_text(name), subtitle=GLib.markup_escape_text(n.text), subtitle_lines=0); r.add_suffix(_pill(n.level)); crows.append(r)
+        for r in self._compat_rows: self.compat_row.remove(r)
+        self._compat_rows = crows
+        for r in crows: self.compat_row.add_row(r)
+        parts = [f"{levels.count(k)} {vendors.LEVEL_LABELS[k]}" for k in ("patched", "limited", "cannot") if levels.count(k)]
+        self.compat_row.set_subtitle(", ".join(parts) if parts else "Everything installed runs as is")
+        self.compat_row.set_enable_expansion(bool(crows))
+        if not any(prods.values()):
+            g = next(iter(self.product_groups.values()), None)
+            if g: g.set_visible(True); self._fill(g, [Adw.ActionRow(title="Nothing installed yet", subtitle="Open a vendor's manager from the Install tab")])
+        shown = self._plugin_filter().apply(bridged, lambda b: (b.get("name"), b.get("info")))
+        brows = [Adw.ActionRow(title=GLib.markup_escape_text(b["name"]), subtitle=GLib.markup_escape_text(b["info"])) for b in shown]
+        if not brows:
+            brows.append(Adw.ActionRow(title="Nothing matches this search", subtitle="Clear the search box to see everything")
+                         if self._plugin_filter().active else
+                         Adw.ActionRow(title="No bridged plugins yet", subtitle="Install a product, then Bridge plugins now"))
+        self._fill(self.bridged_group, brows)
+        self.done_loading()
+
+    def refresh_plugins(self, cached=False):
+        """Re-read the prefix and draw. cached=True re-draws from the last fetch,
+        which is what the search box needs: no Wine calls per keystroke."""
         if not self.is_ready(): return
+        if cached and getattr(self, "_plugins_data", None):
+            self._draw_plugins(**self._plugins_data); return
         self.loading(self.bridged_group, *self.product_groups.values())
         def work():
             prods = {v.id: v.products(self.prefix) for v in vendors.all()}
@@ -281,49 +346,19 @@ class Window(Adw.ApplicationWindow):
             state, detail = yabridge.plugin_wine_status(self.prefix)
             try: dc = dcomp.program_exes(self.prefix)
             except Exception: dc = []
-            def show():
-                if state == "missing": self.daw_banner.set_title("Plugins are not bridged: a DAW would run them with the host's wine and damage the prefix — run Re-run setup / repair.")
-                self.daw_banner.set_revealed(state != "active")
-                for vid, g in self.product_groups.items():
-                    rows = []
-                    for x in prods.get(vid, []):
-                        flags = [("registered" if x.registered else "not registered", x.registered)]
-                        if x.licensed is not None: flags.append(("licensed" if x.licensed else "no license", x.licensed))
-                        sfx = [Gtk.Label(label=txt, valign=Gtk.Align.CENTER, css_classes=["caption", "dim-label" if ok else "warning"]) for txt, ok in flags]
-                        note = vendors.note_for(x.name, notes.get(vid, []))
-                        if note is not None and note.level == "works": note = None      # a pill only where there is something to say
-                        rows.append(_noted_row(GLib.markup_escape_text(x.name), GLib.markup_escape_text(f"{x.kind or '?'} {x.version}".strip()), note, sfx))
-                    g.set_visible(bool(rows)); self._fill(g, rows)
-                # the compatibility list: every installed product or program with a note that is not plain "works"
-                seen, crows, levels = set(), [], []
-                items = [(v.id, x.name) for v in vendors.all() for x in prods.get(v.id, [])]
-                items += [(v.id, x.name) for x in progs for v in [vendors.for_program(x)] if v is not None]
-                found = [(name, vendors.note_for(name, notes.get(vid, []))) for vid, name in items]
-                # programs no vendor module claims, drawing through DirectComposition (JUCE 8: Spitfire Audio)
-                found += [(x.name, dcomp.note()) for x in progs if vendors.for_program(x) is None and dcomp.is_dcomp_program(x, dc)]
-                for name, n in found:
-                    if n is None or n.level == "works" or name in seen: continue
-                    seen.add(name); levels.append(n.level)
-                    r = Adw.ActionRow(title=GLib.markup_escape_text(name), subtitle=GLib.markup_escape_text(n.text), subtitle_lines=0); r.add_suffix(_pill(n.level)); crows.append(r)
-                for r in self._compat_rows: self.compat_row.remove(r)
-                self._compat_rows = crows
-                for r in crows: self.compat_row.add_row(r)
-                parts = [f"{levels.count(k)} {vendors.LEVEL_LABELS[k]}" for k in ("patched", "limited", "cannot") if levels.count(k)]
-                self.compat_row.set_subtitle(", ".join(parts) if parts else "Everything installed runs as is")
-                self.compat_row.set_enable_expansion(bool(crows))
-                if not any(prods.values()):
-                    g = next(iter(self.product_groups.values()), None)
-                    if g: g.set_visible(True); self._fill(g, [Adw.ActionRow(title="Nothing installed yet", subtitle="Open a vendor's manager from the Install tab")])
-                brows = [Adw.ActionRow(title=GLib.markup_escape_text(b["name"]), subtitle=GLib.markup_escape_text(b["info"])) for b in bridged]
-                if not brows: brows.append(Adw.ActionRow(title="No bridged plugins yet", subtitle="Install a product, then Bridge plugins now"))
-                self._fill(self.bridged_group, brows)
-                self.done_loading()
-            ui(show)
+            ui(lambda: self._draw_plugins(prods, notes, progs, bridged, dc, state))
         threading.Thread(target=work, daemon=True).start()
 
     # ---- programs page ------------------------------------------------------------------
+    def _program_filter(self) -> Filter:
+        return Filter(self.programs_search.get_text() if hasattr(self, "programs_search") else "")
+
     def build_programs(self):
-        page = Adw.PreferencesPage()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        bar, self.programs_search = _search_bar(lambda: self.refresh_programs(cached=True),
+                                                "Search by name, version or publisher")
+        box.append(bar)
+        page = Adw.PreferencesPage(vexpand=True); box.append(page)
         self.programs_group = Adw.PreferencesGroup(title="Installed programs", description="Everything with an installer record or a Start Menu shortcut in the prefix, plus the vendors' managers. Each also appears in your desktop's application menu.")
         page.add(self.programs_group)
         g = Adw.PreferencesGroup(title="Install")
@@ -332,9 +367,45 @@ class Window(Adw.ApplicationWindow):
                         [("Refresh the list and the app menu", lambda: self.run_bg("Updating the app menu", lambda r: menu.sync(self.prefix, r)))]))
         self._rows_limits = _row("What runs here", "Click for the limits of this environment.", "dialog-information-symbolic", lambda: self.toast(programs.LIMITS, 12))
         g.add(self._rows_limits)
-        page.add(g); return page
-    def refresh_programs(self):
+        page.add(g); return box
+    def _draw_programs(self, progs, notes, dc):
+        """Draw the programs page from data already fetched, so the search box
+        re-draws without re-reading the prefix."""
+        self._programs_data = dict(progs=progs, notes=notes, dc=dc)
+        rows = []
+        for x in self._program_filter().apply(progs, lambda y: (y.name, y.version, y.publisher)):
+            sub = " · ".join(s for s in (x.version, x.publisher) if s) or ("" if x.exe else "no launcher known (uninstall only)")
+            sfx = []
+            if x.exe:
+                b = Gtk.Button(icon_name="media-playback-start-symbolic", valign=Gtk.Align.CENTER, tooltip_text="Run", css_classes=["flat"])
+                b.connect("clicked", lambda *_, prog=x: self.run_program(prog)); sfx.append(b)
+            if x.uninstall:
+                b = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER, tooltip_text="Uninstall", css_classes=["flat"])
+                b.connect("clicked", lambda *_, prog=x: self.uninstall_program(prog)); sfx.append(b)
+            v = vendors.for_program(x)
+            note = vendors.note_for(x.name, notes.get(v.id, [])) if v is not None else None
+            if note is None and v is None and dcomp.is_dcomp_program(x, dc): note = dcomp.note()
+            if note is not None and note.level == "works": note = None      # a pill only where there is something to say
+            row = _noted_row(GLib.markup_escape_text(x.name), GLib.markup_escape_text(sub), note, sfx)
+            if x.exe: row.set_tooltip_text(x.exe)
+            rows.append(row)
+        if not rows:
+            rows.append(Adw.ActionRow(title="Nothing matches this search", subtitle="Clear the search box to see everything")
+                        if self._program_filter().active else
+                        Adw.ActionRow(title="No programs found", subtitle="Install one below, or a vendor's manager from the Install tab"))
+        self._fill(self.programs_group, rows)
+        # the Install tab's store rows: Open when the store app is installed
+        for name, _vend, _url in vendors.STORES:
+            prog = next((x for x in progs if name.lower() in x.name.lower() and x.exe), None)
+            self._store_prog[name] = prog
+            self.store_open[name].set_visible(prog is not None)
+            self.store_get[name].set_visible(prog is None)
+        self.done_loading()
+
+    def refresh_programs(self, cached=False):
         if not self.is_ready(): return
+        if cached and getattr(self, "_programs_data", None):
+            self._draw_programs(**self._programs_data); return
         self.loading(self.programs_group)
         def work():
             progs = programs.installed(self.prefix)
@@ -344,34 +415,7 @@ class Window(Adw.ApplicationWindow):
                 except Exception: notes[v.id] = []
             try: dc = dcomp.program_exes(self.prefix)
             except Exception: dc = []
-            def show():
-                rows = []
-                for x in progs:
-                    sub = " · ".join(s for s in (x.version, x.publisher) if s) or ("" if x.exe else "no launcher known (uninstall only)")
-                    sfx = []
-                    if x.exe:
-                        b = Gtk.Button(icon_name="media-playback-start-symbolic", valign=Gtk.Align.CENTER, tooltip_text="Run", css_classes=["flat"])
-                        b.connect("clicked", lambda *_, prog=x: self.run_program(prog)); sfx.append(b)
-                    if x.uninstall:
-                        b = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER, tooltip_text="Uninstall", css_classes=["flat"])
-                        b.connect("clicked", lambda *_, prog=x: self.uninstall_program(prog)); sfx.append(b)
-                    v = vendors.for_program(x)
-                    note = vendors.note_for(x.name, notes.get(v.id, [])) if v is not None else None
-                    if note is None and v is None and dcomp.is_dcomp_program(x, dc): note = dcomp.note()
-                    if note is not None and note.level == "works": note = None      # a pill only where there is something to say
-                    row = _noted_row(GLib.markup_escape_text(x.name), GLib.markup_escape_text(sub), note, sfx)
-                    if x.exe: row.set_tooltip_text(x.exe)
-                    rows.append(row)
-                if not rows: rows.append(Adw.ActionRow(title="No programs found", subtitle="Install one below, or a vendor's manager from the Install tab"))
-                self._fill(self.programs_group, rows)
-                # the Install tab's store rows: Open when the store app is installed
-                for name, _vend, _url in vendors.STORES:
-                    prog = next((x for x in progs if name.lower() in x.name.lower() and x.exe), None)
-                    self._store_prog[name] = prog
-                    self.store_open[name].set_visible(prog is not None)
-                    self.store_get[name].set_visible(prog is None)
-                self.done_loading()
-            ui(show)
+            ui(lambda: self._draw_programs(progs, notes, dc))
         threading.Thread(target=work, daemon=True).start()
     def run_program(self, prog):
         v = vendors.for_program(prog)
