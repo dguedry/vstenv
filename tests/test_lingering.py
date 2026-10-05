@@ -152,3 +152,45 @@ class LingeringNoteTest(unittest.TestCase):
         def boom(exe_name=None): raise OSError("no /proc")
         p.processes = boom
         self.assertEqual(p.lingering_note(), "")
+
+
+class RunWatchingContractTest(unittest.TestCase):
+    """Prefix.run() now goes through run_watching, so it has to behave exactly
+    as host.run() did for the 40-odd callers that use it."""
+
+    def test_stdout_and_stderr_stay_separate(self):
+        """reg_add reads cp.stderr; merging the streams would break it."""
+        cp = lingering.run_watching(["sh", "-c", "echo out; echo err >&2"], timeout=30)
+        self.assertEqual(cp.stdout.strip(), "out")
+        self.assertEqual(cp.stderr.strip(), "err")
+
+    def test_returncode_is_passed_through(self):
+        cp = lingering.run_watching(["sh", "-c", "exit 3"], timeout=30)
+        self.assertEqual(cp.returncode, 3)
+
+    def test_a_command_that_overruns_raises_timeout_expired(self):
+        with self.assertRaises(subprocess.TimeoutExpired):
+            lingering.run_watching(["sh", "-c", "sleep 20"], timeout=2)
+
+    def test_capture_false_skips_the_machinery(self):
+        """An installer run with capture=False has no pipes to linger on."""
+        cp = lingering.run_watching(["sh", "-c", "exit 0"], timeout=30, capture=False)
+        self.assertEqual(cp.returncode, 0)
+
+    def test_one_scan_covers_both_pipes(self):
+        """The /proc walk costs seconds, so stdout and stderr are looked up in
+        a single pass rather than one each."""
+        calls = []
+        def fake_sh(script, env=None, timeout=60):
+            calls.append(env.get("VSTENV_PIPES", ""))
+            return ""
+        with mock.patch.object(lingering.host, "sh", fake_sh):
+            lingering.holders(["pipe:[1]", "pipe:[2]"])
+        self.assertEqual(len(calls), 1)
+        self.assertIn("pipe:[1]", calls[0])
+        self.assertIn("pipe:[2]", calls[0])
+
+    def test_a_pid_holding_both_pipes_is_reported_once(self):
+        with mock.patch.object(lingering.host, "sh",
+                               return_value="42\tNTKDaemon.exe\n42\tNTKDaemon.exe\n"):
+            self.assertEqual(lingering.holders(["pipe:[1]", "pipe:[2]"]), [(42, "NTKDaemon.exe")])

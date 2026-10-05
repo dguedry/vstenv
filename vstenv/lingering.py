@@ -45,32 +45,40 @@ def pipe_of(fileobj) -> str | None:
 _SCAN = r"""for p in /proc/[0-9]*; do
   pid=${p#/proc/}
   [ "$pid" = "$$" ] && continue
+  [ -d "$p/fd" ] || continue
   for fd in "$p"/fd/*; do
     [ -L "$fd" ] || continue
-    if [ "$(readlink "$fd" 2>/dev/null)" = "$VSTENV_PIPE" ]; then
-      printf '%s\t%s\n' "$pid" "$(cat "$p/comm" 2>/dev/null)"
-      break
-    fi
+    t=$(readlink "$fd" 2>/dev/null)
+    case " $VSTENV_PIPES " in
+      *" $t "*) printf '%s\t%s\n' "$pid" "$(cat "$p/comm" 2>/dev/null)"; break ;;
+    esac
   done
 done"""
 
 
-def holders(pipe: str, exclude: set[int] | None = None) -> list[tuple[int, str]]:
-    """(pid, name) of processes holding `pipe` open, worth telling someone about.
+def holders(pipes, exclude: set[int] | None = None) -> list[tuple[int, str]]:
+    """(pid, name) of processes holding any of `pipes` open, worth reporting.
+
+    `pipes` is one 'pipe:[N]' name or several. One /proc walk covers them all:
+    the scan is the expensive part (seconds on a busy machine), so stdout and
+    stderr are looked up together rather than once each.
 
     Our own process and the shells a command ran through are left out, as is
-    any pid the caller excludes (the command's own process, typically)."""
-    if not pipe:
+    any pid the caller excludes (the command's own, typically)."""
+    if isinstance(pipes, str): pipes = [pipes]
+    wanted = [p for p in pipes if p]
+    if not wanted:
         return []
-    out = []
+    out, seen = [], set()
     skip = (exclude or set()) | {os.getpid()}
-    for line in host.sh(_SCAN, env={"VSTENV_PIPE": pipe}).splitlines():
+    for line in host.sh(_SCAN, env={"VSTENV_PIPES": " ".join(wanted)}).splitlines():
         pid, _, name = line.partition("\t")
         if not pid.isdigit():
             continue
         pid, name = int(pid), name.strip()
-        if pid in skip or name in _IGNORE:
+        if pid in skip or pid in seen or name in _IGNORE:
             continue
+        seen.add(pid)
         out.append((pid, name))
     return out
 
@@ -98,50 +106,67 @@ def end(found: list[tuple[int, str]], signal: str = "TERM") -> list[int]:
 
 
 def run_watching(cmd, *, env=None, cwd=None, timeout=600, grace=3.0, on_linger=None,
-                 text=True, **kw):
-    """Run a command, and if its output stays open after it exits, say who by.
+                 capture=True, text=True, stdout=None, stderr=None, **kw):
+    """Run a command; if its output stays open after it exits, say who by.
 
-    subprocess.run() reads to end of file, so a daemon that inherited the
-    command's stdout keeps the call waiting long after the command is gone.
-    This waits for the command, gives the output `grace` seconds to close on
-    its own, and if something is still holding it calls
-    on_linger(found, note) -- then stops waiting for that output rather than
-    blocking on it. The caller decides what to do about the processes named.
+    subprocess.run() reads to end of file, so a process that inherited the
+    command's stdout -- a vendor daemon, typically -- keeps the call waiting
+    long after the command itself is gone. This waits for the command, gives
+    the output `grace` seconds to close on its own, and if something still
+    holds it calls on_linger(found, note) and stops waiting on that output
+    instead of blocking. Whatever had been written is kept.
 
-    Returns a CompletedProcess like host.run does; stdout is whatever had been
-    written by then.
+    A drop-in for host.run(): same CompletedProcess, stdout and stderr kept
+    apart, and TimeoutExpired raised when the command itself overruns (with
+    .vstenv_lingering set when something was found holding the output).
     """
-    import subprocess, threading, time
+    import subprocess, threading
     from . import host
+
+    if not capture:
+        # Nothing to read, so nothing can linger on our pipes.
+        return host.run(cmd, env=env, cwd=cwd, timeout=timeout,
+                        stdout=stdout, stderr=stderr, **kw)
+
     proc = host.popen(cmd, env=env, cwd=cwd, stdout=subprocess.PIPE,
-                      stderr=subprocess.STDOUT, text=text, **kw)
-    pipe = pipe_of(proc.stdout)
+                      stderr=subprocess.PIPE, text=text, **kw)
+    pipes = [p for p in (pipe_of(proc.stdout), pipe_of(proc.stderr)) if p]
+    outs: list[str] = []
+    errs: list[str] = []
+    readers = [threading.Thread(target=_drain_into, args=(proc.stdout, outs), daemon=True),
+               threading.Thread(target=_drain_into, args=(proc.stderr, errs), daemon=True)]
+    for t in readers: t.start()
 
-    # Read in a thread: the whole point is not to block the caller on a pipe a
-    # third process is holding open.
-    chunks: list[str] = []
-    reader = threading.Thread(target=lambda: _drain_into(proc.stdout, chunks), daemon=True)
-    reader.start()
-
-    try: proc.wait(timeout=timeout)
+    timed_out = False
+    try:
+        proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        proc.kill(); proc.wait(timeout=10)
+        timed_out = True
+        proc.kill()
+        try: proc.wait(timeout=10)
+        except subprocess.TimeoutExpired: pass
 
-    # The command itself is done. If the reader is still going, something else
-    # holds the pipe -- find out what, once, after a short grace period.
-    reader.join(timeout=grace)
-    found = []
-    if reader.is_alive() and pipe:
-        found = holders(pipe, exclude={proc.pid})
+    # The command is done. A reader still running means something else holds
+    # that pipe: find out what, once, after a short grace period.
+    for t in readers: t.join(timeout=grace)
+    found: list[tuple[int, str]] = []
+    if any(t.is_alive() for t in readers):
+        found = holders(pipes, exclude={proc.pid})
         if found and on_linger is not None:
             on_linger(found, describe(found))
 
-    return subprocess.CompletedProcess(cmd, proc.returncode, "".join(chunks), "")
+    out, err = "".join(outs), "".join(errs)
+    if timed_out:
+        e = subprocess.TimeoutExpired(cmd, timeout, out, err)
+        if found: e.vstenv_lingering = describe(found)
+        raise e
+    return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
 
 
 def _drain_into(stream, chunks: list) -> None:
     """Collect output line by line, so whatever was written is kept even when a
     lingering process stops the stream ever reaching end of file."""
+    if stream is None: return
     try:
         for line in iter(stream.readline, ""):
             chunks.append(line)

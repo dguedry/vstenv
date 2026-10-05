@@ -7,7 +7,7 @@ host wine drift apart.
 """
 import os, re, shutil, subprocess, tarfile, time
 from pathlib import Path
-from . import paths, host
+from . import paths, host, lingering
 from .progress import null_reporter
 
 # Pinned build. Kron4ek's builds are portable (built against old glibc) and
@@ -224,9 +224,14 @@ class Prefix:
         return e
 
     def run(self, args: list[str], *, timeout=600, capture=True, env: dict | None = None,
-            debug="-all", cwd=None, stderr_to=None) -> subprocess.CompletedProcess:
+            debug="-all", cwd=None, stderr_to=None, on_linger=None) -> subprocess.CompletedProcess:
         """Run a Windows program in the prefix and wait. Wine runs on the host
-        (one pid namespace with DAW plugins), see host.py."""
+        (one pid namespace with DAW plugins), see host.py.
+
+        Goes through lingering.run_watching, so a step that finishes while a
+        vendor daemon it started keeps the step's output open does not sit out
+        the whole timeout: the holder is named and the wait for that output is
+        abandoned. on_linger(found, note) is called when that happens."""
         kw = dict(timeout=timeout)
         if stderr_to is not None:
             with open(stderr_to, "wb") as f:
@@ -237,17 +242,21 @@ class Prefix:
         # umlaut would raise UnicodeDecodeError and abort the install.
         if capture: kw.update(encoding="utf-8", errors="replace")
         try:
-            return host.run([str(self.build.wine), *args], env=self.wine_env(env, debug), cwd=cwd,
-                            capture_output=capture, text=capture, **kw)
+            return lingering.run_watching([str(self.build.wine), *args],
+                                          env=self.wine_env(env, debug), cwd=cwd,
+                                          capture=capture, text=capture,
+                                          on_linger=on_linger or self._note_linger, **kw)
         except subprocess.TimeoutExpired as e:
-            # A Wine step can finish while something it started -- a vendor
-            # daemon, typically -- keeps its stdout open, and reading to end of
-            # file then waits for that process instead of the command. Without
-            # this the wait burns the whole timeout and says nothing about why.
-            # lingering.py explains the mechanism and can name the holder.
-            note = self.lingering_note()
-            if note: e.vstenv_lingering = note
+            # The command itself overran. Say what is running that could be
+            # holding its output, when run_watching did not pin it down.
+            if not getattr(e, "vstenv_lingering", ""):
+                note = self.lingering_note()
+                if note: e.vstenv_lingering = note
             raise
+
+    def _note_linger(self, found, note):
+        """Default on_linger: remember it, so a caller can report it."""
+        self.last_lingering = note
 
     # Wine's own session services are always running and are never what holds
     # a command's output open; naming them would bury the one process that is.
