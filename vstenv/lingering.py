@@ -7,11 +7,11 @@ hang with no explanation -- vstenv's own runs would sit out their whole
 timeout (ten minutes for an install step, fifteen for wineboot) and report
 nothing useful.
 
-Cabinet (github.com/Mark12870/cabinet) solves this by finding the processes
-that inherited the pipe and naming them; its Native Instruments notes describe
-exactly this hang, where every direct Wine step started the NTK daemon and the
-daemon inherited that step's pipe. This module does the same lookup for
-vstenv: given the pipe we are reading, say which processes are holding it open.
+The way out is to find the processes that inherited the pipe and name them:
+given the pipe we are reading, say which processes are holding it open. The
+usual culprit is a vendor's background service -- Native Instruments' NTK
+daemon, for one, which every direct Wine step in its prefix starts, and which
+inherits that step's pipe.
 
 Nothing here kills anything. It turns a silent wait into a sentence a person
 can act on, and the caller decides what to do.

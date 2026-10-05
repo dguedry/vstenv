@@ -88,8 +88,7 @@ def _row(title, subtitle, icon, cb, tooltip=None):
 
 def _search_bar(on_change, placeholder="Search by name, vendor or format"):
     """A search entry across the top of a page. Every keystroke re-draws the
-    list from a Filter (the pattern Cabinet's library page uses). Returns
-    (widget, entry)."""
+    list from a Filter. Returns (widget, entry)."""
     entry = Gtk.SearchEntry(placeholder_text=placeholder, hexpand=True)
     entry.connect("search-changed", lambda *_: on_change())
     box = Gtk.Box(margin_top=12, margin_start=12, margin_end=12)

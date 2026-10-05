@@ -2,9 +2,8 @@
 
 Pure data, no GTK: a filter is a value you can build in a test, and the GUI
 only has to turn widgets into one of these and ask each row whether it stays.
-Idea borrowed from Cabinet (github.com/Mark12870/cabinet), whose library page
-derives a filter record from its search box and dropdowns and rebuilds the list
-from it, rather than scattering match conditions through the UI code.
+Deriving one value from the search box and the dropdowns, then rebuilding the
+list from it, keeps match conditions out of the UI code entirely.
 """
 from __future__ import annotations
 
