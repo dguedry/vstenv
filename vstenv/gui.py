@@ -480,9 +480,36 @@ class Window(Adw.ApplicationWindow):
         def fn(r):
             res = v.install_product(self.prefix, path, r); setup.after_change(self.prefix, r); return res
         self.run_bg(f"Installing {path.name}", fn, lambda res, err: self.toast(f"{res['name']} installed ({res['method']})") if res else None)
+    def install_opened(self, path: Path):
+        """Install a file the desktop handed us (a double-clicked .exe/.msi).
+
+        The prefix may not exist yet on a first run, and setup may still be
+        going, so this waits for the app to be ready instead of failing with
+        "run setup first" at the moment someone just asked for an install."""
+        if not path.exists():
+            self.toast(f"{path.name} is gone"); return
+        if path.suffix.lower() not in (".exe", ".msi"):
+            self.toast(f"{path.name} is not a Windows installer"); return
+        self.stack.set_visible_child_name("install")
+
+        def go():
+            if self.is_ready() and not self.busy:
+                self.toast(f"Installing {path.name}")
+                self.install_any(path)          # a Path, as the file picker passes
+                return False          # done, stop polling
+            if not self.is_ready() and not self.busy:
+                # Nothing is running and we are still not ready: setup has not
+                # been done yet, and install_any would only fail.
+                self.run_setup()
+            return True               # keep waiting
+        if go(): GLib.timeout_add_seconds(2, go)
+
     def install_any(self, path):
         """The one install funnel: recognize what the picked installer is and run
-        the matching flow with its fixes, saying what was recognized."""
+        the matching flow with its fixes, saying what was recognized.
+
+        Takes a path as str or Path; the flows below want a Path."""
+        path = Path(path)
         kind, v = vendors.classify_installer(path)
         if kind == "manager":
             self.toast(f"Recognized the {v.manager_name} installer — installing it with {v.name}'s fixes")
@@ -611,7 +638,10 @@ class Window(Adw.ApplicationWindow):
 
 class App(Adw.Application):
     def __init__(self):
-        super().__init__(application_id=APP_ID)
+        # HANDLES_OPEN: the desktop file offers this app as a handler for .exe
+        # and .msi, so a double-clicked installer arrives here as a file to open
+        # rather than being ignored.
+        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_OPEN)
         for name, cb in (("setup", lambda *_: self.win.run_setup()), ("about", self.about),
                          ("menu", lambda *_: self.win.run_bg("Updating the app menu", lambda r: menu.sync(self.win.prefix, r)))):
             act = Gio.SimpleAction(name=name); act.connect("activate", cb); self.add_action(act)
@@ -620,6 +650,20 @@ class App(Adw.Application):
             self.add_action(act); self.set_accels_for_action(f"app.tab{i}", [f"<Control>{i}"])
     def do_activate(self):
         self.win = Window(self); self.win.present()
+
+    def do_open(self, files, n_files, hint):
+        """A Windows installer was opened with this app (double-clicked, or
+        'Open With'). Present the window, then run it through the same funnel
+        the Install tab uses, so it gets the vendor's fixes rather than a bare
+        Wine run."""
+        self.do_activate()
+        paths_ = [f.get_path() for f in files if f.get_path()]
+        if not paths_:
+            self.win.toast("That file is not on this machine — copy it here first")
+            return
+        if len(paths_) > 1:
+            self.win.toast(f"Opening the first of {len(paths_)} files")
+        self.win.install_opened(Path(paths_[0]))
     def about(self, *_):
         Adw.AboutWindow(transient_for=self.win, application_name=TITLE, version=__version__,
                         comments="A managed environment for Windows audio plugins on Linux: vendor managers, their products, and VST bridging — without touching Wine yourself.").present()

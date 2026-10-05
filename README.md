@@ -223,6 +223,13 @@ the installer finishes; nothing needs moving by hand.
   (*patched*, *limited*, *cannot run*) and expands to one sentence saying what
   the vendor did and what the app does about it; "What needs help, and why" at
   the top gathers them.
+- **Opening an installer from the file manager** — the app lists itself as an
+  option for `.exe` and `.msi`, so "Open With → VST Environment" installs a
+  downloaded installer into the prefix with its vendor's fixes, rather than
+  running it under whatever Wine the desktop would otherwise use. It is only an
+  option: the app never claims the association, so whatever already opens those
+  files on your machine keeps doing so, and you set the default yourself if you
+  want one. The Install tab's file picker does the same thing.
 - **Programs** — every Windows program in the prefix, run with the environment's
   own Wine (vendor launch fixes and per-program quirks applied); each also gets a
   desktop menu entry with its own icon (`vstenv menu`), except the vendor

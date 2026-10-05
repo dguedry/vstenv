@@ -2,9 +2,18 @@
 Type=Application
 Name=VST Environment
 Comment=Windows audio plugins on Linux: vendor managers, their products, and VST bridging
-Exec=vstenv-gui
+Exec=vstenv-gui %f
 Icon=io.github.dguedry.vstenv
 Terminal=false
 Categories=AudioVideo;Audio;
 Keywords=VST;VST3;CLAP;yabridge;Wine;Native Instruments;IK Multimedia;Kontakt;
 StartupNotify=true
+# Listed as *an option* for Windows installers, so "Open With" offers to install
+# a .exe or .msi into the prefix with its vendor's fixes instead of running it
+# under a bare Wine. This app never claims the association: nothing here runs
+# `xdg-mime default` for these types (urlschemes.py does that only for the
+# vendors' own native-access:// and net-steinberg-*:// links, which belong to
+# it). Whatever already opens .exe on the machine keeps doing so; a desktop
+# with no other handler installed may still pick this one on its own, and the
+# user can always set or clear the default themselves.
+MimeType=application/x-ms-dos-executable;application/x-msi;application/x-msdownload;application/vnd.microsoft.portable-executable;
