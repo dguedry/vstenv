@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.60" date="2026-10-05">
+      <description>
+        <p>Roland Cloud Manager, and Wine findings written as Wine findings</p>
+      </description>
+    </release>
     <release version="0.1.59" date="2026-10-05">
       <description>
         <p>Offer the app as a way to open a downloaded .exe or .msi</p>
