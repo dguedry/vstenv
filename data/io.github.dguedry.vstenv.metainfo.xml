@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.59" date="2026-10-05">
+      <description>
+        <p>Offer the app as a way to open a downloaded .exe or .msi</p>
+      </description>
+    </release>
     <release version="0.1.58" date="2026-10-05">
       <description>
         <p>Every Wine command now names what holds its output open</p>
