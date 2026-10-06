@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.64" date="2026-10-06">
+      <description>
+        <p>Browser-drawn plugins keep DXVK too, and a rejected tag no longer strands main</p>
+      </description>
+    </release>
     <release version="0.1.63" date="2026-10-05">
       <description>
         <p>A failed install stops, instead of tidying up after nothing</p>
