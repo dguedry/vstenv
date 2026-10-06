@@ -105,3 +105,28 @@ class BundledRuntimeDetectionTest(unittest.TestCase):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(dcomp._bundled_runtime_exes(self._prefix(tmp)), set())
+
+
+class PluginOverrideTest(unittest.TestCase):
+    """The plugin path needs the same exclusion as the program path: SINE ships
+    both an exe and a VST3, and excluding only the exe left its plugin editor
+    with the same broken tabs."""
+
+    def test_a_browser_drawn_plugin_is_excluded(self):
+        from pathlib import Path
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            (d / "SINE Player.vst3").mkdir()
+            (d / "BBC Symphony Orchestra (64 Bit).vst3").mkdir()
+            for name in ("SINE Player.vst3", "BBC Symphony Orchestra (64 Bit).vst3"):
+                (d / name / "plugin.dll").write_bytes(b"MZ")
+            p = mock.Mock(); p.drive_c = d
+            with mock.patch.object(dcomp, "browser_window_exes", return_value={"SINE Player.exe"}), \
+                 mock.patch.object(dcomp, "imports_dcomp", return_value=True), \
+                 mock.patch("vstenv.yabridge.plugin_dirs", return_value=[d]), \
+                 mock.patch.object(dcomp, "_load", return_value={}), \
+                 mock.patch.object(dcomp, "_save"):
+                names = [Path(b).name for b, _ in dcomp.plugin_overrides(p)]
+        self.assertNotIn("SINE Player.vst3", names)
+        self.assertIn("BBC Symphony Orchestra (64 Bit).vst3", names)

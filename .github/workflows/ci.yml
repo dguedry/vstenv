@@ -60,8 +60,13 @@ jobs:
           # subject ENDS with [no-release] so this bump commit self-skips on its own push
           printf '%s\n\n%s\n' "Release $VERSION [no-release]" "$NOTE" | git commit -F -
           git tag -a "v$VERSION" -m "vstenv $VERSION"
-          git push origin HEAD:main
-          git push origin "v$VERSION"
+          # One push, both refs: --atomic makes the server take the commit and
+          # the tag together or neither. Pushed separately, a rejected tag left
+          # main bumped to a version that had no release behind it, and the next
+          # run bumped again over the top -- which stranded v0.1.61 and v0.1.62.
+          # If this push is rejected, main is untouched and re-running the job
+          # cuts the same version cleanly.
+          git push --atomic origin HEAD:main "refs/tags/v$VERSION"
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"

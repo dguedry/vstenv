@@ -176,11 +176,17 @@ def plugin_overrides(p: Prefix) -> list[tuple[str, str]]:
     The path is what yabridge passes its host, so the launcher matches on it."""
     from . import yabridge
     cache = _load(); out = []
+    # The same exclusion the programs get: a plugin whose editor is a WebView2
+    # control imports dcomp through Chromium but is drawn by the browser, which
+    # wants DXVK. SINE Player ships both an exe and a plugin, and only the exe
+    # was excluded before -- its plugin editor had the same broken tabs.
+    browser = {n.lower().rsplit(".", 1)[0] for n in browser_window_exes(p)}
     for d in yabridge.plugin_dirs(p):
         for f in sorted(d.rglob("*")):
             if not f.is_file() or f.suffix.lower() not in (".vst3", ".clap", ".dll") or "Program Files (x86)" in str(f): continue
             if not imports_dcomp(f, cache): continue
             bundle = next((a for a in (f, *f.parents) if a.suffix.lower() == ".vst3" and a.is_dir()), f)
+            if bundle.name.lower().rsplit(".", 1)[0] in browser: continue
             entry = (str(bundle), OVERRIDE_VALUE)
             if entry not in out: out.append(entry)
     _save(cache)
