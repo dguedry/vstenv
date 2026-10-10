@@ -10,8 +10,8 @@ desktop's application menu like any other app.
 Vendor support lives in **modules**. Native Instruments (Native Access, Kontakt,
 the NTK daemon, library registration), IK Multimedia (IK Product Manager),
 Steinberg (Download Assistant, Activation Manager, Library Manager, HALion),
-Audio Modeling (Software Center, SWAM), Roland (Cloud Manager) and iZotope
-(Product Portal) are built in; a separate package can add
+Audio Modeling (Software Center, SWAM), Roland (Cloud Manager), iZotope
+(Product Portal) and Arturia (Software Center) are built in; a separate package can add
 another vendor without touching the core.
 vstenv is the vendor-modular successor to [nilinux](https://github.com/dguedry/nilinux).
 
@@ -61,6 +61,25 @@ the program does and what the app does about it.
   and the GUI does not fall back without it. The app ships a patched dcomp.dll,
   gives these programs Wine's own Direct3D, and installs a Segoe UI font family
   so their dialogs have text.
+- **Roland (Roland Cloud Manager).** A Qt 6 application delivered by a Qt
+  Installer Framework setup, and both halves need help. The setup answers every
+  command with "Unknown exception caught." because Qt asks WinRT for network
+  information that Wine stubs, so the app disables `netprofm` and drives the
+  install from the command line, which is what the setup's own interface cannot
+  do here. The installed Manager then dies at window creation unless Qt is told
+  to use the windows platform theme — and Wine does not pass `QT_*` into the
+  Windows environment at all, so the app sets `WINEQT_QPA_PLATFORMTHEME`, which
+  arrives as `QT_QPA_PLATFORMTHEME`.
+- **iZotope (Product Portal).** Its own installer launches the Portal and
+  leaves it running; the Portal's Electron main crashes under Wine and a
+  supervisor relaunches it every few seconds, and that churn starves the Wine
+  session until unrelated plugins deadlock. The app ends that loop when the
+  install finishes. The Portal's window is Chromium's, so it keeps DXVK rather
+  than the DirectComposition patches.
+- **Arturia (Arturia Software Center).** Runs as it is. Its installer refuses
+  to replace a plugin a DAW has loaded ("Cannot start installation. Files are
+  in use."), so it is started through the app rather than a desktop shortcut,
+  and Health lists the plugins currently held open.
 - **JUCE 8 programs.** JUCE 8 defaults to the same Direct2D/DirectComposition
   path on Windows with no fallback, so programs built on it (for example the
   Spitfire Audio app) need the same handling. Its vblank thread also does not
@@ -153,12 +172,13 @@ through yabridge, including [Performer](https://github.com/dguedry/linux-perform
 | Native Instruments | Native Access 3.26 | Sign-in through the browser callback, product installs, library registration; Kontakt 8 standalone and VST3, with its libraries in a DAW |
 | IK Multimedia | IK Product Manager 1.1.15 | Sign-in, product installs; IK plugin GUIs draw through DXVK |
 | Steinberg | Download Assistant 1.40, Activation Manager 1.9, Library Manager 3.2 | Sign-in that survives restarts, downloads, installs through the Install Assistant, VST Sound library registration; HALion Sonic 7 standalone and VST3 in a DAW, playing and loading libraries, quitting cleanly |
-| Arturia (no module: plain Windows installer) | Arturia Software Center 2.12 | Analog Lab V VST3 and VST2 bridged and playing |
+| Arturia | Arturia Software Center 2.12 | Analog Lab V VST3 and VST2 bridged and playing; the Software Center's own record of what it installed is listed as products |
+| Roland | Roland Cloud Manager 3.1.25 | Installs headless (its Qt Installer Framework setup cannot show its own interface under Wine) and the Manager opens and renders its sign-in page; signing in and installing Roland Cloud titles is not yet verified |
 | FabFilter (no module: plain Windows installer) | Total Bundle installer, run from the Install tab | All 14 plugins bridged as VST3 and VST2, working out of the box; nothing needed patching |
 | Soundtoys (no module: plain Windows installer) | Soundtoys 5.5 bundle installer, iLok License Manager | Every effect bridged as VST3 and VST2, working out of the box; iLok licensing (PACE License Support 5.10) activates and runs unchanged |
 | Valhalla DSP (no module: plain Windows installer) | ValhallaFreqEcho 1.2 installer | Bridged as VST3 and VST2, flawless out of the box |
 | Xfer Records (no module: plain Windows installer) | Serum 2 (2.1.5) installer | Bridged as VST3 and playing out of the box |
-| iZotope (no module: plain Windows installer) | Product Portal 1.4, Ozone 9 Advanced 9.13 installer | Every Ozone module bridged as VST3 and VST2, working out of the box. Its installer hands off to a helper (the app waits for it) and leaves the Electron Product Portal running, which crash-loops under Wine; the app stops that so it cannot starve loaded plugins |
+| iZotope | Product Portal 1.4, Ozone 9 Advanced 9.13 installer | Every Ozone module bridged as VST3 and VST2, working out of the box. Its installer hands off to a helper (the app waits for it) and leaves the Electron Product Portal running, which crash-loops under Wine; the app stops that so it cannot starve loaded plugins |
 | Spitfire Audio (no module: plain Windows installer) | Spitfire Audio app 3.4 | Reaches and holds its Sign In page and browses normally: the patched dxgi/wined3d/win32u give it real DXGI composition swapchains (ported from giang17/wine) that present straight into its window, where Wine's hidden-window emulation deadlocked. Draws through the same patched dcomp.dll + Wine Direct3D as any JUCE 8 program |
 | Audio Modeling | Software Center 1.x (WebView2) | Signs in, downloads products, TRY videos play; its own install attempts fail under Wine (mis-quoted installer arguments), so the app rescues each download and finishes it unattended, announced by a desktop notification (nine SWAM products installed and bridged this way) |
 | Orchestral Tools (no module: plain Windows installer) | SINE Player (JUCE + WebView2) | Installs and bridges; sign-in works against Orchestral Tools' servers, typed blind — the fields take input but do not display it (see "WebView2 apps"); the Store browses and the tips video plays; a web tab's page sticks over the native views until a restart |
