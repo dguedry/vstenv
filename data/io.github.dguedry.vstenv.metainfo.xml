@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.66" date="2026-10-10">
+      <description>
+        <p>An iZotope module: the Product Portal, and what it installed</p>
+      </description>
+    </release>
     <release version="0.1.65" date="2026-10-10">
       <description>
         <p>Install the update Native Access downloaded for itself</p>
