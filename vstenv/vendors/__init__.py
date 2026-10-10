@@ -178,7 +178,7 @@ class Vendor:
     def __repr__(self): return f"<Vendor {self.id}>"
 
 # --- registry --------------------------------------------------------------------------
-BUILTIN = ("vstenv.vendors.ni", "vstenv.vendors.ik", "vstenv.vendors.steinberg", "vstenv.vendors.am", "vstenv.vendors.roland")
+BUILTIN = ("vstenv.vendors.ni", "vstenv.vendors.ik", "vstenv.vendors.steinberg", "vstenv.vendors.am", "vstenv.vendors.roland", "vstenv.vendors.izotope")
 ENTRY_POINT_GROUP = "vstenv.vendors"
 _cache: list[Vendor] | None = None
 
@@ -229,7 +229,6 @@ STORES = [
     ("SINE Player", "Orchestral Tools", "https://www.orchestraltools.com/sine"),
     ("Arturia Software Center", "Arturia", "https://www.arturia.com/support/downloads&manuals"),
     ("Spitfire Audio", "Spitfire Audio", "https://www.spitfireaudio.com/library-manager"),
-    ("Product Portal", "iZotope", "https://www.izotope.com/en/products/product-portal.html"),
     ("iLok License Manager", "PACE (iLok)", "https://www.ilok.com/"),
 ]
 
@@ -264,7 +263,6 @@ def with_manager() -> list[Vendor]:
 # tools (iLok, PACE) and background services (Bonjour) are not included.
 _NO_MODULE_MANAGERS = (
     "arturia software center",       # its installer trips "files in use"; run via the app
-    "product portal",                # iZotope's Electron manager vstenv stops crash-looping
     "install assistant",             # Steinberg's .NET installer vstenv drives and rescues
 )
 

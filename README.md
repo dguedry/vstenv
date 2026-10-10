@@ -9,8 +9,9 @@ desktop's application menu like any other app.
 
 Vendor support lives in **modules**. Native Instruments (Native Access, Kontakt,
 the NTK daemon, library registration), IK Multimedia (IK Product Manager),
-Steinberg (Download Assistant, Activation Manager, Library Manager, HALion) and
-Audio Modeling (Software Center, SWAM) are built in; a separate package can add
+Steinberg (Download Assistant, Activation Manager, Library Manager, HALion),
+Audio Modeling (Software Center, SWAM), Roland (Cloud Manager) and iZotope
+(Product Portal) are built in; a separate package can add
 another vendor without touching the core.
 vstenv is the vendor-modular successor to [nilinux](https://github.com/dguedry/nilinux).
 
