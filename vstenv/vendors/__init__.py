@@ -105,6 +105,18 @@ class Vendor:
     def programs(self, p: "Prefix") -> list: return []        # extra Program sources (programs.py)
     def plugin_dirs(self) -> list[str]: return []              # prefix-relative dirs to bridge, beyond the standard ones
     def content_dirs(self, p: "Prefix") -> list[str]: return []   # Windows paths of libraries, maybe outside the prefix
+    def pending_manager_update(self, p: "Prefix") -> "Path | None":
+        """An update the manager downloaded for itself but has not installed.
+
+        Only meaningful for a manager whose self-updater this app disables: the
+        file can be left over from before that, and the manager will never act
+        on it. Returns the installer, or None."""
+        return None
+
+    def apply_pending_manager_update(self, p: "Prefix", r: "Reporter | None" = None) -> bool:
+        """Install that update through this app, so it lands with its fixes."""
+        return False
+
     def browser_window_exes(self) -> tuple[str, ...]:
         """Exe names whose whole window is a WebView2/Chromium control.
 

@@ -49,6 +49,18 @@ def cmd_manager(a):
         if a.wait:
             proc.wait(); print(f"{v.manager_name} exited; finishing installs and bridging")
             v.finish_installs(p, r); setup.after_change(p, r)
+    elif a.action == "apply-pending-update":
+        # A manager whose self-updater this app disables can still be holding an
+        # update it downloaded before that: it will never install it itself, and
+        # installing it through this app is the only way it lands patched.
+        p = _prefix()
+        f = v.pending_manager_update(p)
+        if f is None:
+            print(f"{v.manager_name} has no pending update of its own"); return
+        print(f"Installing the update {v.manager_name} downloaded: {Path(f).name}")
+        if not v.apply_pending_manager_update(p, r): sys.exit("nothing was installed")
+        _fail_if(r); setup.after_change(p, r)
+        print(f"{v.manager_name} updated and patched")
     elif a.action == "repair":
         p = _prefix(); v.repair_manager(p, r); _fail_if(r)
     else:
@@ -248,8 +260,8 @@ def main(argv=None):
     s = sp.add_parser("setup", help="create the prefix, install every prerequisite and vendor fix (idempotent)")
     s.add_argument("--installer", help="a vendor manager's installer (e.g. Native-Access-latest.exe) to install as part of setup"); s.set_defaults(f=cmd_setup)
     sp.add_parser("vendors", help="list the vendor modules and their managers").set_defaults(f=cmd_vendors)
-    s = sp.add_parser("manager", help="a vendor's manager application: install <file> | launch | repair | status")
-    s.add_argument("vendor"); s.add_argument("action", choices=["install", "launch", "repair", "status"]); s.add_argument("file", nargs="?")
+    s = sp.add_parser("manager", help="a vendor's manager application: install <file> | launch | repair | status | apply-pending-update")
+    s.add_argument("vendor"); s.add_argument("action", choices=["install", "launch", "repair", "status", "apply-pending-update"]); s.add_argument("file", nargs="?")
     s.add_argument("--wait", action="store_true", help="launch: wait for it to exit, then finish installs and bridge"); s.add_argument("args", nargs="*"); s.set_defaults(f=cmd_manager)
     s = sp.add_parser("products", help="list what the vendors' managers installed"); s.add_argument("--vendor"); s.set_defaults(f=cmd_products)
     s = sp.add_parser("install", help="install any downloaded Windows installer: a vendor's manager or product is recognized and installed with its fixes, anything else runs as a plain installer")

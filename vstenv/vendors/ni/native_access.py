@@ -344,7 +344,11 @@ def launch(p: Prefix, reporter=None, extra_args=()) -> subprocess.Popen:
     if scope == "unknown": r.log("could not tell whose wineserver holds the prefix lock; launching anyway")
     if p.is_running("Native Access.exe"): p.kill_exe("Native Access.exe")
     clear_stale_mutexes(p)
-    if stack_patch(exe) == "patched": r.log("re-applied stack patch (NA updated itself)")
+    # Belt and braces: the self-updater is disabled (disable_self_update), so NA
+    # should never have replaced its own exe since the last patch. If it has --
+    # a repair that missed, a hand-installed NA -- patch it now rather than
+    # start an NA whose 64MB stack reserve is gone.
+    if stack_patch(exe) == "patched": r.log("re-applied the stack patch: this NA.exe was not patched")
     download_location(p, r)
     paths.ensure_dirs()
     log = paths.LOGS / "native-access-launch.log"
