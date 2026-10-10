@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.68" date="2026-10-10">
+      <description>
+        <p>Say plainly that iZotope installs cleanly</p>
+      </description>
+    </release>
     <release version="0.1.67" date="2026-10-10">
       <description>
         <p>An Arturia module, and docs that match what is built in</p>
