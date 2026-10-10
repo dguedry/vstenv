@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.65" date="2026-10-10">
+      <description>
+        <p>Install the update Native Access downloaded for itself</p>
+      </description>
+    </release>
     <release version="0.1.64" date="2026-10-06">
       <description>
         <p>Browser-drawn plugins keep DXVK too, and a rejected tag no longer strands main</p>
