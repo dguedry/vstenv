@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.70" date="2026-10-11">
+      <description>
+        <p>Find the desktop even when the variable is not passed in</p>
+      </description>
+    </release>
     <release version="0.1.69" date="2026-10-11">
       <description>
         <p>Name the GNOME shell wedge instead of letting it look like a broken installer</p>
