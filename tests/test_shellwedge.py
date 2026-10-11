@@ -69,3 +69,30 @@ class NoteTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DesktopFallbackTest(unittest.TestCase):
+    """Flatpak passes XDG_CURRENT_DESKTOP through only when the launching
+    environment had it. Measured on a Fedora GNOME host: the sandbox saw None
+    while the session had GNOME, which would have disabled the check silently
+    on the very platform it is for."""
+
+    def test_the_variable_is_used_when_present(self):
+        with mock.patch.dict(os.environ, {"XDG_CURRENT_DESKTOP": "GNOME"}), \
+             mock.patch.object(shellwedge.host, "sh") as sh:
+            self.assertEqual(shellwedge.desktop(), "gnome")
+        sh.assert_not_called()
+
+    def test_the_host_session_answers_when_the_variable_is_missing(self):
+        env = dict(os.environ); env.pop("XDG_CURRENT_DESKTOP", None)
+        with mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(shellwedge.host, "sh", return_value="GNOME\n"):
+            self.assertEqual(shellwedge.desktop(), "gnome")
+            self.assertTrue(shellwedge.on_mutter())
+
+    def test_no_variable_and_no_host_answer_is_empty_not_an_error(self):
+        env = dict(os.environ); env.pop("XDG_CURRENT_DESKTOP", None)
+        with mock.patch.dict(os.environ, env, clear=True), \
+             mock.patch.object(shellwedge.host, "sh", return_value=""):
+            self.assertEqual(shellwedge.desktop(), "")
+            self.assertFalse(shellwedge.on_mutter())

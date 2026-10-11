@@ -32,8 +32,19 @@ BUSY_THRESHOLD = 20
 
 
 def desktop() -> str:
-    """The desktop environment's name, lowercased, or ''."""
-    return (os.environ.get("XDG_CURRENT_DESKTOP") or "").lower()
+    """The desktop environment's name, lowercased, or ''.
+
+    The variable is not always there to read. Flatpak only passes
+    XDG_CURRENT_DESKTOP through when the launching environment had it, so a
+    run from a terminal, a service or ssh sees nothing -- measured on a Fedora
+    GNOME host, where the sandbox saw None while the session had GNOME. Ask
+    the host's own session when the variable is missing, rather than quietly
+    deciding this is not a mutter desktop and never looking again."""
+    d = (os.environ.get("XDG_CURRENT_DESKTOP") or "").strip()
+    if d: return d.lower()
+    out = host.sh("systemctl --user show-environment 2>/dev/null "
+                  "| sed -n 's/^XDG_CURRENT_DESKTOP=//p'", timeout=20)
+    return out.strip().splitlines()[0].lower() if out.strip() else ""
 
 
 def on_mutter() -> bool:
