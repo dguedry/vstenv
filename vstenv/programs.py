@@ -388,6 +388,16 @@ def install(p: Prefix, installer: Path, reporter=None) -> int:
     installer = Path(installer)
     if not installer.is_file(): raise FileNotFoundError(f"installer not found: {installer}")
     r.step(f"Running installer: {installer.name}")
+    # If the desktop shell has stopped mapping Wine windows, the installer will
+    # run with no window at all and look hung. Say so before it starts, rather
+    # than leaving someone to wonder whether the installer is broken.
+    try:
+        from . import shellwedge
+        sw = shellwedge.detect()
+        if sw["wedged"]:
+            r.log("The desktop is not mapping Wine windows: " + sw["why"])
+    except Exception:
+        pass
     before = {(x.name, x.install_dir) for x in installed(p)}
     pids_before = {pid for pid, _ in p.processes()}
     if installer.suffix.lower() == ".msi": argv = ["msiexec", "/i", str(installer)]

@@ -1,7 +1,7 @@
 """Health checks: the environment's own, then every vendor module's."""
 import os, shutil
 from pathlib import Path
-from . import APP_ID, paths, wine, runtime, yabridge, prefixes, dxvk, host, menu, vendors, winefixes, dcomp, desktopfix, webview2, wedge
+from . import APP_ID, paths, wine, runtime, yabridge, prefixes, dxvk, host, menu, vendors, winefixes, dcomp, desktopfix, webview2, wedge, shellwedge
 from .vendors import Check
 
 class _Checks(list):
@@ -63,6 +63,17 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
                        fix="" if not both else "vstenv doctor after the next release, or report the program"))
     except Exception as e:
         c.append(Check("DirectComposition and WebView2 settings do not collide", True, f"not checked: {str(e)[:80]}"))
+
+    # A program that runs but never shows a window is usually not the program:
+    # mutter can get a window stuck in unmanaging and then refuses to map any
+    # Wine window for the rest of the session. Reported as an installer with a
+    # dock entry and no window on GNOME.
+    try:
+        sw = shellwedge.detect()
+        c.append(Check("the desktop still maps Wine windows", not sw["wedged"], sw["why"],
+                       fix="" if not sw["wedged"] else "log out and back in (nothing in the prefix can fix it)"))
+    except Exception as e:
+        c.append(Check("the desktop still maps Wine windows", True, f"not checked: {str(e)[:70]}"))
 
     try:
         stuck = wedge.detect(p)

@@ -61,6 +61,16 @@ the program does and what the app does about it.
   and the GUI does not fall back without it. The app ships a patched dcomp.dll,
   gives these programs Wine's own Direct3D, and installs a Segoe UI font family
   so their dialogs have text.
+- **A program that runs but never shows a window (GNOME).** Not a Wine or
+  vstenv problem: mutter can get a window stuck in `unmanaging` — its
+  "Application is not responding" dialog throws on a window that has no surface
+  yet — and from then on it answers every Wine map request with
+  `WM_STATE=Iconic`, so Wine minimises the window off-screen. It lasts for the
+  rest of the session and affects every Wine window, so the next program looks
+  broken too. Nothing in the prefix can fix it; logging out and back in does.
+  Health reports it (`journalctl --user -b | grep -c meta_window_can_ping` is
+  the direct check), and an install started while the shell is wedged says so
+  rather than appearing to hang.
 - **Roland (Roland Cloud Manager).** A Qt 6 application delivered by a Qt
   Installer Framework setup, and both halves need help. The setup answers every
   command with "Unknown exception caught." because Qt asks WinRT for network
