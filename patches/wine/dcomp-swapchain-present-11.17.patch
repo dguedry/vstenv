@@ -24,6 +24,14 @@ set cannot ship):
   POSTED, never sent -- the composite thread holds dcomp_cs and a sync send to
   the app thread deadlocks.
 
+A visual whose content is a composition swapchain is drawn from that swapchain's
+published composition buffer when there is one, and composited the original way
+when there is not -- no backing window yet, or no frame published. Without that
+fallback such a visual stayed blank for good, which is what left WebView2
+windows white: the Audio Modeling Software Center and SINE Player hand dcomp a
+composition swapchain that never publishes a comp buffer, so the blit had
+nothing to copy and the original path had been skipped.
+
 Supersedes the earlier hidden-window and WaitForVBlank-pacing patches. Layers
 on dcomp-steinberg (needs its real dcomp device and composite thread).
 --- a/dlls/dxgi/adapter.c
@@ -1277,7 +1285,7 @@ on dcomp-steinberg (needs its real dcomp device and composite thread).
  static HRESULT STDMETHODCALLTYPE d3d11_swapchain_ResizeBuffers1(IDXGISwapChain4 *iface,
 --- a/dlls/dcomp/device.c
 +++ b/dlls/dcomp/device.c
-@@ -625,6 +625,58 @@
+@@ -625,6 +625,65 @@
      return visual;
  }
  
@@ -1290,20 +1298,28 @@ on dcomp-steinberg (needs its real dcomp device and composite thread).
 + * wined3d device window lets wined3d's window hook run on the app's message
 + * thread, where it blocked cross-thread on activation and wedged the whole
 + * message loop (Spitfire's sign-in took no clicks or keys). */
-+static HRESULT composite_blit_swapchain_window(const struct composition_target *target,
++/* TRUE when this visual's frame was blitted from the swapchain's own
++ * composition buffer. FALSE means nothing was drawn and the caller must fall
++ * back to compositing the content itself: a swapchain that has not published a
++ * frame yet, or whose backing window is not there, would otherwise leave the
++ * visual blank for good. That is what left WebView2 windows (the Audio
++ * Modeling Software Center, SINE Player) white -- their content is a
++ * composition swapchain that never publishes a comp buffer. */
++static BOOL composite_blit_swapchain_window(const struct composition_target *target,
 +        struct composition_visual *visual, float x, float y)
 +{
 +    WCHAR prop_name[64];
 +    HWND comp_wnd;
 +    HDC comp_dc, target_dc;
 +    LPARAM dims;
++    BOOL drawn;
 +
 +    swprintf(prop_name, ARRAY_SIZE(prop_name), L"__wine_dcomp_wnd_%lu_%I64x",
 +            GetCurrentProcessId(), (UINT64)(UINT_PTR)visual->content);
 +    if (!(comp_wnd = GetPropW(GetDesktopWindow(), prop_name)))
 +    {
-+        FIXME("No composition window for content %p yet.\n", visual->content);
-+        return S_OK;
++        TRACE("No composition window for content %p; compositing it instead.\n", visual->content);
++        return FALSE;
 +    }
 +
 +    if (visual->comp_bound_target != target->hwnd)
@@ -1322,29 +1338,28 @@ on dcomp-steinberg (needs its real dcomp device and composite thread).
 +    comp_dc = (HDC)GetPropW(comp_wnd, L"__wine_dcomp_comp_dc");
 +    dims = (LPARAM)GetPropW(comp_wnd, L"__wine_dcomp_comp_size");
 +    if (!comp_dc || !dims)
-+        return S_OK;   /* no frame published yet */
++        return FALSE;   /* no frame published yet -- composite the content instead */
 +
-+    if ((target_dc = GetDC(target->hwnd)))
-+    {
-+        BitBlt(target_dc, (int)x, (int)y, LOWORD(dims), HIWORD(dims),
-+                comp_dc, 0, 0, SRCCOPY);
-+        ReleaseDC(target->hwnd, target_dc);
-+    }
-+    return S_OK;
++    if (!(target_dc = GetDC(target->hwnd)))
++        return FALSE;
++    drawn = BitBlt(target_dc, (int)x, (int)y, LOWORD(dims), HIWORD(dims),
++            comp_dc, 0, 0, SRCCOPY);
++    ReleaseDC(target->hwnd, target_dc);
++    return drawn;
 +}
 +
  /* The visual's offset and, of its transform, the translation and scale; the
   * position accumulates down the tree. */
  static HRESULT do_composite(const struct composition_target *target, struct composition_visual *visual,
-@@ -653,7 +705,12 @@
+@@ -653,7 +712,12 @@
      }
  
      /* Render content */
 -    if (visual->content)
-+    if (visual->content && IsEqualGUID(&visual->content_iid, &IID_IDXGISwapChain1))
++    if (visual->content && IsEqualGUID(&visual->content_iid, &IID_IDXGISwapChain1)
++            && composite_blit_swapchain_window(target, visual, x, y))
 +    {
-+        hr = composite_blit_swapchain_window(target, visual, x, y);
-+        if (FAILED(hr)) return hr;
++        /* drawn from the swapchain's own composition buffer */
 +    }
 +    else if (visual->content)
      {

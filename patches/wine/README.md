@@ -79,6 +79,14 @@ message loop (the app took no clicks or keys). Messages to the backing window
 are posted, never sent — the composite thread holds dcomp_cs and a synchronous
 send to the app thread deadlocks.
 
+A visual whose content is a composition swapchain is drawn from that
+swapchain's published composition buffer when there is one, and composited the
+original way when there is not. Without that fallback such a visual stayed
+blank for good: the Audio Modeling Software Center and SINE Player hand dcomp a
+composition swapchain that never publishes a comp buffer, so the blit had
+nothing to copy while the original path had been skipped, and their windows
+rendered white.
+
 Touches dxgi (backing window, child mode), wined3d and win32u (keep-back-
 buffers swapchains, the dcomp leaf layer, the comp-buffer GDI present), and
 dcomp (per-tick blit; `dcomp_layer.h` is new). It also replaces the earlier
