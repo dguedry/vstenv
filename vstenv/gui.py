@@ -453,6 +453,7 @@ class Window(Adw.ApplicationWindow):
                         lambda: self.pick_file("Choose an installer (.exe or .msi)", self.install_any, downloads=True),
                         [("Add a plugin folder", self.pick_folder),
                          ("Bridge plugins now", self.sync),
+                         ("Rescue a stuck install", self.rescue_installs),
                          ("Finish interrupted installs", self.finish_installs),
                          ("Install the .NET runtime (Wine Mono)", self.install_mono)]))
         page.add(g)
@@ -585,6 +586,30 @@ class Window(Adw.ApplicationWindow):
             self.run_bg("Bridging plugins", lambda r: yabridge.sync(self.prefix, r, extras=[f.get_path()]))
         d.select_folder(self, None, on)
     def sync(self): self.after_change("Bridging plugins")
+    def rescue_installs(self):
+        """Stop an installer that has stopped making progress and finish it from
+        what it already downloaded.
+
+        Different from "Finish interrupted installs", which completes an
+        install whose payload is already unpacked and whose installer is gone.
+        This one is for a setup still sitting there doing nothing -- a vendor's
+        manager drives it, so the manager normally has to be open for the app
+        to see it."""
+        def fn(r):
+            res = []
+            for v in vendors.all(): res += v.rescue_installs(self.prefix, r)
+            if not res:
+                r.step("Stuck installs")
+                r.skip("none found — an installer still downloading or genuinely working is left alone")
+            else:
+                setup.after_change(self.prefix, r)
+            return res
+        def done(res, err):
+            if err: return
+            if res: self.toast(f"Rescued {len(res)} install(s)")
+            else: self.toast("No stuck installer found")
+        self.run_bg("Rescuing a stuck install", fn, done)
+
     def finish_installs(self):
         def fn(r):
             res = []
