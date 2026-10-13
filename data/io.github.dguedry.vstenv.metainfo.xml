@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.72" date="2026-10-13">
+      <description>
+        <p>Offer "Rescue a stuck install" in the app, not only on the command line</p>
+      </description>
+    </release>
     <release version="0.1.71" date="2026-10-11">
       <description>
         <p>Composition swapchains: composite the content when the blit has nothing to draw</p>
