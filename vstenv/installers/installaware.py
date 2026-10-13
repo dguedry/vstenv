@@ -72,7 +72,11 @@ def run_watched(p: Prefix, exe: Path, trace: Path, r) -> tuple[int, bool]:
     (exit code, stalled). A stalled setup is killed so the staged payload it
     holds is free for the deploy fallback."""
     from ..stall import StallWatch
-    watch = StallWatch()
+    # The trace is ours, not the install's: a setup looping on a Wine stub
+    # (Absynth 5 logged NtUserLockWindowUpdate thousands of times a minute)
+    # fills it without writing one installed file, and would otherwise look
+    # busy for ever.
+    watch = StallWatch(trace=trace)
     with open(trace, "wb") as f:
         proc = host.popen([str(p.build.wine), str(exe), "/s"], env=p.wine_env(None, "+msi"), stdout=subprocess.DEVNULL, stderr=f)
         deadline = time.time() + 3600; rc = None
