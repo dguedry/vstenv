@@ -83,7 +83,15 @@ class AudioModeling(Vendor):
                                    install_dir=str(sub)))
         return out
 
-    FLAGS = "--disable-direct-composition --ui-disable-partial-swap"   # = webview2.PRESENTATION_FLAGS
+    @property
+    def FLAGS(self) -> str:
+        """The Center's WebView2 flags, from webview2 so the two cannot drift.
+
+        Includes the software-GL flags when VSTENV_WEBVIEW2_SOFTWARE_GL is set:
+        on some stacks (reported on Fedora 44 + niri on AMD) the window never
+        paints at all without them."""
+        from ... import webview2
+        return webview2.presentation_flags()
 
     def prepare(self, p, r=None):
         """Make the Center present full frames through a plain swapchain (see the

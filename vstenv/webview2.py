@@ -16,6 +16,8 @@ prefix, not for everyone.
 """
 from __future__ import annotations
 
+import os
+
 from pathlib import Path
 
 from . import paths
@@ -111,6 +113,23 @@ def _exe_uses_webview2(exe: Path) -> bool:
 # the documented WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS variable is ignored
 # under Wine, where every process counts as elevated.
 PRESENTATION_FLAGS = "--disable-direct-composition --ui-disable-partial-swap"
+
+# Some stacks need more than full-frame presentation: the window downloads its
+# page and then never paints at all, white turning black, taking no input.
+# Reported on Fedora 44 + niri (Wayland/XWayland) with an AMD RX 9070 XT, where
+# the flags above alone were not enough and software GL rendered it correctly.
+# It is not the default because it costs GPU rendering for everyone, and the
+# same app paints fine on hardware elsewhere (NVIDIA/X11, verified).
+SOFTWARE_GL_FLAGS = "--use-gl=swiftshader --enable-unsafe-swiftshader --disable-gpu"
+SOFTWARE_GL_ENV = "VSTENV_WEBVIEW2_SOFTWARE_GL"
+
+def software_gl() -> bool:
+    """Whether to add the software-GL flags (VSTENV_WEBVIEW2_SOFTWARE_GL=1)."""
+    return (os.environ.get(SOFTWARE_GL_ENV) or "").strip().lower() in ("1", "true", "yes", "on")
+
+def presentation_flags() -> str:
+    """The flags every WebView2 host gets, plus software GL when asked for."""
+    return PRESENTATION_FLAGS + (" " + SOFTWARE_GL_FLAGS if software_gl() else "")
 POLICY_KEY = r"HKLM\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments"
 
 def host_exes(p: Prefix) -> list[str]:
@@ -154,7 +173,7 @@ def apply_presentation_flags(p: Prefix, reporter=None) -> int:
     n = 0
     for exe in missing:
         cp = p.run(["reg", "add", POLICY_KEY, "/v", exe, "/t", "REG_SZ",
-                    "/d", PRESENTATION_FLAGS, "/f"], timeout=120)
+                    "/d", presentation_flags(), "/f"], timeout=120)
         if cp.returncode == 0: n += 1
     (r.ok if n == len(missing) else r.fail)(", ".join(missing))
     return n

@@ -71,6 +71,16 @@ the program does and what the app does about it.
   Health reports it (`journalctl --user -b | grep -c meta_window_can_ping` is
   the direct check), and an install started while the shell is wedged says so
   rather than appearing to hang.
+- **A WebView2 window that never paints at all.** Distinct from the
+  half-drawn flicker the presentation flags fix: the window downloads its page
+  and then stays blank, white turning black, taking no input. Reported on
+  Fedora 44 with the niri compositor (Wayland/XWayland) on an AMD RX 9070 XT,
+  where software GL rendered it correctly. Set
+  `VSTENV_WEBVIEW2_SOFTWARE_GL=1` and run setup again to add
+  `--use-gl=swiftshader --enable-unsafe-swiftshader --disable-gpu` to every
+  WebView2 host. It is off by default because it costs GPU rendering and these
+  apps paint fine on hardware elsewhere; Health says so when a window is
+  blank.
 - **Roland (Roland Cloud Manager).** A Qt 6 application delivered by a Qt
   Installer Framework setup, and both halves need help. The setup answers every
   command with "Unknown exception caught." because Qt asks WinRT for network

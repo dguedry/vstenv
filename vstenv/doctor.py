@@ -165,6 +165,19 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
                        (f"present; apps using it: {', '.join(ws['apps'])} (their UI may still not render or take keys under Wine)" if ws["installed"]
                         else f"missing; {', '.join(ws['apps'])} will crash at startup — install it"),
                        fix="vstenv webview2  (or Re-run setup / repair)"))
+        # A WebView2 window that downloads its page and then never paints at
+        # all -- white turning black, taking no input -- is a different fault
+        # from the one the presentation flags fix, and software GL cures it on
+        # the stacks where it happens (reported on Fedora 44 + niri, AMD).
+        # Reported rather than applied: it costs GPU rendering, and the same
+        # apps paint fine on hardware elsewhere.
+        if ws["installed"]:
+            on = webview2.software_gl()
+            c.append(Check("WebView2 software rendering", True,
+                           "on (VSTENV_WEBVIEW2_SOFTWARE_GL is set)" if on else
+                           "off — if a WebView2 window never paints (white then black, no input), "
+                           f"set {webview2.SOFTWARE_GL_ENV}=1 and run setup again",
+                           fix="" if on else f"{webview2.SOFTWARE_GL_ENV}=1 vstenv setup"))
     ds = desktopfix.status()
     if ds["applies"]:
         c.append(Check("Wine windows do not jump to the front (Cinnamon)", ds["ok"],
