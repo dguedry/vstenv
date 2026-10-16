@@ -120,12 +120,12 @@ def install(p: Prefix, setup: Path, reporter=None, keep_trace=False) -> dict:
             return {"name": name, "method": "installer", "regkeys": regkeys}
         if stalled: r.fail("installer stopped making progress; falling back to manual deploy")
         else:       r.fail(f"installer exit {rc}; falling back to manual deploy")
-        if not roots: raise RuntimeError("trace has no destination roots; cannot deploy")
         r.step("Extracting installer payload"); bag = work / "bag"; bag.mkdir()
         subprocess.run([sz, "x", "-y", f"-o{bag}", str(exe)], check=True, capture_output=True)
         msis = list(bag.glob("*.msi"))
         if not msis: raise RuntimeError("no inner MSI in installer")
         r.ok(msis[0].name)
+        if not roots: roots, regkeys = _infer(msis[0], bag / "data", name, regkeys, r)
         n = _deploy_and_register(p, msis[0], bag / "data", roots, regkeys, r)
         if not keep_trace: trace.unlink(missing_ok=True)
         return {"name": name, "method": "deploy", "files": n, "regkeys": regkeys}
@@ -239,10 +239,22 @@ def _finish_from_staged(p: Prefix, st: StagedInstall, r) -> dict:
         r.ok("installer succeeded"); trace.unlink(missing_ok=True)
         return {"name": st.name, "method": "installer", "regkeys": regkeys}
     r.fail(("installer stopped making progress" if stalled else f"installer exit {rc}") + "; deploying the staged payload")
-    if not roots: raise RuntimeError("trace has no destination roots; cannot deploy")
+    if not roots: roots, regkeys = _infer(st.msi, st.dir / "data", st.name, regkeys, r)
     n = _deploy_and_register(p, st.msi, st.dir / "data", roots, regkeys, r)
     trace.unlink(missing_ok=True)
     return {"name": st.name, "method": "deploy", "files": n, "regkeys": regkeys}
+
+def _infer(msi: Path, bag: Path, name: str, regkeys: dict, r) -> tuple[dict, dict]:
+    """The trace said nothing about destinations (a setup that never reached
+    Windows Installer, like Absynth 5's): read them off the payload instead."""
+    from ..msi import Msi
+    from .iaroots import infer_roots
+    r.step("Working out destinations from the payload")
+    roots, inferred, notes = infer_roots(Msi(msi), bag, name)
+    for n in notes: r.log(n)
+    if not roots: r.fail("no destination could be inferred"); raise RuntimeError("trace has no destination roots and none could be inferred; cannot deploy")
+    r.ok(f"{len(roots)} destination(s), {len(inferred)} registry value(s)")
+    return roots, {**inferred, **regkeys}      # anything the trace did say wins
 
 def _split_key(k: str) -> tuple[str, str]:
     key, _, val = k.rpartition("\\"); return key, val
