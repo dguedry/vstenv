@@ -61,3 +61,37 @@ class SoftwareGLTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LaunchHintTest(unittest.TestCase):
+    """Health naming the variable only helps someone who thinks to open
+    Health. A user staring at a blank Software Center has no reason to."""
+
+    def setUp(self):
+        from pathlib import Path
+        self.src = Path("vstenv/gui.py").read_text()
+
+    def test_launching_a_program_offers_the_hint(self):
+        start = self.src.index("def run_program(self, prog)")
+        self.assertIn("_webview2_hint", self.src[start:start + 900])
+
+    def test_the_hint_names_the_variable(self):
+        start = self.src.index("def _webview2_hint")
+        body = self.src[start:start + 1200]
+        self.assertIn("SOFTWARE_GL_ENV", body)
+
+    def test_it_is_skipped_when_already_opted_in(self):
+        start = self.src.index("def _webview2_hint")
+        body = self.src[start:start + 1200]
+        self.assertIn("if webview2.software_gl(): return", body)
+
+    def test_it_is_only_for_webview2_hosts(self):
+        """A JUCE instrument launching must not be told about WebView2."""
+        start = self.src.index("def _webview2_hint")
+        body = self.src[start:start + 1200]
+        self.assertIn("host_exes", body)
+
+    def test_it_shows_once_per_session(self):
+        start = self.src.index("def _webview2_hint")
+        body = self.src[start:start + 1200]
+        self.assertIn("_wv2_hinted", body)

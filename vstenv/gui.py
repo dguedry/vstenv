@@ -421,9 +421,34 @@ class Window(Adw.ApplicationWindow):
         if v is not None and v.is_manager_program(prog): return self.open_manager(v)
         try: proc = programs.run(self.prefix, prog); self.toast(f"{prog.name} is starting…"); self.starting(prog.name)
         except Exception as e: self.toast(str(e)); return
+        # The one moment the user is looking at the window: if this is a
+        # WebView2 app and it comes up blank, say what to do. Nothing watches
+        # the window (that needs a display and would misfire headless), so
+        # this is offered, not triggered -- a user staring at a white window
+        # has no reason to go and open Health.
+        self._webview2_hint(prog)
         def watch():           # a program may install plugins while it runs: bridge whatever appeared
             proc.wait(); ui(lambda: self.after_change(f"Bridging plugins after {prog.name}"))
         threading.Thread(target=watch, daemon=True).start()
+    def _webview2_hint(self, prog):
+        """Tell a user whose WebView2 window may come up blank what to try.
+
+        Shown once per session, a few seconds after launch so it lands while
+        the window is on screen, and only when the software-GL flag is not
+        already on."""
+        from . import webview2
+        if webview2.software_gl(): return
+        if getattr(self, "_wv2_hinted", False): return
+        exe = (prog.exe or "").rsplit("\\", 1)[-1]
+        try:
+            if exe not in set(webview2.host_exes(self.prefix)): return
+        except Exception:
+            return
+        self._wv2_hinted = True
+        GLib.timeout_add_seconds(12, lambda: (self.toast(
+            "If its window stays blank, close it and run setup again with "
+            f"{webview2.SOFTWARE_GL_ENV}=1 (see Health).", 12), False)[1])
+
     def uninstall_program(self, prog):
         self.run_bg(f"Uninstalling {prog.name}", lambda r: (programs.uninstall(self.prefix, prog, r), setup.after_change(self.prefix, r)))
     def install_program(self, path):
