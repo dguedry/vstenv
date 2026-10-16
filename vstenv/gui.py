@@ -3,7 +3,7 @@ import os, sys, threading, time, traceback
 from pathlib import Path
 import gi
 gi.require_version("Gtk", "4.0"); gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk, Gio
+from gi.repository import Adw, GLib, Gtk, Gio, Gdk
 from . import __version__, APP_ID, APP_NAME, paths, wine, yabridge, doctor, programs, setup, vendors, menu, runtime, dcomp
 from .progress import Reporter, OK, FAIL, SKIP, RUN
 from .filtering import Filter
@@ -203,16 +203,33 @@ class Window(Adw.ApplicationWindow):
 
     def starting(self, name, seconds=8):
         """Show a header 'Starting <name>…' indicator for a few seconds: a Wine app
-        takes a moment to draw its first window, and a toast alone is easy to miss."""
+        takes a moment to draw its first window, and a toast alone is easy to miss.
+        started() ends it early, when the window is seen."""
         tag = f"Starting {name}…"
         def go():
             self._activity["manager"] = tag; self._refresh_activity_now()
-            def clear():
-                if self._activity.get("manager") == tag:
-                    self._activity["manager"] = None; self._refresh_activity_now()
-                return False
-            GLib.timeout_add_seconds(seconds, clear)
+            GLib.timeout_add_seconds(seconds, lambda: (self.started(name), False)[1])
         ui(go)
+
+    def started(self, name):
+        """Drop the 'Starting <name>…' indicator (main thread only)."""
+        if self._activity.get("manager") == f"Starting {name}…":
+            self._activity["manager"] = None; self._refresh_activity_now()
+
+    def wait_cursor_until_window(self, exe_names, name):
+        """A wait cursor over this window from the click until the launched
+        program's first window maps (or it exits, or 30 s pass); the header's
+        'Starting…' ends at the same moment. Watching happens off the main thread."""
+        from . import launchwait, wedge
+        exe_names = tuple(x for x in exe_names if x)
+        if not exe_names: return
+        self.set_cursor(Gdk.Cursor.new_from_name("wait"))
+        def pids(): return {pid for x in exe_names for pid, _ in self.prefix.processes(x)}
+        def work():
+            try: launchwait.wait_for_window(pids, wedge.windowed_pids)
+            except Exception: pass
+            ui(lambda: (self.set_cursor(None), self.started(name)))
+        threading.Thread(target=work, daemon=True).start()
 
     def _refresh_activity_now(self):
         """Recompute the header indicator from the current activity slots. Main thread only."""
@@ -421,9 +438,11 @@ class Window(Adw.ApplicationWindow):
     def run_program(self, prog):
         v = vendors.for_program(prog)
         if v is not None and v.is_manager_program(prog): return self.open_manager(v)
-        try: proc = programs.run(self.prefix, prog); self.toast(f"{prog.name} is starting…"); self.starting(prog.name)
+        try: proc = programs.run(self.prefix, prog); self.toast(f"{prog.name} is starting…"); self.starting(prog.name, seconds=30)
         except Exception as e: self.toast(str(e)); return
-        self._guard_launch(((prog.exe or "").rsplit("\\", 1)[-1],), prog.name, lambda: programs.run(self.prefix, prog))
+        exe = (prog.exe or "").rsplit("\\", 1)[-1]
+        self.wait_cursor_until_window((exe,), prog.name)
+        self._guard_launch((exe,), prog.name, lambda: programs.run(self.prefix, prog))
         # The one moment the user is looking at the window: if this is a
         # WebView2 app and it comes up blank, say what to do. Nothing watches
         # the window (that needs a display and would misfire headless), so
@@ -589,7 +608,8 @@ class Window(Adw.ApplicationWindow):
         if not v.manager_installed(self.prefix): self.toast(f"{v.manager_name} is not installed yet — get it from {v.name} and pick the installer here"); return
         try: proc = v.launch_manager(self.prefix)
         except Exception as e: self.toast(str(e)); return
-        self.toast(f"{v.manager_name} is starting…"); self.starting(v.manager_name); t0 = time.time()
+        self.toast(f"{v.manager_name} is starting…"); self.starting(v.manager_name, seconds=30); t0 = time.time()
+        self.wait_cursor_until_window(v.manager_exe_names(), v.manager_name)
         self._guard_launch(v.manager_exe_names(), v.manager_name, lambda: v.launch_manager(self.prefix))
         def watch():
             # While the manager runs: rescue an install it drives that stopped making

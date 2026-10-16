@@ -119,7 +119,7 @@ class LaunchHintTest(unittest.TestCase):
 
     def test_launching_a_program_offers_the_hint(self):
         start = self.src.index("def run_program(self, prog)")
-        self.assertIn("_webview2_hint", self.src[start:start + 900])
+        self.assertIn("_webview2_hint", self.src[start:start + 1400])
 
     def test_it_is_skipped_when_already_opted_in(self):
         start = self.src.index("def _webview2_hint")

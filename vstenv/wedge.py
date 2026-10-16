@@ -48,6 +48,11 @@ def _cpu(prefix_path) -> dict[int, int]:
     return out
 
 
+def windowed_pids() -> set[int] | None:
+    """Public name of _windowed_pids, for launchwait."""
+    return _windowed_pids()
+
+
 def _windowed_pids() -> set[int] | None:
     """Pids owning a mapped X11 window, or None when the window list cannot be
     read at all (no display, no wmctrl). None means "cannot judge" -- distinct
