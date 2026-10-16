@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.78" date="2026-10-16">
+      <description>
+        <p>Document the app menu</p>
+      </description>
+    </release>
     <release version="0.1.77" date="2026-10-16">
       <description>
         <p>Give every CI job a timeout</p>
