@@ -625,8 +625,12 @@ class Window(Adw.ApplicationWindow):
                                   else f"{v.manager_name} is installing…" if pids else f"{v.manager_name} is open")
                     if stalled and pids:
                         w = None
+                        def rescued(res, err):
+                            if err or not res: return
+                            self.toast("Finished " + ", ".join(x.get("name", "?") for x in res) + " from its staged files; the manager may still say it failed", 10)
                         ui(lambda: self.run_bg("An installer stopped responding — finishing it",
-                                               lambda r: (v.rescue_installs(self.prefix, r), setup.after_change(self.prefix, r))))
+                                               lambda r: (lambda res: (setup.after_change(self.prefix, r), res)[1])(v.rescue_installs(self.prefix, r)),
+                                               rescued))
                 except Exception: pass
                 try:
                     if seen is not None:
@@ -668,8 +672,8 @@ class Window(Adw.ApplicationWindow):
         Different from "Finish interrupted installs", which completes an
         install whose payload is already unpacked and whose installer is gone.
         This one is for a setup still sitting there doing nothing -- a vendor's
-        manager drives it, so the manager normally has to be open for the app
-        to see it."""
+        manager drives it, and may stay open throughout: the rescue kills the
+        setup and finishes from what it staged whether or not the manager runs."""
         def fn(r):
             res = []
             for v in vendors.all(): res += v.rescue_installs(self.prefix, r)

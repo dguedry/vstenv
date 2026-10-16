@@ -86,7 +86,14 @@ class NativeInstruments(Vendor):
     def accepts_product_installer(self, f): return installaware.is_setup(f)
     def install_product(self, p, installer, r=None, **kw): return installaware.install(p, installer, r, keep_trace=kw.get("keep_trace", False))
     def watch_installs(self, p, watch=None): return installaware.stalled_setup(p, watch)
-    def _busy(self, p, name): return self.manager_running(p)
+    # Native Access being open is not a reason to wait: once its setup is killed
+    # it neither retries nor removes the staged folder (ones from failed attempts
+    # sat in Temp for days), and NA is ALWAYS open while it drives an install --
+    # so waiting for it to exit meant the GUI's automatic rescue skipped every
+    # install it had just stopped (Absynth 5, 2026-10-16). The product's own
+    # setup still running is the only thing to wait for, and finish_staged
+    # checks that itself.
+    def _busy(self, p, name): return False
     def rescue_installs(self, p, r=None): return installaware.rescue(p, r, prod.find_download, self._busy)
     def staged_installs(self, p): return installaware.staged_installs(p, prod.find_download)
     def finish_installs(self, p, r=None): return installaware.finish_staged(p, r, prod.find_download, self._busy)

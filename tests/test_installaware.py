@@ -64,3 +64,29 @@ class InstallPidsTest(unittest.TestCase):
                                     (4, "C:\\Program Files\\Native Instruments\\Native Access\\Native Access.exe"),
                                     (5, "C:\\windows\\system32\\services.exe")]
         self.assertEqual(installaware.install_pids(p), [1, 2, 3])
+
+
+class RescueWhileManagerOpenTest(unittest.TestCase):
+    """The GUI's automatic rescue runs while Native Access is open (it drives the
+    install), so waiting for the manager to exit meant skipping every install
+    it had just stopped (Absynth 5, 2026-10-16). Only the product's own setup
+    still running is a reason to wait."""
+
+    def test_ni_does_not_wait_for_native_access(self):
+        import types
+        from vstenv.vendors.ni import NativeInstruments
+        v = NativeInstruments()
+        p = types.SimpleNamespace(is_running=lambda exe: exe == "Native Access.exe")
+        self.assertFalse(v._busy(p, "Absynth 5"))
+
+    def test_finish_still_waits_for_the_products_own_setup(self):
+        import types
+        from unittest import mock
+        from vstenv.installers import installaware as ia
+        st = types.SimpleNamespace(name="Absynth 5", dir=None, exe=None, msi=None, download=None)
+        p = types.SimpleNamespace(is_running=lambda exe: exe == "Absynth 5 Setup")
+        logs = []
+        r = types.SimpleNamespace(step=lambda *a: None, skip=lambda m: logs.append(m), log=lambda *a: None, ok=lambda *a: None, fail=lambda *a: None)
+        with mock.patch.object(ia, "staged_installs", return_value=[st]), mock.patch.object(ia, "_finish_from_staged", side_effect=AssertionError("must not run")):
+            self.assertEqual(ia.finish_staged(p, r, None, lambda p, n: False), [])
+        self.assertTrue(any("still running" in m for m in logs))

@@ -237,12 +237,13 @@ def finish_staged(p: Prefix, reporter=None, find_download: FindDownload | None =
     """Complete every install left half-done. Prefers re-running the installer the
     manager downloaded (install(), with its deploy fallback); without it, runs the
     staged stub under an MSI trace to learn the destination roots and deploys the
-    staged FileBag. `busy(p, name)` says whether the manager or that setup still runs."""
+    staged FileBag. `busy(p, name)` lets a vendor name a reason to wait (none does today:
+    a manager being open is not one, see vendors/ni)."""
     r = null_reporter(reporter)
     results = []
     for st in staged_installs(p, find_download):
         if p.is_running(f"{st.name} Setup") or (busy and busy(p, st.name)):
-            r.step(f"Finishing {st.name} install"); r.skip("its installer or manager is running; try again after it exits"); continue
+            r.step(f"Finishing {st.name} install"); r.skip("its installer is still running; try again after it exits"); continue
         try:
             if st.download is not None:
                 r.log(f"{st.name}: using the installer the manager downloaded ({st.download.name})")
