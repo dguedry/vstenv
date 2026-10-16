@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.80" date="2026-10-16">
+      <description>
+        <p>Probe whether a new Wine window can open; boot the prefix after a session restart</p>
+      </description>
+    </release>
     <release version="0.1.79" date="2026-10-16">
       <description>
         <p>Start the NTK daemon when Native Access is launched and it is down</p>
