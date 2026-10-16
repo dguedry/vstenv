@@ -11,6 +11,8 @@ the user's Temp folder; that is enough to finish it the same way.
 """
 from __future__ import annotations
 
+import json
+
 import os, re, shutil, subprocess, tempfile, time, zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -142,7 +144,31 @@ def _deploy_and_register(p: Prefix, msi: Path, bag: Path, roots: dict, regkeys: 
         vals.setdefault("HKLM\\" + key, {})[val] = ("REG_SZ", v)
     if vals: p.reg_import_values(vals, "vstenv-app-install.reg")
     r.ok(f"{sum(len(x) for x in vals.values())} value(s)")
+    write_installed_record(p, regkeys, r)
     return n
+
+def write_installed_record(p: Prefix, regkeys: dict, r=None) -> Path | None:
+    """The record NI's own setup writes on Windows (NIInstallAction.dll):
+    Public Documents\\Native Instruments\\installed_products\\<Product>.json, the
+    product's registry values as JSON. Native Access, Komplete Kontrol and this
+    app's product list all read it; a deployed product without one is
+    "not installed" to every one of them, and NA keeps offering to install it
+    (Absynth 5, 2026-10-16). Returns the file written, None when the registry
+    values name no product."""
+    r = null_reporter(r)
+    by_product: dict[str, dict[str, str]] = {}
+    for k, v in regkeys.items():
+        key, val = _split_key(k)
+        parts = key.split("\\")
+        if len(parts) >= 3 and parts[1].lower() == "native instruments": by_product.setdefault(parts[2], {})[val] = v
+    if not by_product: return None
+    d = p.public_docs / "Native Instruments/installed_products"; d.mkdir(parents=True, exist_ok=True)
+    out = None
+    for name, vals in by_product.items():
+        out = d / f"{name}.json"
+        out.write_text(json.dumps({k: v.rstrip("\\") if k.endswith("Dir") else v for k, v in vals.items()}, separators=(",", ":")))
+        r.log(f"installed-products record: {out.name}")
+    return out
 
 # --- installs a manager started and did not finish --------------------------------------------------
 # The manager runs these setups itself. Under Wine one can remove the previous
