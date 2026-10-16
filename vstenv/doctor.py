@@ -1,7 +1,7 @@
 """Health checks: the environment's own, then every vendor module's."""
 import os, shutil
 from pathlib import Path
-from . import APP_ID, paths, wine, runtime, yabridge, prefixes, dxvk, host, menu, vendors, winefixes, dcomp, desktopfix, webview2, wedge, shellwedge
+from . import APP_ID, paths, wine, runtime, yabridge, prefixes, dxvk, host, menu, vendors, winefixes, dcomp, desktopfix, webview2, wedge, shellwedge, displaycache
 from .vendors import Check
 
 class _Checks(list):
@@ -74,6 +74,16 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
                        fix="" if not sw["wedged"] else "log out and back in (nothing in the prefix can fix it)"))
     except Exception as e:
         c.append(Check("the desktop still maps Wine windows", True, f"not checked: {str(e)[:70]}"))
+
+    try:
+        stale = displaycache.stale_virtual_monitor(p)
+        c.append(Check("Wine's display cache holds the real monitors", not stale,
+                       "no virtual-desktop monitor cached" if not stale else
+                       "a virtual desktop's 'Default_Monitor' is cached: every window is sized to that desktop, not the screen "
+                       "(a program's window paints only a corner)",
+                       fix="" if not stale else displaycache.FIX))
+    except Exception as e:
+        c.append(Check("Wine's display cache holds the real monitors", True, f"not checked: {str(e)[:80]}"))
 
     try:
         ok = wedge.probe_session(p)
