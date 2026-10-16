@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.86" date="2026-10-16">
+      <description>
+        <p>Rescue an NI install while Native Access is open</p>
+      </description>
+    </release>
     <release version="0.1.85" date="2026-10-16">
       <description>
         <p>Deploying an NI product writes its installed-products record</p>
