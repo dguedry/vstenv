@@ -16,6 +16,7 @@ prefix, not for everyone.
 """
 from __future__ import annotations
 
+import json
 import os
 
 from pathlib import Path
@@ -120,17 +121,57 @@ PRESENTATION_FLAGS = "--disable-direct-composition --ui-disable-partial-swap"
 # the flags above alone were not enough and software GL rendered it correctly.
 # It is not the default because it costs GPU rendering for everyone, and the
 # same app paints fine on hardware elsewhere (NVIDIA/X11, verified).
+#
+# It is a setting of the prefix, switched from the app's menu or the CLI, so a
+# Flatpak user who only ever clicks "Re-run setup" can turn it on. The
+# environment variable is an override for one-off runs and tests.
+POLICY_KEY = r"HKLM\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments"
 SOFTWARE_GL_FLAGS = "--use-gl=swiftshader --enable-unsafe-swiftshader --disable-gpu"
 SOFTWARE_GL_ENV = "VSTENV_WEBVIEW2_SOFTWARE_GL"
+SETTINGS = "vstenv-webview2.json"          # in drive_c, like the DXVK marker
+SOFTWARE_GL_LABEL = "Software rendering for WebView2 apps"   # the menu item's name
 
-def software_gl() -> bool:
-    """Whether to add the software-GL flags (VSTENV_WEBVIEW2_SOFTWARE_GL=1)."""
-    return (os.environ.get(SOFTWARE_GL_ENV) or "").strip().lower() in ("1", "true", "yes", "on")
+def _settings(p: Prefix | None) -> dict:
+    if p is None: return {}
+    try: return json.loads((p.drive_c / SETTINGS).read_text())
+    except (OSError, ValueError): return {}
 
-def presentation_flags() -> str:
-    """The flags every WebView2 host gets, plus software GL when asked for."""
-    return PRESENTATION_FLAGS + (" " + SOFTWARE_GL_FLAGS if software_gl() else "")
-POLICY_KEY = r"HKLM\Software\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments"
+def software_gl(p: Prefix | None = None) -> bool:
+    """Whether WebView2 hosts get the software-GL flags: the prefix setting, or
+    VSTENV_WEBVIEW2_SOFTWARE_GL=1 for this run."""
+    if (os.environ.get(SOFTWARE_GL_ENV) or "").strip().lower() in ("1", "true", "yes", "on"):
+        return True
+    return bool(_settings(p).get("software_gl"))
+
+def presentation_flags(p: Prefix | None = None) -> str:
+    """The flags every WebView2 host gets, plus software GL when it is on."""
+    return PRESENTATION_FLAGS + (" " + SOFTWARE_GL_FLAGS if software_gl(p) else "")
+
+def restart_note(done: list[str]) -> str:
+    """'Restart X, Y and 29 more to pick it up': every SWAM standalone and the
+    yabridge hosts carry the marker too, so the full list is unreadable."""
+    names = [x.rsplit(".", 1)[0] for x in done if not x.startswith("yabridge-host")]
+    if not names: return ""
+    shown = ", ".join(names[:3]) + (f" and {len(names) - 3} more" if len(names) > 3 else "")
+    return f"Restart {shown} to pick it up"
+
+def set_software_gl(p: Prefix, on: bool, reporter=None) -> list[str]:
+    """Switch software GL for this prefix and rewrite every WebView2 host's
+    flags to match, right away -- no setup run needed. Returns the hosts
+    rewritten; a running one picks the change up when it is next started."""
+    r = null_reporter(reporter)
+    st = _settings(p); st["software_gl"] = bool(on)
+    (p.drive_c / SETTINGS).write_text(json.dumps(st, indent=1))
+    exes = host_exes(p)
+    if not exes: return []
+    r.step(f"WebView2 apps: software rendering {'on' if on else 'off'}")
+    done = []
+    for exe in exes:
+        cp = p.run(["reg", "add", POLICY_KEY, "/v", exe, "/t", "REG_SZ",
+                    "/d", presentation_flags(p), "/f"], timeout=120)
+        if cp.returncode == 0: done.append(exe)
+    (r.ok if len(done) == len(exes) else r.fail)(", ".join(exes))
+    return done
 
 def host_exes(p: Prefix) -> list[str]:
     """Exe names of installed programs that host a WebView2 control -- the policy
@@ -173,7 +214,7 @@ def apply_presentation_flags(p: Prefix, reporter=None) -> int:
     n = 0
     for exe in missing:
         cp = p.run(["reg", "add", POLICY_KEY, "/v", exe, "/t", "REG_SZ",
-                    "/d", presentation_flags(), "/f"], timeout=120)
+                    "/d", presentation_flags(p), "/f"], timeout=120)
         if cp.returncode == 0: n += 1
     (r.ok if n == len(missing) else r.fail)(", ".join(missing))
     return n

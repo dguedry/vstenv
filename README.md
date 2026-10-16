@@ -75,12 +75,14 @@ the program does and what the app does about it.
   half-drawn flicker the presentation flags fix: the window downloads its page
   and then stays blank, white turning black, taking no input. Reported on
   Fedora 44 with the niri compositor (Wayland/XWayland) on an AMD RX 9070 XT,
-  where software GL rendered it correctly. Set
-  `VSTENV_WEBVIEW2_SOFTWARE_GL=1` and run setup again to add
-  `--use-gl=swiftshader --enable-unsafe-swiftshader --disable-gpu` to every
-  WebView2 host. It is off by default because it costs GPU rendering and these
-  apps paint fine on hardware elsewhere; Health says so when a window is
-  blank.
+  where software GL rendered it correctly. Switch on **Software rendering for
+  WebView2 apps** in the app's ☰ menu (or `vstenv webview2 software-gl on`)
+  and start the app again: every WebView2 host gets
+  `--use-gl=swiftshader --enable-unsafe-swiftshader --disable-gpu`, with no
+  setup run needed. Off by default because it costs GPU rendering and these
+  apps paint fine on hardware elsewhere; the app says so when it starts one of
+  them, and Health shows the setting. `VSTENV_WEBVIEW2_SOFTWARE_GL=1`
+  overrides it for a single run.
 - **Roland (Roland Cloud Manager).** A Qt 6 application delivered by a Qt
   Installer Framework setup, and both halves need help. The setup answers every
   command with "Unknown exception caught." because Qt asks WinRT for network

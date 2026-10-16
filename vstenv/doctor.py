@@ -172,12 +172,12 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
         # Reported rather than applied: it costs GPU rendering, and the same
         # apps paint fine on hardware elsewhere.
         if ws["installed"]:
-            on = webview2.software_gl()
+            on = webview2.software_gl(p)
             c.append(Check("WebView2 software rendering", True,
-                           "on (VSTENV_WEBVIEW2_SOFTWARE_GL is set)" if on else
+                           f"on ({webview2.SOFTWARE_GL_LABEL} is switched on)" if on else
                            "off — if a WebView2 window never paints (white then black, no input), "
-                           f"set {webview2.SOFTWARE_GL_ENV}=1 and run setup again",
-                           fix="" if on else f"{webview2.SOFTWARE_GL_ENV}=1 vstenv setup"))
+                           f"switch on '{webview2.SOFTWARE_GL_LABEL}' in the app menu",
+                           fix="" if on else "vstenv webview2 software-gl on  (or the app menu)"))
     ds = desktopfix.status()
     if ds["applies"]:
         c.append(Check("Wine windows do not jump to the front (Cinnamon)", ds["ok"],

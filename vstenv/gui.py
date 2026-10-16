@@ -140,7 +140,9 @@ class Window(Adw.ApplicationWindow):
         tv = Adw.ToolbarView(); self.toasts.set_child(tv)
         self.stack = Adw.ViewStack()
         header = Adw.HeaderBar(); switcher = Adw.ViewSwitcherTitle(stack=self.stack, title=TITLE); header.set_title_widget(switcher)
-        m = Gio.Menu(); m.append("Re-run setup / repair", "app.setup"); m.append("Update the app menu", "app.menu"); m.append("About", "app.about")
+        from . import webview2
+        m = Gio.Menu(); m.append("Re-run setup / repair", "app.setup"); m.append("Update the app menu", "app.menu")
+        m.append(webview2.SOFTWARE_GL_LABEL, "app.softgl"); m.append("About", "app.about")
         header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=m))
         # Activity indicator: visible on every page while a task runs or a vendor
         # manager is open, so nothing the app does looks like a hang. Click → Progress.
@@ -430,6 +432,17 @@ class Window(Adw.ApplicationWindow):
         def watch():           # a program may install plugins while it runs: bridge whatever appeared
             proc.wait(); ui(lambda: self.after_change(f"Bridging plugins after {prog.name}"))
         threading.Thread(target=watch, daemon=True).start()
+    def set_software_gl(self, action, on):
+        """The menu checkbox: switch software GL for WebView2 apps and rewrite
+        their flags now, so the next launch has them -- no setup run needed."""
+        from . import webview2
+        if self.prefix is None: self.toast("Run setup first"); return
+        def work(r):
+            done = webview2.set_software_gl(self.prefix, on, r)
+            ui(lambda: action.set_state(GLib.Variant.new_boolean(on)))
+            if done: self.toast(webview2.restart_note(done), 8)
+        self.run_bg(f"{webview2.SOFTWARE_GL_LABEL}: {'on' if on else 'off'}", work)
+
     def _webview2_hint(self, prog):
         """Tell a user whose WebView2 window may come up blank what to try.
 
@@ -437,7 +450,7 @@ class Window(Adw.ApplicationWindow):
         the window is on screen, and only when the software-GL flag is not
         already on."""
         from . import webview2
-        if webview2.software_gl(): return
+        if webview2.software_gl(self.prefix): return
         if getattr(self, "_wv2_hinted", False): return
         exe = (prog.exe or "").rsplit("\\", 1)[-1]
         try:
@@ -446,8 +459,8 @@ class Window(Adw.ApplicationWindow):
             return
         self._wv2_hinted = True
         GLib.timeout_add_seconds(12, lambda: (self.toast(
-            "If its window stays blank, close it and run setup again with "
-            f"{webview2.SOFTWARE_GL_ENV}=1 (see Health).", 12), False)[1])
+            f"If its window stays blank, close it and switch on '{webview2.SOFTWARE_GL_LABEL}' "
+            "in the \u2630 menu, then open it again.", 12), False)[1])
 
     def uninstall_program(self, prog):
         self.run_bg(f"Uninstalling {prog.name}", lambda r: (programs.uninstall(self.prefix, prog, r), setup.after_change(self.prefix, r)))
@@ -702,6 +715,14 @@ class App(Adw.Application):
         # and .msi, so a double-clicked installer arrives here as a file to open
         # rather than being ignored.
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_OPEN)
+        # A checkbox in the menu: on some stacks a WebView2 window never paints
+        # without software GL (see webview2.SOFTWARE_GL_FLAGS). Setting, not
+        # setup -- flipping it rewrites the apps' flags right away.
+        from . import webview2
+        b = wine.installed_build()      # no window yet: read the setting from the prefix on disk
+        sg = Gio.SimpleAction.new_stateful("softgl", None, GLib.Variant.new_boolean(
+            webview2.software_gl(wine.Prefix(paths.PREFIX, b) if b else None)))
+        sg.connect("change-state", lambda act, val: self.win.set_software_gl(act, val.get_boolean())); self.add_action(sg)
         for name, cb in (("setup", lambda *_: self.win.run_setup()), ("about", self.about),
                          ("menu", lambda *_: self.win.run_bg("Updating the app menu", lambda r: menu.sync(self.win.prefix, r)))):
             act = Gio.SimpleAction(name=name); act.connect("activate", cb); self.add_action(act)

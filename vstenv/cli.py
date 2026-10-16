@@ -172,6 +172,13 @@ def cmd_status(a):
 
 def cmd_webview2(a):
     from . import webview2
+    if a.action == "software-gl":
+        p = _prefix()
+        if a.value is None:
+            print("on" if webview2.software_gl(p) else "off"); return
+        r = ConsoleReporter(); done = webview2.set_software_gl(p, a.value == "on", r); _fail_if(r)
+        if done: print(webview2.restart_note(done))
+        return
     p = _prefix()
     if a.action == "status":
         st = webview2.status(p)
@@ -277,7 +284,9 @@ def main(argv=None):
     s = sp.add_parser("mono", help=".NET runtime (Wine Mono) for programs that need it: install | status")
     s.add_argument("action", nargs="?", default="install", choices=["install", "status"]); s.set_defaults(f=cmd_mono)
     s = sp.add_parser("webview2", help="Microsoft WebView2 runtime for embedded-Edge apps (SINE, Audio Modeling): install | status")
-    s.add_argument("action", nargs="?", default="install", choices=["install", "status"]); s.set_defaults(f=cmd_webview2)
+    s.add_argument("action", nargs="?", default="install", choices=["install", "status", "software-gl"])
+    s.add_argument("value", nargs="?", choices=["on", "off"], help="for software-gl: switch it (omit to show)")
+    s.set_defaults(f=cmd_webview2)
     s = sp.add_parser("wine-fixes", help="patched Wine DLLs this app ships (DirectComposition for Steinberg): install | status | remove")
     s.add_argument("action", nargs="?", default="install", choices=["install", "status", "remove"]); s.add_argument("--force", action="store_true"); s.set_defaults(f=cmd_wine_fixes)
     s = sp.add_parser("dxvk", help="Direct3D on Vulkan for plugin GUIs that Wine draws wrong")

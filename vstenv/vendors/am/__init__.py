@@ -83,15 +83,14 @@ class AudioModeling(Vendor):
                                    install_dir=str(sub)))
         return out
 
-    @property
-    def FLAGS(self) -> str:
+    def flags(self, p) -> str:
         """The Center's WebView2 flags, from webview2 so the two cannot drift.
 
-        Includes the software-GL flags when VSTENV_WEBVIEW2_SOFTWARE_GL is set:
+        Includes the software-GL flags when that setting is on for the prefix:
         on some stacks (reported on Fedora 44 + niri on AMD) the window never
         paints at all without them."""
         from ... import webview2
-        return webview2.presentation_flags()
+        return webview2.presentation_flags(p)
 
     def prepare(self, p, r=None):
         """Make the Center present full frames through a plain swapchain (see the
@@ -103,7 +102,7 @@ class AudioModeling(Vendor):
         rr = null_reporter(r)
         rr.step("Software Center: stable frame presentation")
         cp = p.run(["reg", "add", _POLICY_KEY, "/v", CENTER_EXE,
-                    "/t", "REG_SZ", "/d", self.FLAGS, "/f"], timeout=120)
+                    "/t", "REG_SZ", "/d", self.flags(p), "/f"], timeout=120)
         (rr.ok if cp.returncode == 0 else rr.fail)(
             "WebView2 policy flags" if cp.returncode == 0 else f"reg exit {cp.returncode}")
 
