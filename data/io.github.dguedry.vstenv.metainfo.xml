@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.84" date="2026-10-16">
+      <description>
+        <p>Deploy an InstallAware payload whose installer never said where it goes</p>
+      </description>
+    </release>
     <release version="0.1.83" date="2026-10-16">
       <description>
         <p>A wait cursor from the click until the program's first window</p>
