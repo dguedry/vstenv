@@ -31,3 +31,57 @@ class DependencyPatchTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EnsureDaemonTest(unittest.TestCase):
+    """After a Wine session restart without a prefix boot (wedge clear), the
+    auto-start NTK daemon is down and NA shows "grant permission to install
+    dependencies". Launch must start it (2026-10-16)."""
+
+    def _prefix(self, tmp, running, installed=True):
+        import types
+        from pathlib import Path
+        from vstenv.vendors.ni import native_access as na
+        calls = []
+        d = Path(tmp)
+        if installed:
+            (d / na.NTK_REL).mkdir(parents=True); (d / na.NTK_REL / "NTKDaemon.exe").write_bytes(b"")
+        state = {"running": running}
+        def sc(*a):
+            calls.append(a)
+            if a[:2] == ("start", "NTKDaemon"): state["running"] = True
+            return ""
+        p = types.SimpleNamespace(drive_c=d, is_running=lambda exe: state["running"], sc=sc)
+        return p, calls
+
+    def test_starts_a_stopped_daemon(self):
+        import tempfile
+        from unittest import mock
+        from vstenv.vendors.ni import native_access as na
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(na.time, "sleep"):
+            p, calls = self._prefix(tmp, running=False)
+            self.assertTrue(na.ensure_daemon(p))
+            self.assertEqual(calls, [("start", "NTKDaemon")])
+
+    def test_leaves_a_running_daemon_alone(self):
+        import tempfile
+        from vstenv.vendors.ni import native_access as na
+        with tempfile.TemporaryDirectory() as tmp:
+            p, calls = self._prefix(tmp, running=True)
+            self.assertTrue(na.ensure_daemon(p))
+            self.assertEqual(calls, [])
+
+    def test_does_not_touch_sc_when_not_installed(self):
+        """Installing the daemon is setup's job, not launch's."""
+        import tempfile
+        from vstenv.vendors.ni import native_access as na
+        with tempfile.TemporaryDirectory() as tmp:
+            p, calls = self._prefix(tmp, running=False, installed=False)
+            self.assertFalse(na.ensure_daemon(p))
+            self.assertEqual(calls, [])
+
+    def test_launch_calls_it(self):
+        from pathlib import Path
+        src = Path("vstenv/vendors/ni/native_access.py").read_text()
+        start = src.index("def launch(p: Prefix"); end = src.index("def ensure_daemon")
+        self.assertIn("ensure_daemon(p, r)", src[start:end])

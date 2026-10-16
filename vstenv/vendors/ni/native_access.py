@@ -349,6 +349,7 @@ def launch(p: Prefix, reporter=None, extra_args=()) -> subprocess.Popen:
     # a repair that missed, a hand-installed NA -- patch it now rather than
     # start an NA whose 64MB stack reserve is gone.
     if stack_patch(exe) == "patched": r.log("re-applied the stack patch: this NA.exe was not patched")
+    ensure_daemon(p, r)
     download_location(p, r)
     paths.ensure_dirs()
     log = paths.LOGS / "native-access-launch.log"
@@ -358,6 +359,23 @@ def launch(p: Prefix, reporter=None, extra_args=()) -> subprocess.Popen:
     #   error_code=39", "Network service crashed", then "GPU process isn't usable.
     #   Goodbye." within a second); harmless on older builds
     return p.spawn([str(exe), "--disable-gpu", "--no-sandbox", *extra_args], log=log)
+
+def ensure_daemon(p: Prefix, reporter=None) -> bool:
+    """Start the NTK daemon if it is installed but not running. Returns whether
+    it is running afterwards.
+
+    The service is registered auto-start, but that only fires on a prefix boot.
+    A Wine session that was restarted without one -- `vstenv wedge clear`, a
+    killed wineserver, the first launch after a crash -- has services.exe up
+    and the daemon down, and NA then shows "Please grant permission to Native
+    Access to install dependencies" instead of its login (2026-10-16)."""
+    r = null_reporter(reporter)
+    if p.is_running("NTKDaemon.exe"): return True
+    if not (p.drive_c / NTK_REL / "NTKDaemon.exe").exists(): return False   # not installed: setup's job
+    p.sc("start", "NTKDaemon"); time.sleep(2)
+    running = p.is_running("NTKDaemon.exe")
+    r.log("started the NTK daemon" if running else "the NTK daemon did not start; NA will ask to install dependencies")
+    return running
 
 def pending_update(p: Prefix) -> Path | None:
     f = p.user_dir / "AppData/Local/nativeaccess2-updater/pending/Native-Access-latest.exe"
