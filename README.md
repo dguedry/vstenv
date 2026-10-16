@@ -414,7 +414,7 @@ vstenv products [--vendor V]        vstenv install FILE       vstenv sync [DIR..
 vstenv programs | run NAME | uninstall NAME | menu [update|remove]
 vstenv doctor | report | rescue-install | finish-installs | dxvk | wine-fixes | mono | webview2 | prefixes | url-handlers
 vstenv manager <vendor> apply-pending-update   install an update the manager downloaded for itself, with this app's fixes
-vstenv wedge [status|clear]        every DirectComposition GUI hangs: show it, or restart the Wine session
+vstenv wedge [status|clear]        no Wine GUI can open a window: show it, or restart (and boot) the Wine session
 vstenv webview2 software-gl [on|off]   software rendering for WebView2 apps (the ☰ menu checkbox); no value shows it
 ```
 

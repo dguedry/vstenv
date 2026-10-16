@@ -76,9 +76,13 @@ def cmd_wedge(a):
     p = _prefix(); r = ConsoleReporter()
     if a.action == "clear":
         wedge.clear(p, r); return
+    if wedge.probe_session(p) is False:
+        print("The Wine session is wedged: no new program can open a window (a probe hung")
+        print("waiting for the session's desktop). Run `vstenv wedge clear` (this closes")
+        print("running Windows programs, a DAW's plugins included)."); return
     stuck = wedge.stuck_processes(p)
     if not stuck:
-        print("No DirectComposition program is hung."); return
+        print("No DirectComposition program is hung, and a new window can open."); return
     conclusive = wedge.detect(p)
     for pid in stuck:
         print(f"  pid {pid}: windowless, no CPU, dcomp.dll loaded")

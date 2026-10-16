@@ -5,8 +5,15 @@ from vstenv import wedge
 
 
 class FakePrefix:
-    def __init__(self): self.path = Path("/tmp/prefix"); self.killed = False
+    def __init__(self, run=None):
+        self.path = Path("/tmp/prefix"); self.killed = False; self.runs = []; self.killed_exes = []
+        self._run = run
     def kill(self): self.killed = True
+    def kill_exe(self, exe, wait=3.0): self.killed_exes.append(exe)
+    def run(self, args, timeout=None, **kw):
+        self.runs.append(list(args))
+        if self._run: return self._run(args, timeout)
+        return mock.Mock(returncode=0)
 
 
 class WedgeDetectTest(unittest.TestCase):
@@ -69,10 +76,64 @@ class WedgeDetectTest(unittest.TestCase):
         with a, b, c, d:
             self.assertEqual(wedge.stuck_processes(FakePrefix()), [])
 
-    def test_clear_bounces_the_wineserver(self):
+    def test_clear_bounces_the_wineserver_and_boots(self):
+        """A bare kill left NI's auto-start daemon down (2026-10-16)."""
         p = FakePrefix()
         self.assertTrue(wedge.clear(p))
         self.assertTrue(p.killed)
+        self.assertIn(["wineboot"], p.runs)
+
+    def test_clear_still_counts_when_the_boot_fails(self):
+        import subprocess
+        def run(args, timeout):
+            if args == ["wineboot"]: raise subprocess.TimeoutExpired(args, timeout)
+            return mock.Mock(returncode=0)
+        p = FakePrefix(run)
+        self.assertTrue(wedge.clear(p))
+        self.assertTrue(p.killed)
+
+
+class SessionProbeTest(unittest.TestCase):
+    """The 2026-10-16 wedge: NOTHING new got a window (NA, Kontakt, notepad),
+    each newcomer hung in user32 init waiting for the desktop and spawned
+    another hung explorer. detect() saw no dcomp.dll and said all was well."""
+
+    def test_healthy_session_answers(self):
+        p = FakePrefix()
+        self.assertIs(wedge.probe_session(p), True)
+        self.assertEqual(p.runs, [wedge.PROBE])
+
+    def test_a_hung_probe_is_the_wedge_and_is_killed(self):
+        import subprocess
+        p = FakePrefix(lambda a, t: (_ for _ in ()).throw(subprocess.TimeoutExpired(a, t)))
+        self.assertIs(wedge.probe_session(p), False)
+        self.assertEqual(p.killed_exes, ["rundll32.exe"])
+
+    def test_a_probe_that_cannot_run_gives_no_verdict(self):
+        p = FakePrefix(lambda a, t: (_ for _ in ()).throw(OSError("no wine")))
+        self.assertIsNone(wedge.probe_session(p))
+
+    def test_a_failing_probe_gives_no_verdict(self):
+        """rc != 0 is some other breakage, not evidence of the wedge."""
+        p = FakePrefix(lambda a, t: mock.Mock(returncode=1))
+        self.assertIsNone(wedge.probe_session(p))
+
+    def test_check_reports_the_session_wedge_before_looking_at_dcomp(self):
+        import subprocess
+        p = FakePrefix(lambda a, t: (_ for _ in ()).throw(subprocess.TimeoutExpired(a, t)))
+        with mock.patch.object(wedge, "detect", side_effect=AssertionError("should not be reached")):
+            self.assertEqual(wedge.check(p), [-1])
+        self.assertFalse(p.killed, "status must not clear without fix=True")
+
+    def test_check_with_fix_clears_the_session_wedge(self):
+        import subprocess
+        def run(args, timeout):
+            if args == wedge.PROBE: raise subprocess.TimeoutExpired(args, timeout)
+            return mock.Mock(returncode=0)
+        p = FakePrefix(run)
+        wedge.check(p, fix=True)
+        self.assertTrue(p.killed)
+        self.assertIn(["wineboot"], p.runs)
 
 
 if __name__ == "__main__":

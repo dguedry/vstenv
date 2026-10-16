@@ -76,6 +76,16 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
         c.append(Check("the desktop still maps Wine windows", True, f"not checked: {str(e)[:70]}"))
 
     try:
+        ok = wedge.probe_session(p)
+        c.append(Check("a new Wine window can open", ok is not False,
+                       {True: "a probe program got its window at once",
+                        None: "not checked: the probe could not run"}.get(ok,
+                       "a probe hung waiting for the session's desktop: nothing new gets a window until the Wine session restarts"),
+                       fix="" if ok is not False else "vstenv wedge clear (closes running Windows programs, including a DAW's plugins)"))
+    except Exception as e:
+        c.append(Check("a new Wine window can open", True, f"not checked: {str(e)[:80]}"))
+
+    try:
         stuck = wedge.detect(p)
         c.append(Check("DirectComposition programs are not wedged", not stuck,
                        "none hung" if not stuck else

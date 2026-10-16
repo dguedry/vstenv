@@ -16,6 +16,7 @@ work.
 """
 from __future__ import annotations
 
+import subprocess
 import time
 
 from . import host
@@ -94,23 +95,68 @@ def detect(p) -> list[int]:
     return []
 
 
+PROBE_SECONDS = 10.0   # a healthy session answers the probe in ~0.15s
+PROBE = ["rundll32", "user32.dll,GetDesktopWindow"]
+
+def probe_session(p, timeout: float = PROBE_SECONDS) -> bool | None:
+    """Can a new GUI process get as far as a window in this Wine session?
+
+    The 2026-10-16 wedge was wider than dcomp: nothing new got a window --
+    Native Access, Kontakt, notepad -- while console Wine answered instantly.
+    Each newcomer stopped in user32's process attach waiting for the desktop
+    window, and spawned yet another explorer.exe /desktop that stopped the same
+    way. detect() never saw it: no dcomp.dll was loaded by then.
+
+    The probe is rundll32 calling an implemented, harmless user32 export.
+    rundll32 is a GUI-subsystem program that creates a hidden window on the
+    way, so it passes exactly the point that hung, and exits at once when the
+    session is healthy. Returns True (healthy), False (hung past the timeout,
+    probe killed) or None (could not run it, so no verdict)."""
+    try:
+        cp = p.run(PROBE, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try: p.kill_exe("rundll32.exe", wait=1.0)
+        except Exception: pass
+        return False
+    except Exception:
+        return None
+    return True if cp.returncode == 0 else None
+
+
 def clear(p, reporter=None) -> bool:
-    """Bounce the wineserver, which is the only thing that clears this. Returns
-    True if it was done. The caller decides whether the moment is right: this
-    ends every Windows program in the prefix, a DAW's plugin hosts included."""
+    """Bounce the wineserver, which is the only thing that clears this, then
+    boot the prefix so its auto-start services come back. Returns True if it
+    was done. The caller decides whether the moment is right: this ends every
+    Windows program in the prefix, a DAW's plugin hosts included.
+
+    A bare wineserver kill brings the next session up with services.exe and
+    nothing it is meant to start: NI's NTK daemon stayed down and Native
+    Access opened on "grant permission to install dependencies" (2026-10-16).
+    wineboot runs the boot sequence that starts them."""
     r = null_reporter(reporter)
-    r.step("Clearing the DirectComposition wedge (restarting the Wine session)")
+    r.step("Clearing the wedge (restarting the Wine session)")
     try:
         p.kill()
     except Exception as e:
         r.fail(str(e)[:100]); return False
-    r.ok("Wine session restarted; reopen the program")
+    try:
+        p.run(["wineboot"], timeout=300)
+        r.ok("Wine session restarted and booted; reopen the program")
+    except Exception as e:
+        r.ok(f"Wine session restarted; its services may not have started ({str(e)[:60]}) -- reopen the program")
     return True
 
 
 def check(p, reporter=None, fix=False) -> list[int]:
     """Report the wedge, and clear it when asked. Returns the stuck pids."""
     r = null_reporter(reporter)
+    if probe_session(p) is False:
+        r.step("Wine session wedge")
+        r.log("No new program can open a window: a probe hung waiting for the session's desktop.")
+        r.log("Every GUI program stays hung until the Wine session is restarted.")
+        if fix: clear(p, r)
+        else: r.log("Run `vstenv wedge clear` to restart it (this closes running plugins).")
+        return [-1]
     stuck = detect(p)
     if not stuck: return []
     r.step("DirectComposition wedge")
