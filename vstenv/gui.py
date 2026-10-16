@@ -423,6 +423,7 @@ class Window(Adw.ApplicationWindow):
         if v is not None and v.is_manager_program(prog): return self.open_manager(v)
         try: proc = programs.run(self.prefix, prog); self.toast(f"{prog.name} is starting…"); self.starting(prog.name)
         except Exception as e: self.toast(str(e)); return
+        self._guard_launch(((prog.exe or "").rsplit("\\", 1)[-1],), prog.name, lambda: programs.run(self.prefix, prog))
         # The one moment the user is looking at the window: if this is a
         # WebView2 app and it comes up blank, say what to do. Nothing watches
         # the window (that needs a display and would misfire headless), so
@@ -442,6 +443,21 @@ class Window(Adw.ApplicationWindow):
             ui(lambda: action.set_state(GLib.Variant.new_boolean(on)))
             if done: self.toast(webview2.restart_note(done), 8)
         self.run_bg(f"{webview2.SOFTWARE_GL_LABEL}: {'on' if on else 'off'}", work)
+
+    def _guard_launch(self, exe_names, name, relaunch):
+        """A launch that wedges the Wine session (nothing new gets a window) is
+        healed by closing what was just launched and launching it again; do
+        that in the background and say so. See launchguard."""
+        from . import launchguard
+        exe_names = tuple(x for x in exe_names if x)
+        if not exe_names: return
+        def work():
+            try: result = launchguard.guard(self.prefix, exe_names, relaunch)
+            except Exception: return
+            msg = launchguard.message(result, name)
+            if msg: self.toast(msg, 10)
+            if result == "recovered": ui(self.refresh_health)
+        threading.Thread(target=work, daemon=True).start()
 
     def _webview2_hint(self, prog):
         """Tell a user whose WebView2 window may come up blank what to try.
@@ -574,6 +590,7 @@ class Window(Adw.ApplicationWindow):
         try: proc = v.launch_manager(self.prefix)
         except Exception as e: self.toast(str(e)); return
         self.toast(f"{v.manager_name} is starting…"); self.starting(v.manager_name); t0 = time.time()
+        self._guard_launch(v.manager_exe_names(), v.manager_name, lambda: v.launch_manager(self.prefix))
         def watch():
             # While the manager runs: rescue an install it drives that stopped making
             # progress, and bridge plugins as they appear (people install a product and
