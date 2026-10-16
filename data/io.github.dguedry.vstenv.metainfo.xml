@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.82" date="2026-10-16">
+      <description>
+        <p>Health: notice a virtual desktop's monitor left in Wine's display cache</p>
+      </description>
+    </release>
     <release version="0.1.81" date="2026-10-16">
       <description>
         <p>Recover a launch that wedges the Wine session</p>
