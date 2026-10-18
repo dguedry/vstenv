@@ -1,18 +1,22 @@
 # vstenv — VST Environment for Linux
 
-A managed environment for Windows audio plugins on Linux. It provisions its own
-Wine, installs each vendor's manager application and the products it delivers,
-applies every fix those need under Wine, and exposes the result to Linux DAWs as
-ordinary VST2 / VST3 / CLAP plugins through [yabridge](https://github.com/robbert-vdh/yabridge)
-— without you ever dealing with Wine. Installed programs show up in your
-desktop's application menu like any other app.
+Run Windows VST plugins on Linux. vstenv installs any Windows plugin, from a
+vendor's manager app or a plain installer, and makes it show up in your Linux
+DAW as an ordinary VST2, VST3 or CLAP plugin through
+[yabridge](https://github.com/robbert-vdh/yabridge). It brings its own Wine and
+applies the fixes plugins need under it, so you never deal with Wine yourself.
+Standalone programs show up in your desktop's application menu like any other
+app.
 
-Vendor support lives in **modules**. Native Instruments (Native Access, Kontakt,
-the NTK daemon, library registration), IK Multimedia (IK Product Manager),
-Steinberg (Download Assistant, Activation Manager, Library Manager, HALion),
-Audio Modeling (Software Center, SWAM), Roland (Cloud Manager), iZotope
-(Product Portal) and Arturia (Software Center) are built in; a separate package can add
-another vendor without touching the core.
+That includes **Native Instruments**: Native Access runs and signs in, Kontakt
+and other NI products install and play, and libraries are registered so
+Kontakt finds them. Installers that stall under Wine are finished for you.
+
+Vendors whose manager apps need more than a plain installer get a **module**
+with their fixes. Besides Native Instruments, modules cover IK Multimedia,
+Steinberg, Arturia, iZotope, Roland and Audio Modeling. A separate package can
+add another vendor without touching the core. Most other plugins need no
+module: run their installer from the Install tab.
 
 Not affiliated with or endorsed by Native Instruments GmbH, IK Multimedia Production srl or Steinberg Media Technologies GmbH.
 
