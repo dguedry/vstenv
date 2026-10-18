@@ -7,6 +7,7 @@ mapped X window (wmctrl on the host, the same list the wedge detector reads).
 """
 from __future__ import annotations
 
+import threading
 import time
 
 from . import host
@@ -45,3 +46,22 @@ def resync_if_maximized(win: str, sh=host.sh) -> bool:
     sh(f"wmctrl -i -r {win} -b remove,maximized_vert,maximized_horz; sleep 0.4; "
        f"wmctrl -i -r {win} -b add,maximized_vert,maximized_horz")
     return True
+
+
+def watch_and_resync(p, exe_names, windowed=None, windows_of=None) -> threading.Thread:
+    """Start a daemon thread that waits for the program's first window and, if
+    the window manager maximized it on sight, toggles the maximized state so
+    Wine re-reads the geometry (resync_if_maximized). Attached to every launch
+    by programs.run, so the GUI, `vstenv run` and the desktop-menu entries all
+    get it; the CLI joins the thread so it is not killed by exiting."""
+    from . import wedge
+    exe_names = tuple(x for x in exe_names if x)
+    windowed = windowed or wedge.windowed_pids; windows_of = windows_of or wedge.windows_of
+    def pids(): return {pid for x in exe_names for pid, _ in p.processes(x)}
+    def work():
+        try:
+            if exe_names and wait_for_window(pids, windowed) == "window":
+                for win in windows_of(pids()): resync_if_maximized(win)
+        except Exception: pass
+    t = threading.Thread(target=work, daemon=True, name="window-watch")
+    t.start(); return t

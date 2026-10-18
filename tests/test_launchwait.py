@@ -57,10 +57,36 @@ class ResyncTest(unittest.TestCase):
         self.assertFalse(launchwait.resync_if_maximized("0x1", sh))
         self.assertEqual(len(calls), 1, "no wmctrl call for a window that is not maximized")
 
-    def test_gui_resyncs_after_the_window_appears(self):
+    def test_every_launch_path_gets_the_watcher(self):
+        """programs.run covers the GUI's program launches, `vstenv run` and the
+        desktop-menu entries; manager launches in the GUI and CLI attach it too."""
         from pathlib import Path
-        src = Path("vstenv/gui.py").read_text()
-        self.assertIn("launchwait.resync_if_maximized(win)", src)
+        self.assertEqual(Path("vstenv/programs.py").read_text().count("launchwait.watch_and_resync("), 2)
+        self.assertIn("launchwait.watch_and_resync(self.prefix, v.manager_exe_names())", Path("vstenv/gui.py").read_text())
+        cli = Path("vstenv/cli.py").read_text()
+        self.assertIn("launchwait.watch_and_resync(p, v.manager_exe_names())", cli)
+        self.assertEqual(cli.count("_join_window_watch(proc)"), 2, "run and manager launch both stay for the window")
+
+    def test_watch_and_resync_toggles_once_the_window_is_up(self):
+        import types
+        from unittest import mock
+        calls = []
+        p = types.SimpleNamespace(processes=lambda exe: [(42, exe)])
+        with mock.patch.object(launchwait, "resync_if_maximized", side_effect=lambda w: calls.append(w) or True), \
+             mock.patch.object(launchwait.time, "sleep", lambda s: None):
+            t = launchwait.watch_and_resync(p, ("GigPerformer5.exe",), windowed=lambda: {42}, windows_of=lambda pids: ["0x0b200010"])
+            t.join(5)
+        self.assertEqual(calls, ["0x0b200010"])
+
+    def test_watch_and_resync_does_nothing_without_a_window(self):
+        import types
+        from unittest import mock
+        calls = []
+        p = types.SimpleNamespace(processes=lambda exe: [])     # exited at once
+        with mock.patch.object(launchwait, "resync_if_maximized", side_effect=lambda w: calls.append(w)), \
+             mock.patch.object(launchwait, "GRACE", 0.0), mock.patch.object(launchwait.time, "sleep", lambda s: None):
+            launchwait.watch_and_resync(p, ("x.exe",), windowed=lambda: set(), windows_of=lambda pids: ["0x1"]).join(5)
+        self.assertEqual(calls, [])
 
 
 class WindowsOfTest(unittest.TestCase):

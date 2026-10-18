@@ -226,11 +226,7 @@ class Window(Adw.ApplicationWindow):
         self.set_cursor(Gdk.Cursor.new_from_name("wait"))
         def pids(): return {pid for x in exe_names for pid, _ in self.prefix.processes(x)}
         def work():
-            try:
-                if launchwait.wait_for_window(pids, wedge.windowed_pids) == "window":
-                    # The WM may have maximized it on sight; Wine then has its
-                    # position wrong and the pointer lands off (see launchwait).
-                    for win in wedge.windows_of(pids()): launchwait.resync_if_maximized(win)
+            try: launchwait.wait_for_window(pids, wedge.windowed_pids)   # programs.run's watcher does the resync
             except Exception: pass
             ui(lambda: (self.set_cursor(None), self.started(name)))
         threading.Thread(target=work, daemon=True).start()
@@ -612,6 +608,8 @@ class Window(Adw.ApplicationWindow):
         if not v.manager_installed(self.prefix): self.toast(f"{v.manager_name} is not installed yet — get it from {v.name} and pick the installer here"); return
         try: proc = v.launch_manager(self.prefix)
         except Exception as e: self.toast(str(e)); return
+        from . import launchwait
+        launchwait.watch_and_resync(self.prefix, v.manager_exe_names())
         self.toast(f"{v.manager_name} is starting…"); self.starting(v.manager_name, seconds=30); t0 = time.time()
         self.wait_cursor_until_window(v.manager_exe_names(), v.manager_name)
         self._guard_launch(v.manager_exe_names(), v.manager_name, lambda: v.launch_manager(self.prefix))

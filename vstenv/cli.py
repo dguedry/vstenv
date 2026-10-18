@@ -45,10 +45,13 @@ def cmd_manager(a):
         setup.after_change(p, r); print(f"\n{v.manager_name} installed. Start it with: {APP_NAME} manager {v.id} launch")
     elif a.action == "launch":
         p = _prefix(); proc = v.launch_manager(p, r, args=a.args)
+        from . import launchwait
+        proc.vstenv_window_watch = launchwait.watch_and_resync(p, v.manager_exe_names())
         print(f"{v.manager_name} started (pid {proc.pid})")
         if a.wait:
             proc.wait(); print(f"{v.manager_name} exited; finishing installs and bridging")
             v.finish_installs(p, r); setup.after_change(p, r)
+        else: _join_window_watch(proc)       # stay until the window is up, for the resync
     elif a.action == "apply-pending-update":
         # A manager whose self-updater this app disables can still be holding an
         # update it downloaded before that: it will never install it itself, and
@@ -150,6 +153,14 @@ def cmd_run(a):
         proc.vstenv_watch.join()     # the vendor is observing the program (e.g. rescuing
                                      # its installs); exiting now would kill that thread
         setup.after_change(p, r)     # it may have installed something: bridge and sync
+    else:
+        _join_window_watch(proc)     # a desktop-menu launch: stay until the window is up
+
+def _join_window_watch(proc, seconds=40.0):
+    """Wait for the window watcher programs.run attached (it fixes a window the WM
+    maximized on sight); the thread is a daemon, so exiting would kill it."""
+    w = getattr(proc, "vstenv_window_watch", None)
+    if w is not None: w.join(seconds)
 
 def cmd_uninstall(a):
     p = _prefix(); r = ConsoleReporter()

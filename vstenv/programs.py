@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PureWindowsPath
 from .progress import null_reporter
 from .wine import Prefix
-from . import quirks
+from . import quirks, launchwait
 
 UNINSTALL_KEYS = (r"Software\Microsoft\Windows\CurrentVersion\Uninstall",
                   r"Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall")
@@ -273,7 +273,9 @@ def run(p: Prefix, prog: Program, reporter=None):
     from . import vendors
     v = vendors.for_program(prog)
     if v is not None and "vendor" in prog.sources and v.is_manager_program(prog):
-        return v.launch_manager(p, r)          # the vendor's manager has its own launch fixes
+        proc = v.launch_manager(p, r)          # the vendor's manager has its own launch fixes
+        proc.vstenv_window_watch = launchwait.watch_and_resync(p, v.manager_exe_names())
+        return proc
     why = v.cannot_run(p, prog) if v is not None else None
     if why: raise RuntimeError(f"{prog.name} cannot run here: {why}")
     if not prog.exe: raise RuntimeError(f"{prog.name} has no known launcher (only an uninstaller)")
@@ -297,6 +299,9 @@ def run(p: Prefix, prog: Program, reporter=None):
             except Exception: pass
         t = threading.Thread(target=_watch, daemon=True, name=f"watch:{prog.name}")
         t.start(); proc.vstenv_watch = t
+    # The WM may maximize the window on sight, leaving Wine's idea of its position
+    # stale and the pointer off (see launchwait.resync_if_maximized).
+    proc.vstenv_window_watch = launchwait.watch_and_resync(p, (prog.exe.rsplit("\\", 1)[-1],))
     r.ok(prog.exe); return proc
 
 def uninstall_argv(uninstall: str) -> list[str]:
