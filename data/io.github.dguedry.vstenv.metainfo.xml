@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.89" date="2026-10-18">
+      <description>
+        <p>Launch Wine programs with startup notification, so new windows stop taking the screen</p>
+      </description>
+    </release>
     <release version="0.1.88" date="2026-10-18">
       <description>
         <p>Resync WM-maximized windows on every launch path, not only the GUI's</p>
