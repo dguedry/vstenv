@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.87" date="2026-10-18">
+      <description>
+        <p>Resync a Wine window the window manager maximized as it appeared</p>
+      </description>
+    </release>
     <release version="0.1.86" date="2026-10-16">
       <description>
         <p>Rescue an NI install while Native Access is open</p>
