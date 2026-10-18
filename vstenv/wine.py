@@ -213,6 +213,15 @@ class Prefix:
         # otherwise fails), and a user's own DXVK_CONFIG always wins.
         if "DXVK_CONFIG" not in os.environ:
             e["DXVK_CONFIG"] = "dxgi.enableDummyCompositionSwapchain = True"
+        # Startup notification. A new Wine window carries no _NET_WM_USER_TIME, and
+        # the window manager focuses such a window on sight -- over whatever the
+        # user is doing (focus-new-windows=strict does not change that). Wine reads
+        # the launch's X time from DESKTOP_STARTUP_ID (its _TIME part) and puts it
+        # on the window, and the WM then focuses it only if the user has done
+        # nothing else since the launch. A panel or menu launch sets the variable;
+        # the GUI sets one stamped with the click (see gui.startup_id); from a
+        # terminal there is none and the old behaviour stays.
+        if (sid := os.environ.get("DESKTOP_STARTUP_ID")): e["DESKTOP_STARTUP_ID"] = sid
         if extra: e.update(extra)
         return e
 

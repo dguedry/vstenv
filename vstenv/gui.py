@@ -1,4 +1,5 @@
 """GTK4 / libadwaita front end. Thin: every action calls the package."""
+import os
 import os, sys, threading, time, traceback
 from pathlib import Path
 import gi
@@ -438,7 +439,7 @@ class Window(Adw.ApplicationWindow):
     def run_program(self, prog):
         v = vendors.for_program(prog)
         if v is not None and v.is_manager_program(prog): return self.open_manager(v)
-        try: proc = programs.run(self.prefix, prog); self.toast(f"{prog.name} is starting…"); self.starting(prog.name, seconds=30)
+        try: proc = self.with_startup_id(prog.name, lambda: programs.run(self.prefix, prog)); self.toast(f"{prog.name} is starting…"); self.starting(prog.name, seconds=30)
         except Exception as e: self.toast(str(e)); return
         exe = (prog.exe or "").rsplit("\\", 1)[-1]
         self.wait_cursor_until_window((exe,), prog.name)
@@ -462,6 +463,32 @@ class Window(Adw.ApplicationWindow):
             ui(lambda: action.set_state(GLib.Variant.new_boolean(on)))
             if done: self.toast(webview2.restart_note(done), 8)
         self.run_bg(f"{webview2.SOFTWARE_GL_LABEL}: {'on' if on else 'off'}", work)
+
+    def startup_id(self, name: str) -> str | None:
+        """A startup-notification id stamped with the X time of the user's last
+        input to this GUI -- the click that launches the program. Wine puts
+        that time on the new window, and the window manager then focuses it
+        only if the user has not moved on since (see Prefix.wine_env)."""
+        try:
+            gi.require_version("GdkX11", "4.0")
+            from gi.repository import GdkX11
+            disp = Gdk.Display.get_default()
+            if not isinstance(disp, GdkX11.X11Display): return None
+            t = disp.get_user_time()
+        except Exception: return None
+        if not t: return None
+        slug = "".join(c if c.isalnum() else "-" for c in name)[:32]
+        return f"vstenv-{os.getpid()}-{slug}_TIME{t}"
+
+    def with_startup_id(self, name, launch):
+        """Run `launch()` with DESKTOP_STARTUP_ID set for it, then restore."""
+        sid = self.startup_id(name); prev = os.environ.get("DESKTOP_STARTUP_ID")
+        if sid: os.environ["DESKTOP_STARTUP_ID"] = sid
+        try: return launch()
+        finally:
+            if sid:
+                if prev is None: os.environ.pop("DESKTOP_STARTUP_ID", None)
+                else: os.environ["DESKTOP_STARTUP_ID"] = prev
 
     def _guard_launch(self, exe_names, name, relaunch):
         """A launch that wedges the Wine session (nothing new gets a window) is
@@ -606,7 +633,7 @@ class Window(Adw.ApplicationWindow):
     def open_manager(self, v):
         if not self.is_ready(): self.toast("Run setup first"); return
         if not v.manager_installed(self.prefix): self.toast(f"{v.manager_name} is not installed yet — get it from {v.name} and pick the installer here"); return
-        try: proc = v.launch_manager(self.prefix)
+        try: proc = self.with_startup_id(v.manager_name, lambda: v.launch_manager(self.prefix))
         except Exception as e: self.toast(str(e)); return
         from . import launchwait
         launchwait.watch_and_resync(self.prefix, v.manager_exe_names())
