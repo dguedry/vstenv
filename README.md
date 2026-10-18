@@ -187,7 +187,7 @@ restart SINE to get the Library view back. The Store itself browses fine.
 
 Verified end to end on this setup: Ubuntu 24.04, Linux Mint 22.3 (Cinnamon) and
 Fedora 43 hosts, the pinned Wine 11.17 build, plugins loaded in a Linux DAW
-through yabridge, including [Performer](https://github.com/dguedry/linux-performer).
+through yabridge, including [StageRig](https://github.com/dguedry/stagerig).
 
 | Vendor | Manager | Verified |
 |---|---|---|
@@ -204,6 +204,7 @@ through yabridge, including [Performer](https://github.com/dguedry/linux-perform
 | Spitfire Audio (no module: plain Windows installer) | Spitfire Audio app 3.4 | Reaches and holds its Sign In page and browses normally: the patched dxgi/wined3d/win32u give it real DXGI composition swapchains (ported from giang17/wine) that present straight into its window, where Wine's hidden-window emulation deadlocked. Draws through the same patched dcomp.dll + Wine Direct3D as any JUCE 8 program |
 | Audio Modeling | Software Center 1.x (WebView2) | Signs in, downloads products, TRY videos play; its own install attempts fail under Wine (mis-quoted installer arguments), so the app rescues each download and finishes it unattended, announced by a desktop notification (nine SWAM products installed and bridged this way) |
 | Orchestral Tools (no module: plain Windows installer) | SINE Player (JUCE + WebView2) | Installs and bridges; sign-in works against Orchestral Tools' servers, typed blind — the fields take input but do not display it (see "WebView2 apps"); the Store browses and the tips video plays; a web tab's page sticks over the native views until a restart |
+| Gig Performer (no module: plain Windows installer) | Gig Performer 5 (5.3.3) installer, run from the Install tab | Installs and runs as a standalone host under Wine, OpenGL interface and all. Its window is maximized by the window manager on sight, which left Wine's idea of its position stale and the pointer landing off its targets; the app now resyncs the window as it appears, so clicks land where the pointer is |
 
 Health lists every check behind these; when one fails it names the fix.
 
@@ -303,13 +304,13 @@ are ordinary bundles: nothing about how a DAW is started matters.
 
 Each plugin is bridged once per format it ships: a plugin that has both a VST2
 and a VST3 build appears as both, and a VST2-only plugin (some older ones, IK's
-Sonik Synth) is bridged only as VST2. A host that scans only VST3 (Performer
+Sonik Synth) is bridged only as VST2. A host that scans only VST3 (StageRig
 does; it hosts VST3, LV2 and LADSPA, not VST2) will not list a VST2-only plugin,
 that is the host's format support, not a bridging failure. If a host shows a
 plugin twice after an update, rescan its plugin folder so it drops stale entries.
 
-For playing them live, [Performer](https://github.com/dguedry/linux-performer)
-is a companion project: a live-performance plugin host for Linux that loads the
+For playing them live, check out the sister project
+[StageRig](https://github.com/dguedry/stagerig): a live-performance plugin host for Linux that loads the
 Windows VST3s vstenv bridges alongside native VST3, LV2 and LADSPA, a program
 per sound changed from the keyboard, with each plugin in its own process.
 
@@ -432,7 +433,7 @@ cuts a release with a chosen version and note.
 ## License
 
 GPL-3.0-or-later. See [LICENSE](LICENSE). vstenv is a companion to
-[Performer](https://github.com/dguedry/linux-performer), which is under the same
+[StageRig](https://github.com/dguedry/stagerig), which is under the same
 licence.
 
 The patches under [`patches/wine/`](patches/wine/) modify Wine and are therefore
