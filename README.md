@@ -13,7 +13,6 @@ Steinberg (Download Assistant, Activation Manager, Library Manager, HALion),
 Audio Modeling (Software Center, SWAM), Roland (Cloud Manager), iZotope
 (Product Portal) and Arturia (Software Center) are built in; a separate package can add
 another vendor without touching the core.
-vstenv is the vendor-modular successor to [nilinux](https://github.com/dguedry/nilinux).
 
 Not affiliated with or endorsed by Native Instruments GmbH, IK Multimedia Production srl or Steinberg Media Technologies GmbH.
 
