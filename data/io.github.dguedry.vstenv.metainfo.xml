@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.91" date="2026-10-18">
+      <description>
+        <p>README: drop the nilinux mention</p>
+      </description>
+    </release>
     <release version="0.1.90" date="2026-10-18">
       <description>
         <p>README: StageRig is the sister project; Gig Performer in the Tested table</p>
