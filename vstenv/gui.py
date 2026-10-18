@@ -226,7 +226,11 @@ class Window(Adw.ApplicationWindow):
         self.set_cursor(Gdk.Cursor.new_from_name("wait"))
         def pids(): return {pid for x in exe_names for pid, _ in self.prefix.processes(x)}
         def work():
-            try: launchwait.wait_for_window(pids, wedge.windowed_pids)
+            try:
+                if launchwait.wait_for_window(pids, wedge.windowed_pids) == "window":
+                    # The WM may have maximized it on sight; Wine then has its
+                    # position wrong and the pointer lands off (see launchwait).
+                    for win in wedge.windows_of(pids()): launchwait.resync_if_maximized(win)
             except Exception: pass
             ui(lambda: (self.set_cursor(None), self.started(name)))
         threading.Thread(target=work, daemon=True).start()

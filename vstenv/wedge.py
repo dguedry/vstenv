@@ -53,6 +53,17 @@ def windowed_pids() -> set[int] | None:
     return _windowed_pids()
 
 
+def windows_of(pids) -> list[str]:
+    """X window ids (hex, as wmctrl prints them) owned by any of these pids."""
+    out = host.sh("wmctrl -l -p 2>/dev/null")
+    want = {int(p) for p in pids}
+    ids = []
+    for line in out.splitlines():
+        f = line.split()
+        if len(f) >= 3 and f[2].isdigit() and int(f[2]) in want: ids.append(f[0])
+    return ids
+
+
 def _windowed_pids() -> set[int] | None:
     """Pids owning a mapped X11 window, or None when the window list cannot be
     read at all (no display, no wmctrl). None means "cannot judge" -- distinct
