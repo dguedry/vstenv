@@ -1,0 +1,29 @@
+--- a/dlls/wined3d/swapchain.c
++++ b/dlls/wined3d/swapchain.c
+@@ -1447,7 +1447,25 @@
+          * The root visual reads our comp_bits directly. */
+         if (GetPropW(swapchain->win_handle, L"__wine_dcomp_is_child"))
+         {
+-            /* Child visuals: only update comp buffer, skip window blit. */
++            /* A child-mode swapchain has two readers.  A root swapchain
++             * compositing it as a child visual reads surface_bits through the
++             * __wine_dcomp_comp_bits property, which the dirty-rect path above
++             * keeps current.  dcomp's own compositor, showing the swapchain
++             * straight on its target (composite_blit_swapchain_window), blits
++             * from comp_dc, i.e. from comp_bits -- and nothing above wrote this
++             * frame there: once surface_bits exists the dirty rects go to it
++             * alone, so comp_bits held the first present's frame for good and
++             * a JUCE 8 plugin editor (Spitfire's BBC Symphony Orchestra) drew
++             * once and then ignored every click.  Bring comp_bits up to date
++             * for that reader; the root-visual reader is unaffected. */
++            if (swapchain->surface_valid && swapchain->surface_bits && swapchain->comp_bits
++                    && (swapchain->cs_present_dirty_rect_count > 0 || swapchain->cs_present_scroll_valid
++                        || swapchain->state.desc.swap_effect == WINED3D_SWAP_EFFECT_SEQUENTIAL))
++            {
++                GdiFlush();
++                memcpy(swapchain->comp_bits, swapchain->surface_bits,
++                        swapchain->surface_width * swapchain->surface_height * sizeof(DWORD));
++            }
+         }
+         else
+         {

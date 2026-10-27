@@ -94,6 +94,29 @@ dcomp (per-tick blit; `dcomp_layer.h` is new). It also replaces the earlier
 The largest patch here by far — wined3d and win32u are central DLLs, so re-test
 the full Tested table on every Wine bump.
 
+## dcomp-swapchain-present-child-update-<version>.patch
+
+On top of `dcomp-swapchain-present`: a child-mode composition swapchain kept
+its first frame for good. A swapchain the dcomp compositor shows straight on
+its target (`composite_blit_swapchain_window`, the plugin-editor case) is put
+in child mode, and in that mode the GDI present wrote each frame's dirty
+rectangles into the per-visual `surface_bits` and skipped the copy into
+`comp_bits` -- the buffer behind `comp_dc`, which is what the compositor
+blits from. Only the first present, before `surface_bits` existed, reached
+`comp_bits`. Seen on Spitfire's BBC Symphony Orchestra (JUCE 8, VST3 under
+yabridge in StageRig): the editor drew once and ignored every click, while
+Wine's message trace showed the clicks delivered and the plugin presenting
+twenty-odd frames a second; a resize, which rebuilds the swapchain, showed one
+new frame. The patch copies `surface_bits` into `comp_bits` after a child-mode
+present that updated it, so the compositor reads the current frame; a root
+swapchain compositing the child reads `surface_bits` as before and is
+unchanged. Verified 2026-10-26: articulation clicks, hover text and the
+modified-preset marker all appear at once.
+
+(The hunks of `dcomp-swapchain-present` under `dlls/win32u/` touch Wine's
+Unix-side win32u, which the PE-only DLL set does not ship; see the note at
+the top of that file before relying on any of them.)
+
 ## ole32-dragdrop-stale-target-<version>.patch
 
 `RevokeDragDrop` crashed WebView2-based apps (Audio Modeling's Software Center,
