@@ -450,8 +450,9 @@ class Window(Adw.ApplicationWindow):
         # this is offered, not triggered -- a user staring at a white window
         # has no reason to go and open Health.
         self._webview2_hint(prog)
-        def watch():           # a program may install plugins while it runs: bridge whatever appeared
-            proc.wait(); ui(lambda: self.after_change(f"Bridging plugins after {prog.name}"))
+        def watch():           # a program may install plugins while it runs: bridge them as they appear, and at exit
+            programs.watch_plugins(self.prefix, proc, lambda: ui(lambda: self.after_change(f"Bridging new plugins from {prog.name}")))
+            ui(lambda: self.after_change(f"Bridging plugins after {prog.name}"))
         threading.Thread(target=watch, daemon=True).start()
     def set_software_gl(self, action, on):
         """The menu checkbox: switch software GL for WebView2 apps and rewrite

@@ -154,7 +154,12 @@ def cmd_run(a):
                                      # its installs); exiting now would kill that thread
         setup.after_change(p, r)     # it may have installed something: bridge and sync
     else:
-        _join_window_watch(proc)     # a desktop-menu launch: stay until the window is up
+        # A desktop-menu launch. Stay with the program, quietly: it may install
+        # plugins through a service of its own while it is open (Softube
+        # Central), and they are bridged as they appear, then once more at exit.
+        _join_window_watch(proc)
+        programs.watch_plugins(p, proc, lambda: setup.after_change(p, r))
+        setup.after_change(p, r)
 
 def _join_window_watch(proc, seconds=40.0):
     """Wait for the window watcher programs.run attached (it fixes a window the WM

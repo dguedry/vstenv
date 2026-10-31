@@ -267,6 +267,29 @@ def find(p: Prefix, name: str) -> Program:
     raise LookupError(f"'{name}' is ambiguous: " + ", ".join(x.name for x in part))
 
 # --- actions ---------------------------------------------------------------------------------
+def watch_plugins(p: Prefix, proc, on_new, interval: float = 15.0, sleep=time.sleep) -> None:
+    """While `proc` runs, call `on_new()` each time new plugin files have
+    appeared and stopped changing (one interval with no further change, so a
+    half-copied bundle is not bridged). Returns when the program exits.
+
+    A program can install plugins through a service of its own while it stays
+    open -- Softube Central installs through its Installer Helper daemon -- so
+    waiting for it to exit left a just-installed plugin invisible to the DAW
+    (Softube Heartbeat, 2026-10-30)."""
+    from . import yabridge
+    try: seen = yabridge.plugin_signature(p)
+    except Exception: return
+    pending = None
+    while proc.poll() is None:
+        sleep(interval)
+        try: now = yabridge.plugin_signature(p)
+        except Exception: continue
+        if now == seen: pending = None; continue
+        if now == pending:                   # changed, then held still for an interval
+            seen = now; pending = None
+            if now: on_new()
+        else: pending = now
+
 def run(p: Prefix, prog: Program, reporter=None):
     """Start the program detached; returns the Popen (ends when the program exits)."""
     r = null_reporter(reporter)
