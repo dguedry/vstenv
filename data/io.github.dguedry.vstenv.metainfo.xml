@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.97" date="2026-10-31">
+      <description>
+        <p>Bridge plugins while the program that installs them is still open</p>
+      </description>
+    </release>
     <release version="0.1.96" date="2026-10-31">
       <description>
         <p>psshim: carry out service scripts instead of pretending to</p>
