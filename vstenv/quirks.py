@@ -37,6 +37,23 @@ def is_electron(p: Prefix, install_dir: str) -> bool:
     d = p.to_host(install_dir)
     return (d / "resources/app.asar").exists() or (d / "resources/electron.asar").exists() or (d / "chrome_100_percent.pak").exists()
 
+# Wine's powershell.exe is a stub that exits 0 for any command. electron-builder
+# installers ask PowerShell whether the app is running and read 0 as "yes", so
+# they report "<App> cannot be closed" for ever (Softube Central, 2026-10-30).
+# An app that updates itself through electron-updater (resources/app-update.yml)
+# runs exactly such an installer on itself, as a child, so it is started with
+# the stub disabled; the child inherits that, and the check reads "not running".
+NO_POWERSHELL = "powershell.exe=d"
+
+def self_updates_with_electron_builder(p: Prefix, install_dir: str) -> bool:
+    return bool(install_dir) and (p.to_host(install_dir) / "resources/app-update.yml").exists()
+
+def launch_env(p: Prefix, name: str, install_dir: str) -> dict[str, str]:
+    """Environment to add when starting `name` from install_dir (Windows path)."""
+    if self_updates_with_electron_builder(p, install_dir):
+        return {"WINEDLLOVERRIDES": p.dll_overrides() + ";" + NO_POWERSHELL}
+    return {}
+
 def _vendor_launch_args() -> dict[str, list[str]]:
     from . import vendors
     out = {}

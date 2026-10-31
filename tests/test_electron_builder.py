@@ -35,5 +35,5 @@ class ElectronBuilderTest(unittest.TestCase):
 
     def test_install_disables_the_stub_only_for_those(self):
         src = Path("vstenv/programs.py").read_text()
-        self.assertIn('";powershell.exe=d"', src)
+        self.assertIn("quirks.NO_POWERSHELL", src)
         self.assertIn("if is_electron_builder(installer):", src)
