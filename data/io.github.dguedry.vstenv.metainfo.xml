@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.102" date="2026-10-31">
+      <description>
+        <p>GUI: Programs tab icon that draws under every theme</p>
+      </description>
+    </release>
     <release version="0.1.101" date="2026-10-31">
       <description>
         <p>Uninstall: run cmd-style uninstall lines through a batch file</p>
