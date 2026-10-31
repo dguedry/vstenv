@@ -1,7 +1,7 @@
 """Health checks: the environment's own, then every vendor module's."""
 import os, shutil
 from pathlib import Path
-from . import APP_ID, paths, wine, runtime, yabridge, prefixes, dxvk, host, menu, vendors, winefixes, dcomp, desktopfix, webview2, wedge, shellwedge, displaycache
+from . import APP_ID, paths, wine, runtime, yabridge, prefixes, dxvk, host, menu, vendors, winefixes, dcomp, desktopfix, webview2, wedge, shellwedge, displaycache, runtimedir
 from .vendors import Check
 
 class _Checks(list):
@@ -198,6 +198,11 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
                            "off — if a WebView2 window never paints (white then black, no input), "
                            f"switch on '{webview2.SOFTWARE_GL_LABEL}' in the app menu",
                            fix="" if on else "vstenv webview2 software-gl on  (or the app menu)"))
+    rd = runtimedir.status()
+    c.append(Check("other Wine builds can start (runtime folder is private)", rd["ok"],
+                   f"{rd['path']} is mode {rd['mode']}" + ("" if rd["ours"] else ", owned by another user")
+                   + ": Debian/Ubuntu Wine refuses to run, so plugins bridged with it fail to scan" if not rd["ok"] else "",
+                   fix=("vstenv setup" if rd["ours"] else f"sudo rm -rf {rd['path']}")))
     ds = desktopfix.status()
     if ds["applies"]:
         c.append(Check("Wine windows do not jump to the front (Cinnamon)", ds["ok"],

@@ -51,12 +51,14 @@ finish-args:
   # /tmp is the sandbox's private tmpfs. The host always uses /tmp/.wine-<uid>, so
   # we must share the real /tmp; sharing only xdg-run/wine splits them (the
   # sandbox lands in XDG_RUNTIME_DIR, the host in /tmp — plugins hang with no
-  # daemon in their wineserver). Keep xdg-run/wine too for older wine builds.
+  # daemon in their wineserver). Do NOT grant xdg-run/wine: Flatpak creates a
+  # missing granted folder on the host as 0755, and Debian/Ubuntu's Wine (which
+  # keeps its sockets in /run/user/<uid>/wine) then refuses to start at all
+  # ("must not be accessible by other users"). runtimedir.py heals old ones.
   # (--filesystem=/tmp trips Flathub's finish-args-host-tmp-access lint, which is
   # on Flathub's documented exceptions list — request the exception at submission.
   # A narrower /tmp/.wine-<uid> can't be expressed without hardcoding the uid.)
   - --filesystem=/tmp
-  - --filesystem=xdg-run/wine:create
   - --env=WINEDLLOVERRIDES=winemenubuilder.exe=d;mscoree=d;mshtml=d
 cleanup:
   - /include

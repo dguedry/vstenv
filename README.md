@@ -360,6 +360,14 @@ and every Wine process the app starts share the host's pid namespace
 sandbox also needs to see every host path Wine reaches through the prefix
 (Documents, sample libraries on other disks): Health reports what it cannot.
 
+**Other Wines on the machine keep working.** Debian's and Ubuntu's Wine keep
+their sockets in `/run/user/<uid>/wine` and refuse to start if that folder is
+readable by others. Flatpaks before 0.1.98 created it that way (mode 0755) on
+every launch, which broke plugins bridged with the distro Wine ("crashes on
+scan"; the only message, `must not be accessible by other users`, goes to the
+DAW's terminal). The app no longer touches that folder, and setup, Health and
+app start make a leftover one private again (0700, as Wine itself creates it).
+
 **Windows behave under your window manager.** Wine activates (raises) its
 top-level windows when they receive focus, so with several Wine windows in one
 session (a plugin editor in a DAW, a standalone manager) a click can pull a Wine

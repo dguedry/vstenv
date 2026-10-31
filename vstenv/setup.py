@@ -1,7 +1,7 @@
 """Setting the environment up and keeping it consistent: the core steps, then
 every vendor module's own, in one idempotent pass."""
 from pathlib import Path
-from . import paths, runtime, dxvk, yabridge, menu, urlschemes, vendors, tools, winefixes, dcomp, desktopfix, webview2, programs
+from . import paths, runtime, dxvk, yabridge, menu, urlschemes, vendors, tools, winefixes, dcomp, desktopfix, webview2, programs, runtimedir
 from .progress import null_reporter
 from .wine import Prefix
 
@@ -32,6 +32,7 @@ def prepare(p: Prefix, reporter=None):
     for v in vendors.all():
         _guarded(r, f"{v.name}: preparing", lambda v=v: v.prepare(p, r))
     _guarded(r, "URL handlers", lambda: urlschemes.register_all(p, r))
+    _guarded(r, "Wine runtime folder", runtimedir.heal)     # distro Wine refuses a /run/user/<uid>/wine open to others
     _guarded(r, "Desktop window behaviour", lambda: desktopfix.apply(r))   # Cinnamon: stop Wine windows raising themselves
     _guarded(r, "Desktop menu entries", lambda: menu.sync(p, r))
 

@@ -821,6 +821,10 @@ class App(Adw.Application):
                         comments="A managed environment for Windows audio plugins on Linux: vendor managers, their products, and VST bridging — without touching Wine yourself.").present()
 
 def main():
-    paths.ensure_dirs(); sys.exit(App().run(sys.argv))
+    paths.ensure_dirs()
+    from . import runtimedir
+    try: runtimedir.heal()          # left 0755 by older vstenv Flatpaks; distro Wine refuses it
+    except Exception: pass
+    sys.exit(App().run(sys.argv))
 
 if __name__ == "__main__": main()
