@@ -7,14 +7,17 @@ from vstenv import winefixes, wine
 def _fake_build(tmp: Path) -> wine.WineBuild:
     root = tmp / "wine-11.17-staging-amd64-wow64"
     (root / winefixes.PE_DIR).mkdir(parents=True); (root / "bin").mkdir()
-    for name in winefixes.FIXES: (root / winefixes.PE_DIR / name).write_bytes(b"stock " + name.encode())
-    return wine.WineBuild(root)
+    b = wine.WineBuild(root)
+    for name in winefixes.FIXES:
+        f = winefixes.dest(b, name); f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(b"stock " + name.encode())
+    return b
 
 def _tarball(tmp: Path, version="11.17", payload=b"patched dcomp") -> Path:
     """A release tarball carrying every DLL the app expects (FIXES), dcomp with `payload`."""
     pkg = tmp / "wine-fixes"; pkg.mkdir(); files = {}
     for name in winefixes.FIXES:
         data = payload if name == "dcomp.dll" else b"patched " + name.encode()
+        (pkg / name).parent.mkdir(parents=True, exist_ok=True)
         (pkg / name).write_bytes(data); files[name] = hashlib.sha256(data).hexdigest()
     (pkg / "manifest.json").write_text(json.dumps({"wine_version": version, "files": files, "patches": ["x.patch"]}))
     tgz = tmp / f"wine-fixes-{version}.tar.gz"

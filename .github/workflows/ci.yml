@@ -200,7 +200,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.auto-tag.outputs.sha || github.sha }}
-      - run: sudo apt-get update -q && sudo apt-get install -y -q gcc-mingw-w64-x86-64 flex bison autoconf perl make curl xz-utils
+      - run: sudo apt-get update -q && sudo apt-get install -y -q gcc-mingw-w64-x86-64 gcc-mingw-w64-i686 flex bison autoconf perl make curl xz-utils
       # dcomp.dll from the pinned Wine's sources + wine-staging + patches/wine/:
       # DirectComposition for Steinberg's current products (winefixes.py installs it).
       - name: Build

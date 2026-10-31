@@ -286,14 +286,9 @@ def run(p: Prefix, prog: Program, reporter=None):
     if extra: r.log(f"launch arguments: {' '.join(extra)}")
     argv = [prog.exe, *(shlex.split(prog.args, posix=False) if prog.args else []), *extra]
     env = None
-    qenv = quirks.launch_env(p, prog.name, prog.install_dir) if prog.install_dir else {}
-    if qenv: env = dict(qenv); r.log("self-updating Electron app: Wine's PowerShell stub disabled for it and its updater")
     if v is not None:
         venv = {k: val for k, val in (v.launch_env(p, prog) or {}).items() if k not in os.environ}
-        if venv:
-            if "WINEDLLOVERRIDES" in venv and env and "WINEDLLOVERRIDES" in env:
-                venv["WINEDLLOVERRIDES"] = env["WINEDLLOVERRIDES"] + ";" + venv["WINEDLLOVERRIDES"]
-            env = {**(env or {}), **venv}; r.log("launch environment: " + ", ".join(f"{k}={val}" for k, val in venv.items()))
+        if venv: env = venv; r.log("launch environment: " + ", ".join(f"{k}={val}" for k, val in venv.items()))
     proc = p.spawn(argv, cwd=str(cwd) if cwd and cwd.is_dir() else None, env=env)
     if v is not None and type(v).watch_program is not vendors.Vendor.watch_program:
         # this vendor observes the live program (Vendor.watch_program). Daemon
@@ -391,18 +386,6 @@ class InstallCancelled(InstallFailed):
 _CANCELLED = {1602}        # ERROR_INSTALL_USEREXIT
 _SUCCESS_REBOOT = {3010}   # ERROR_SUCCESS_REBOOT_REQUIRED -- done, as far as Wine cares
 
-def is_electron_builder(installer: Path) -> bool:
-    """An electron-builder NSIS setup: its payload is $PLUGINSDIR/app-64.7z
-    (or app-32.7z) unpacked by the nsis7z plugin."""
-    if Path(installer).suffix.lower() != ".exe": return False
-    try:
-        import subprocess
-        from . import tools
-        out = subprocess.run([tools.seven_zip(), "l", str(installer)], capture_output=True, text=True, timeout=60).stdout
-    except Exception:
-        return False
-    return bool(re.search(r"\$PLUGINSDIR[/\\]app-(64|32|arm64)\.7z", out)) and "nsis7z.dll" in out
-
 def install(p: Prefix, installer: Path, reporter=None) -> int:
     """Run any Windows installer interactively: .msi through msiexec, anything else
     as a program. Plugins it drops are bridged by the caller (yabridge.sync)."""
@@ -424,16 +407,7 @@ def install(p: Prefix, installer: Path, reporter=None) -> int:
     pids_before = {pid for pid, _ in p.processes()}
     if installer.suffix.lower() == ".msi": argv = ["msiexec", "/i", str(installer)]
     else: argv = [str(installer)]
-    env = None
-    if is_electron_builder(installer):
-        # Wine's powershell.exe is a stub that exits 0 for any command, and an
-        # electron-builder setup asks PowerShell whether the app is running and
-        # reads 0 as "yes": it reported "<App> cannot be closed" for ever, with
-        # nothing running (Softube Central 3.0.0, 2026-10-30). Without the stub
-        # the check fails to start, which it reads as "not running".
-        env = {"WINEDLLOVERRIDES": p.dll_overrides() + ";" + quirks.NO_POWERSHELL}
-        r.log("electron-builder installer: Wine's PowerShell stub disabled for its app-running check")
-    cp = p.run(argv, timeout=7200, capture=False, env=env)
+    cp = p.run(argv, timeout=7200, capture=False)
     if cp.returncode in _SUCCESS_REBOOT:
         # The installer finished and asked for a reboot, which a Wine prefix
         # does not need; treat it as the success it is.

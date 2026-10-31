@@ -37,6 +37,29 @@ At each Wine bump, rebuild against the new staging set and re-test HALion Sonic
 and a JUCE 8 GUI (Spitfire Audio) *without* each patch; drop any patch the
 staging set now covers.
 
+## powershell.exe (tools/psshim, not a patch)
+
+Wine's `powershell.exe` is a stub: it runs nothing and exits 0 for any command,
+`exit 1` included. Most callers are better off for it -- an installer's
+"configure the service" script that does nothing and reports success beats one
+that fails -- but one question it answers wrongly is "is this program
+running?". electron-builder installers ask exactly that (Get-CimInstance
+Win32_Process, filtered on the install folder) and read 0 as "yes", so Softube
+Central 3.0.0 stopped at "Softube Central cannot be closed" with nothing
+running (2026-10-30). Disabling PowerShell for those installers got them
+through but broke the Softube Helper's own service scripts, which rely on the
+stub's success.
+
+`tools/psshim/powershell.c` replaces the stub in both bitnesses. A command that
+queries Win32_Process for executables under a folder
+(`$_.Path.StartsWith('<folder>'...)`) is answered from the real process list,
+exit 0 if one runs and 1 if none; one that also stops them (Stop-Process,
+`.Terminate()`, taskkill) ends them. Anything else exits 0, as before. Every
+call is logged to `%LOCALAPPDATA%\vstenv-powershell.log`. The build tags it
+"Wine builtin DLL" at 0x40, as Wine's own modules are, or Wine will not load it
+from `lib/wine` as its builtin; it ships in the wine-fixes tarball as
+`powershell.exe` (x86_64-windows) and `i386-windows/powershell.exe`.
+
 ## advapi32-credential-attributes-<version>.patch
 
 Credential Manager attributes. Wine's `CredWriteW` stored everything but

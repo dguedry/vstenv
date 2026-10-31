@@ -38,7 +38,15 @@ FIXES = {"dcomp.dll": "DirectComposition (Steinberg's VSTGUI: HALion Sonic 7, Cu
          "wined3d.dll": "keep-back-buffers swapchains and the composition GL present path (composition swapchains)",
          "win32u.dll": "window and OpenGL plumbing for composition swapchains",
          "advapi32.dll": "credential attributes (Steinberg's License Engine keeps its sign-in)",
-         "ole32.dll": "drag-drop teardown survives a stale target (WebView2 apps crashed at startup)"}
+         "ole32.dll": "drag-drop teardown survives a stale target (WebView2 apps crashed at startup)",
+         "powershell.exe": "answers \"is this program running?\" honestly (electron-builder installers: Softube Central)",
+         "i386-windows/powershell.exe": "the same, for 32-bit installers"}
+
+def dest(build: wine.WineBuild, name: str) -> Path:
+    """Where a packaged file goes in the Wine build: a bare name is a 64-bit PE
+    module (lib/wine/x86_64-windows); a name with a folder, such as
+    i386-windows/powershell.exe, is relative to lib/wine."""
+    return build.root / ("lib/wine/" + name if "/" in name else f"{PE_DIR}/{name}")
 
 def wine_version(build=None) -> str:
     """The pinned Wine's version number, from the build's directory name."""
@@ -63,7 +71,7 @@ def installed(build: wine.WineBuild | None) -> dict[str, str]:
     m = marker(build) or {}
     out = {}
     for name, sha in (m.get("files") or {}).items():
-        f = build.root / PE_DIR / name
+        f = dest(build, name)
         if f.exists() and _sha(f) == sha: out[name] = sha
     return out
 
@@ -126,11 +134,11 @@ def install(build: wine.WineBuild, reporter=None, force=False) -> dict[str, str]
             for name, sha in man.get("files", {}).items():
                 f = src / name
                 if not f.exists() or _sha(f) != sha: r.log(f"{name}: missing or hash mismatch in {tgz.name}; skipped"); continue
-                dst = build.root / PE_DIR / name
+                dst = dest(build, name); dst.parent.mkdir(parents=True, exist_ok=True)
                 orig = dst.with_suffix(dst.suffix + ".orig")
                 if dst.exists() and not orig.exists() and _sha(dst) != sha: shutil.copy2(dst, orig)
                 if dst.exists() and _sha(dst) == sha: done[name] = sha; continue
-                tmpf = dst.with_name(f".{name}.new")
+                tmpf = dst.with_name(f".{dst.name}.new")
                 shutil.copy2(f, tmpf); tmpf.replace(dst)      # rename: a running program keeps its old mapping
                 done[name] = sha
         finally:   # record what did land even if a later copy failed (disk full): status() must not deny a DLL that is in place
@@ -146,7 +154,7 @@ def remove(build: wine.WineBuild, reporter=None) -> list[str]:
     r = null_reporter(reporter); r.step("Restoring stock Wine DLLs")
     back = []
     for name in list((marker(build) or {}).get("files") or {}):
-        dst = build.root / PE_DIR / name; orig = dst.with_suffix(dst.suffix + ".orig")
+        dst = dest(build, name); orig = dst.with_suffix(dst.suffix + ".orig")
         if orig.exists(): orig.replace(dst); back.append(name)
     (build.root / MARKER_NAME).unlink(missing_ok=True)
     r.ok(", ".join(back) if back else "nothing to restore")

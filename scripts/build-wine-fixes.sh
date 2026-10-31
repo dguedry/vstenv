@@ -58,11 +58,28 @@ PKG="$WORK/wine-fixes"; mkdir -p "$PKG"
 for DLL in "${DLLS[@]}"; do
     x86_64-w64-mingw32-strip --strip-unneeded -o "$PKG/$DLL.dll" "$SRC/dlls/$DLL/x86_64-windows/$DLL.dll" 2>/dev/null || cp "$SRC/dlls/$DLL/x86_64-windows/$DLL.dll" "$PKG/$DLL.dll"
 done
+# powershell.exe in place of Wine's stub (tools/psshim): it answers "is this program
+# running?" honestly and exits 0 for anything else, as the stub did. Built for both
+# bitnesses and tagged "Wine builtin DLL" at 0x40, as Wine's own builds are, or Wine
+# will not load it from lib/wine as its builtin.
+echo "== build powershell.exe (psshim)"
+mkdir -p "$PKG/i386-windows"
+x86_64-w64-mingw32-gcc -O2 -municode -mconsole -s -o "$PKG/powershell.exe" "$HERE/tools/psshim/powershell.c" -lcrypt32
+i686-w64-mingw32-gcc -O2 -municode -mconsole -s -o "$PKG/i386-windows/powershell.exe" "$HERE/tools/psshim/powershell.c" -lcrypt32
+python3 - "$PKG/powershell.exe" "$PKG/i386-windows/powershell.exe" <<'EOF'
+import sys
+for f in sys.argv[1:]:
+    b = bytearray(open(f, "rb").read())
+    assert b[:2] == b"MZ" and int.from_bytes(b[0x3c:0x40], "little") >= 0x60, f
+    tag = b"Wine builtin DLL"; b[0x40:0x60] = tag + b"\0" * (0x20 - len(tag))
+    open(f, "wb").write(bytes(b))
+EOF
 python3 - "$PKG" "$VERSION" "${PATCHES[@]}" <<'EOF'
 import hashlib, json, os, sys
 from pathlib import Path
 pkg, version, patches = Path(sys.argv[1]), sys.argv[2], [os.path.basename(p) for p in sys.argv[3:]]
-files = {f.name: hashlib.sha256(f.read_bytes()).hexdigest() for f in sorted(pkg.glob("*.dll"))}
+files = {f.relative_to(pkg).as_posix(): hashlib.sha256(f.read_bytes()).hexdigest()
+         for f in sorted(pkg.rglob("*")) if f.is_file() and f.suffix in (".dll", ".exe")}
 (pkg / "manifest.json").write_text(json.dumps({"wine_version": version, "files": files, "patches": patches,
     "note": "dcomp: DirectComposition for Steinberg's products; advapi32: credential attributes for Steinberg's License Engine sign-in"}, indent=2))
 EOF
