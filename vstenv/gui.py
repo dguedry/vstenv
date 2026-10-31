@@ -154,12 +154,15 @@ class Window(Adw.ApplicationWindow):
         self._activity_btn.connect("clicked", lambda *_: self.stack.set_visible_child_name("task" if self._activity["task"] else "install"))
         header.pack_start(self._activity_btn)
         tv.add_top_bar(header); tv.set_content(self.stack)
-        self.stack.add_titled_with_icon(self.build_plugins(), "plugins", "Plugins", "audio-x-generic-symbolic")
-        self.stack.add_titled_with_icon(self.build_programs(), "programs", "Programs", "view-app-grid-symbolic")   # Mint-Y's application-x-executable-symbolic draws nothing under GTK 4.22
-        self.stack.add_titled_with_icon(self.build_install(), "install", "Install", "list-add-symbolic")
-        self.stack.add_titled_with_icon(self.build_health(), "health", "Health", "emblem-ok-symbolic")
+        # Tab icons ship with the app (vstenv/icons/README.md): a desktop theme could
+        # replace a stock name with one that draws nothing, or lack it altogether.
+        Gtk.IconTheme.get_for_display(self.get_display()).add_search_path(str(Path(__file__).parent / "icons"))
+        self.stack.add_titled_with_icon(self.build_plugins(), "plugins", "Plugins", "vstenv-tab-plugins-symbolic")
+        self.stack.add_titled_with_icon(self.build_programs(), "programs", "Programs", "vstenv-tab-programs-symbolic")
+        self.stack.add_titled_with_icon(self.build_install(), "install", "Install", "vstenv-tab-install-symbolic")
+        self.stack.add_titled_with_icon(self.build_health(), "health", "Health", "vstenv-tab-health-symbolic")
         self.task = TaskPage("Working")
-        self.task_page = self.stack.add_titled_with_icon(self.task, "task", "Progress", "content-loading-symbolic")
+        self.task_page = self.stack.add_titled_with_icon(self.task, "task", "Progress", "vstenv-tab-progress-symbolic")
         self.task_page.set_visible(False)
         b = wine.installed_build(); self.prefix = wine.Prefix(paths.PREFIX, b) if b else None
         if not self.is_ready(): self.run_setup(first=True)
