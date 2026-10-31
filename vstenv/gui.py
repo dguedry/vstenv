@@ -155,7 +155,7 @@ class Window(Adw.ApplicationWindow):
         header.pack_start(self._activity_btn)
         tv.add_top_bar(header); tv.set_content(self.stack)
         self.stack.add_titled_with_icon(self.build_plugins(), "plugins", "Plugins", "audio-x-generic-symbolic")
-        self.stack.add_titled_with_icon(self.build_programs(), "programs", "Programs", "application-x-executable-symbolic")
+        self.stack.add_titled_with_icon(self.build_programs(), "programs", "Programs", "view-app-grid-symbolic")   # Mint-Y's application-x-executable-symbolic draws nothing under GTK 4.22
         self.stack.add_titled_with_icon(self.build_install(), "install", "Install", "list-add-symbolic")
         self.stack.add_titled_with_icon(self.build_health(), "health", "Health", "emblem-ok-symbolic")
         self.task = TaskPage("Working")
