@@ -39,6 +39,7 @@ FIXES = {"dcomp.dll": "DirectComposition (Steinberg's VSTGUI: HALion Sonic 7, Cu
          "win32u.dll": "window and OpenGL plumbing for composition swapchains",
          "advapi32.dll": "credential attributes (Steinberg's License Engine keeps its sign-in)",
          "ole32.dll": "drag-drop teardown survives a stale target (WebView2 apps crashed at startup)",
+         "hidparse.sys": "HID controls with hundreds of usages reach Windows programs (Komplete Kontrol S-series MK1 keyboards)",
          "powershell.exe": "answers \"is this program running?\" honestly (electron-builder installers: Softube Central)",
          "i386-windows/powershell.exe": "the same, for 32-bit installers"}
 

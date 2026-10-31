@@ -1,0 +1,56 @@
+--- a/dlls/hidparse.sys/main.c
++++ b/dlls/hidparse.sys/main.c
+@@ -140,6 +140,10 @@
+     }
+ }
+ 
++/* Native Instruments' Komplete Kontrol S-series MK1 declares 264 usages in one
++ * main item; Windows accepts them, so keep well above that. */
++#define HID_MAX_USAGES 1024
++
+ struct hid_parser_state
+ {
+     USAGE usage;
+@@ -149,9 +153,9 @@
+     USHORT feature_report_byte_length;
+     USHORT number_link_collection_nodes;
+ 
+-    USAGE usages_page[256];
+-    USAGE usages_min[256];
+-    USAGE usages_max[256];
++    USAGE usages_page[HID_MAX_USAGES];
++    USAGE usages_min[HID_MAX_USAGES];
++    USAGE usages_max[HID_MAX_USAGES];
+     DWORD usages_size;
+ 
+     struct hid_value_caps items;
+@@ -176,9 +180,15 @@
+ 
+ static BOOL array_reserve( struct hid_value_caps **array, DWORD *array_size, DWORD index )
+ {
+-    if (index < *array_size) return TRUE;
+-    if ((*array_size = *array_size ? (*array_size * 3 / 2) : 32) <= index) return FALSE;
+-    if (!(*array = realloc( *array, *array_size * sizeof(**array) ))) return FALSE;
++    DWORD size = *array_size;
++    struct hid_value_caps *tmp;
++
++    if (index < size) return TRUE;
++    /* grow until index fits: one main item can add hundreds of usages at once */
++    while (size <= index) size = size ? size * 3 / 2 : 32;
++    if (!(tmp = realloc( *array, size * sizeof(**array) ))) return FALSE;
++    *array = tmp;
++    *array_size = size;
+     return TRUE;
+ }
+ 
+@@ -253,8 +263,8 @@
+     state->items.usage_min = usage;
+     state->items.usage_max = usage;
+     state->items.flags &= ~HID_VALUE_CAPS_IS_RANGE;
+-    if (state->usages_size++ == 255) ERR( "HID parser usages stack overflow!\n" );
+-    return state->usages_size <= 255;
++    if (state->usages_size++ == HID_MAX_USAGES - 1) ERR( "HID parser usages stack overflow!\n" );
++    return state->usages_size <= HID_MAX_USAGES - 1;
+ }
+ 
+ static void parse_local_usage_min( struct hid_parser_state *state, USAGE usage_page, USAGE usage )

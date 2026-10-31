@@ -37,6 +37,30 @@ At each Wine bump, rebuild against the new staging set and re-test HALion Sonic
 and a JUCE 8 GUI (Spitfire Audio) *without* each patch; drop any patch the
 staging set now covers.
 
+## hidparse-large-descriptors-<version>.patch
+
+Native Instruments' Komplete Kontrol S-series MK1 keyboards (S88: USB
+17cc:1410) expose their buttons, knobs and light guide as one vendor HID
+interface (usage page 0xff01). Its 1831-byte report descriptor declares 264
+usages in a single main item (the light guide's output report: 88 keys x 3
+colours). Wine's HID parser refused it twice, so winebus never created the
+HID device and Komplete Kontrol saw no keyboard:
+
+- `array_reserve` grew the value-caps array by half (or to 32) once per call
+  and failed when one item needed more than that step:
+  `err:hid:parse_new_value_caps HID parser values overflow!`
+- the per-item usage list was a fixed 256-entry array:
+  `err:hid:parse_local_usage HID parser usages stack overflow!`
+
+Either one ends in `Failed to get device ... report descriptor, status
+0xc0110008`. The patch grows the array until the index fits and raises the
+usage cap to 1024 (Windows accepts the device). Verified on Wine 11.17 with an
+S88 MK1, 2026-10-31: the device then enumerates and opens as
+`hid#vid_17cc&pid_1410&mi_02` (input 49, output 265, feature 33 bytes). Not
+upstream (checked master the same day); small and general, a good upstream
+candidate. Only the 64-bit `hidparse.sys` is needed: winebus and hidclass run
+in the 64-bit winedevice.
+
 ## powershell.exe (tools/psshim, not a patch)
 
 Wine's `powershell.exe` is a stub: it runs nothing and exits 0 for any command,

@@ -8,7 +8,8 @@
 # products) and advapi32.dll (credential attributes, which Steinberg's
 # License Engine needs to keep its sign-in), dxgi.dll (a WaitForVBlank that
 # returns, for JUCE 8 GUIs) and ole32.dll (drag-drop teardown that survives a
-# stale target, for WebView2 apps). This applies every
+# stale target, for WebView2 apps), and hidparse.sys (HID descriptors with
+# hundreds of usages, for Komplete Kontrol S-series MK1 keyboards). This applies every
 # patches/wine/*-<version>.patch to the Wine sources (on top of the full
 # wine-staging set, since the pinned build is a staging build), builds just
 # those DLLs with the MinGW cross compiler, and produces
@@ -22,7 +23,9 @@ OUT="${2:-$PWD}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 PATCHES=("$HERE"/patches/wine/*-"$VERSION".patch)
 [ -f "${PATCHES[0]}" ] || { echo "no patches for Wine $VERSION under $HERE/patches/wine" >&2; exit 1; }
-DLLS=(dcomp advapi32 dxgi ole32 wined3d win32u)
+# PE modules to rebuild, by file name. Wine keeps a DLL in dlls/<name> and a
+# driver in dlls/<name>.sys, so the source folder is the name minus a .dll suffix.
+MODULES=(dcomp.dll advapi32.dll dxgi.dll ole32.dll wined3d.dll win32u.dll hidparse.sys)
 # WINE_FIXES_WORK=<dir> keeps the patched tree (unstripped DLL for symbols).
 if [ -n "${WINE_FIXES_WORK:-}" ]; then WORK="$WINE_FIXES_WORK"; mkdir -p "$WORK"; else WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT; fi
 cd "$WORK"
@@ -51,12 +54,12 @@ cd "$SRC"
     --without-opencl --without-pcap --without-pcsclite --without-capi --without-v4l2 --without-oss --without-ffmpeg \
     --without-inotify --without-sdl >/dev/null
 for i in include/d2d1*.idl include/dwrite*.idl; do make "${i%.idl}.h" >/dev/null; done
-for DLL in "${DLLS[@]}"; do echo "== build $DLL.dll"; make -j"$(nproc)" "dlls/$DLL/x86_64-windows/$DLL.dll" >/dev/null; done
+for M in "${MODULES[@]}"; do echo "== build $M"; make -j"$(nproc)" "dlls/${M%.dll}/x86_64-windows/$M" >/dev/null; done
 
 echo "== package"
 PKG="$WORK/wine-fixes"; mkdir -p "$PKG"
-for DLL in "${DLLS[@]}"; do
-    x86_64-w64-mingw32-strip --strip-unneeded -o "$PKG/$DLL.dll" "$SRC/dlls/$DLL/x86_64-windows/$DLL.dll" 2>/dev/null || cp "$SRC/dlls/$DLL/x86_64-windows/$DLL.dll" "$PKG/$DLL.dll"
+for M in "${MODULES[@]}"; do
+    x86_64-w64-mingw32-strip --strip-unneeded -o "$PKG/$M" "$SRC/dlls/${M%.dll}/x86_64-windows/$M" 2>/dev/null || cp "$SRC/dlls/${M%.dll}/x86_64-windows/$M" "$PKG/$M"
 done
 # powershell.exe in place of Wine's stub (tools/psshim): it answers "is this program
 # running?" honestly and exits 0 for anything else, as the stub did. Built for both
