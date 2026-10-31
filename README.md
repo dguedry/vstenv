@@ -35,9 +35,13 @@ the program does and what the app does about it.
   the bundle so it does not self-update, launches it with `--disable-gpu
   --no-sandbox`, installs the NTK daemon from NI's own files, and registers the
   `native-access://` browser sign-in handler.
-- **Kontakt.** Its InstallAware installer unpacks the payload and then stops
-  making progress. The app ends it and copies the already-unpacked files, and
-  registers the library entries the daemon does not.
+- **Kontakt, Absynth and other NI products.** Their InstallAware installers
+  unpack the payload and then stop making progress, some idle, some spinning on
+  a Wine stub. The app ends the stuck installer and copies the already-unpacked
+  files into place, works out where they go from the payload itself when the
+  installer never got far enough to say, and writes the registry and
+  installed-products records Native Access and Kontakt look for. It does this
+  while Native Access is still open.
 - **IK Multimedia (IK Product Manager).** Also Electron. Its os-info module
   parses the output of `ver` and fails on Wine's format, and it needs GPU
   acceleration disabled; the app makes two edits to its bundle and launches it
@@ -105,6 +109,17 @@ the program does and what the app does about it.
   to replace a plugin a DAW has loaded ("Cannot start installation. Files are
   in use."), so it is started through the app rather than a desktop shortcut,
   and Health lists the plugins currently held open.
+- **Softube (Softube Central).** Wine's own `powershell.exe` is a placeholder
+  that runs nothing and reports success for every command. Softube's installers
+  ask PowerShell whether Softube Central is running, take that success as
+  "yes", and stop at "Softube Central cannot be closed". Its Installer Helper
+  uses PowerShell scripts to stop, replace and restart its background service,
+  which the placeholder skipped, leaving "Installer Daemon is outdated". The app
+  replaces Wine's placeholder with its own: questions about running programs
+  get real answers, service scripts like Softube's are carried out, and
+  anything else still gets the old success. Every call is logged to
+  `%LOCALAPPDATA%\vstenv-powershell.log`. Central installs plugins through its
+  daemon while it stays open; the app bridges them as they appear.
 - **JUCE 8 programs.** JUCE 8 defaults to the same Direct2D/DirectComposition
   path on Windows with no fallback, so programs built on it (for example the
   Spitfire Audio app) need the same handling. Its vblank thread also does not
@@ -201,6 +216,7 @@ through yabridge, including [StageRig](https://github.com/dguedry/stagerig).
 | Roland | Roland Cloud Manager 3.1.25 | Installs headless (its Qt Installer Framework setup cannot show its own interface under Wine) and the Manager opens and renders its sign-in page; signing in and installing Roland Cloud titles is not yet verified |
 | FabFilter (no module: plain Windows installer) | Total Bundle installer, run from the Install tab | All 14 plugins bridged as VST3 and VST2, working out of the box; nothing needed patching |
 | Soundtoys (no module: plain Windows installer) | Soundtoys 5.5 bundle installer, iLok License Manager | Every effect bridged as VST3 and VST2, working out of the box; iLok licensing (PACE License Support 5.10) activates and runs unchanged |
+| Softube (no module: plain Windows installer) | Softube Central 3.0.0 installer, updated in place to 3.1.0; Installer Helper daemon 2.6.50 | Installs and updates itself; the Installer Helper service is installed and replaced on update; Heartbeat installed from Central, bridged as VST3 and VST2 and playing in StageRig |
 | Valhalla DSP (no module: plain Windows installer) | ValhallaFreqEcho 1.2 installer | Bridged as VST3 and VST2, flawless out of the box |
 | Xfer Records (no module: plain Windows installer) | Serum 2 (2.1.5) installer | Bridged as VST3 and playing out of the box |
 | iZotope | Product Portal 1.4, Ozone 9 Advanced 9.13 installer | Every Ozone module bridged as VST3 and VST2, working out of the box. Installs cleanly: the app waits out the helper its installer hands off to, and ends the Electron Product Portal the installer leaves behind — under stock Wine that keeps crash-looping and starves loaded plugins until the Wine session is unusable |
@@ -283,7 +299,9 @@ the installer finishes; nothing needs moving by hand.
   managers and installers (Native Access, the IK Product Manager, the Steinberg
   Download and Install Assistants, the iZotope Product Portal, the Arturia
   Software Center), which have no shortcut because they must be launched from the
-  app so their fixes apply.
+  app so their fixes apply. While a program runs, from the app or its menu
+  entry, plugins it installs are bridged as they appear (within about half a
+  minute), not only after it closes.
 - **Install** — per vendor: open the manager, get it from the vendor, install or
   update it from a downloaded installer, and (NI, IK) install a product from its
   own installer when the manager cannot. Plus "Install from a Windows installer"
