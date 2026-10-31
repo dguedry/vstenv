@@ -64,8 +64,8 @@ done
 # will not load it from lib/wine as its builtin.
 echo "== build powershell.exe (psshim)"
 mkdir -p "$PKG/i386-windows"
-x86_64-w64-mingw32-gcc -O2 -municode -mconsole -s -o "$PKG/powershell.exe" "$HERE/tools/psshim/powershell.c" -lcrypt32
-i686-w64-mingw32-gcc -O2 -municode -mconsole -s -o "$PKG/i386-windows/powershell.exe" "$HERE/tools/psshim/powershell.c" -lcrypt32
+x86_64-w64-mingw32-gcc -O2 -municode -mconsole -s -o "$PKG/powershell.exe" "$HERE/tools/psshim/powershell.c" -lcrypt32 -ladvapi32 -lshell32
+i686-w64-mingw32-gcc -O2 -municode -mconsole -s -o "$PKG/i386-windows/powershell.exe" "$HERE/tools/psshim/powershell.c" -lcrypt32 -ladvapi32 -lshell32
 python3 - "$PKG/powershell.exe" "$PKG/i386-windows/powershell.exe" <<'EOF'
 import sys
 for f in sys.argv[1:]:

@@ -54,7 +54,12 @@ stub's success.
 queries Win32_Process for executables under a folder
 (`$_.Path.StartsWith('<folder>'...)`) is answered from the real process list,
 exit 0 if one runs and 1 if none; one that also stops them (Stop-Process,
-`.Terminate()`, taskkill) ends them. Anything else exits 0, as before. Every
+`.Terminate()`, taskkill) ends them. A service script run with `-File` that
+declares `$name = '<service>'` and switches on stop / start <exe> / restart /
+remove / <dependency>-running (Softube's Installer Helper `service.ps1`) is
+carried out through the service control manager -- the stub's success had
+left the old daemon running and the service pointing at a deleted exe ("Installer
+Daemon is outdated"). Anything else exits 0, as before. Every
 call is logged to `%LOCALAPPDATA%\vstenv-powershell.log`. The build tags it
 "Wine builtin DLL" at 0x40, as Wine's own modules are, or Wine will not load it
 from `lib/wine` as its builtin; it ships in the wine-fixes tarball as

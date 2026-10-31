@@ -12,8 +12,19 @@
    rest. A command that queries Win32_Process for executables under a folder
    (`$_.Path.StartsWith('<folder>' ...)`) is answered from the real process
    list: exit 0 if one runs, 1 if none; a command that also stops them
-   (Stop-Process, .Terminate(), taskkill) ends them and exits 0. Anything else
-   exits 0, exactly as the stub did. Every call is logged to
+   (Stop-Process, .Terminate(), taskkill) ends them and exits 0.
+
+   A service script run with -File is the other case the stub broke: its
+   "success" without doing anything left an old service running, so the new
+   executable could not replace it, and never pointed the service at the new
+   one (Softube's Installer Helper, whose service.ps1 takes stop | start <exe>
+   | restart | remove | pace-running). A script that declares its service as
+   `$name = '<service>'` and switches on those actions is carried out here
+   through the service control manager -- which Wine implements, where its
+   sc.exe has no `config` -- reading the names it needs (the dependency in
+   `$pace = '...'`, the display name in `-DisplayName '...'`) from the script.
+
+   Anything else exits 0, exactly as the stub did. Every call is logged to
    %LOCALAPPDATA%\vstenv-powershell.log so the next surprise can be read. */
 #include <windows.h>
 #include <tlhelp32.h>
@@ -21,6 +32,7 @@
 #include <stdio.h>
 #include <wchar.h>
 #include <wctype.h>
+#include <shellapi.h>
 
 static void log_line(const wchar_t *what, const wchar_t *cmd, int rc)
 {
@@ -101,6 +113,168 @@ static int running_under(const wchar_t *folder, BOOL stop)
     return found;
 }
 
+/* ---- service scripts ------------------------------------------------------------ */
+
+/* The value of `<var> = '<value>'` or of `<flag> '<value>'` in a script, or NULL. */
+static wchar_t *quoted_after(const wchar_t *text, const wchar_t *key)
+{
+    const wchar_t *p = find_ci(text, key);
+    if (!p) return NULL;
+    p += wcslen(key);
+    while (*p == L' ' || *p == L'=' || *p == L'\t') p++;
+    if (*p != L'\'' && *p != L'"') return NULL;
+    wchar_t q = *p; const wchar_t *s = ++p, *e = wcschr(s, q);
+    if (!e || e == s) return NULL;
+    wchar_t *out = calloc(e - s + 1, sizeof(wchar_t));
+    if (out) wcsncpy(out, s, e - s);
+    return out;
+}
+
+static wchar_t *read_text(const wchar_t *path)
+{
+    HANDLE h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    if (h == INVALID_HANDLE_VALUE) return NULL;
+    DWORD size = GetFileSize(h, NULL), got = 0;
+    char *raw = calloc(1, size + 4);
+    if (!raw || !ReadFile(h, raw, size, &got, NULL)) { CloseHandle(h); free(raw); return NULL; }
+    CloseHandle(h);
+    if (got >= 2 && (BYTE)raw[0] == 0xff && (BYTE)raw[1] == 0xfe)      /* UTF-16LE with BOM */
+        return wcsdup((wchar_t *)(raw + 2));
+    int skip = (got >= 3 && (BYTE)raw[0] == 0xef && (BYTE)raw[1] == 0xbb && (BYTE)raw[2] == 0xbf) ? 3 : 0;
+    int n = MultiByteToWideChar(CP_UTF8, 0, raw + skip, got - skip, NULL, 0);
+    wchar_t *w = calloc(n + 1, sizeof(wchar_t));
+    if (w) MultiByteToWideChar(CP_UTF8, 0, raw + skip, got - skip, w, n);
+    free(raw);
+    return w;
+}
+
+/* argv after "-File <script>": the script path, then its arguments. */
+static int file_args(wchar_t **script, wchar_t **action, wchar_t **arg)
+{
+    int argc; wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (!argv) return 0;
+    for (int i = 1; i < argc - 1; i++)
+        if (!_wcsicmp(argv[i], L"-File") || !_wcsicmp(argv[i], L"-f"))
+        {
+            *script = argv[i + 1];
+            *action = i + 2 < argc ? argv[i + 2] : NULL;
+            *arg = i + 3 < argc ? argv[i + 3] : NULL;
+            /* named parameters: -Action x -Exe y */
+            for (int j = i + 2; j < argc - 1; j++)
+            {
+                if (!_wcsicmp(argv[j], L"-Action")) *action = argv[j + 1];
+                else if (!_wcsicmp(argv[j], L"-Exe")) *arg = argv[j + 1];
+            }
+            return 1;
+        }
+    return 0;
+}
+
+static DWORD service_pid(SC_HANDLE svc, DWORD *state)
+{
+    SERVICE_STATUS_PROCESS st; DWORD need;
+    if (!QueryServiceStatusEx(svc, SC_STATUS_PROCESS_INFO, (BYTE *)&st, sizeof st, &need)) { *state = 0; return 0; }
+    *state = st.dwCurrentState;
+    return st.dwProcessId;
+}
+
+static BOOL wait_state(SC_HANDLE svc, DWORD want, int seconds)
+{
+    DWORD state;
+    for (int i = 0; i < seconds * 4; i++) { service_pid(svc, &state); if (state == want) return TRUE; Sleep(250); }
+    return FALSE;
+}
+
+static BOOL wait_exit(DWORD pid, int seconds)
+{
+    if (!pid) return TRUE;
+    HANDLE h = OpenProcess(SYNCHRONIZE, FALSE, pid);
+    if (!h) return TRUE;                      /* already gone */
+    BOOL gone = WaitForSingleObject(h, seconds * 1000) == WAIT_OBJECT_0;
+    CloseHandle(h);
+    return gone;
+}
+
+/* Stop it and wait until its process has exited, so its executable can be replaced. */
+static int svc_stop(SC_HANDLE svc)
+{
+    DWORD state, pid = service_pid(svc, &state);
+    if (state == SERVICE_STOPPED || !state) return 0;
+    SERVICE_STATUS st;
+    if (state != SERVICE_STOP_PENDING) ControlService(svc, SERVICE_CONTROL_STOP, &st);
+    if (!wait_exit(pid, 60))
+    {
+        SERVICE_FAILURE_ACTIONSW none = { 0 };
+        ChangeServiceConfig2W(svc, SERVICE_CONFIG_FAILURE_ACTIONS, &none);   /* or it is restarted */
+        HANDLE h = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pid);
+        if (h) { TerminateProcess(h, 1); WaitForSingleObject(h, 10000); CloseHandle(h); }
+    }
+    wait_state(svc, SERVICE_STOPPED, 10);
+    return 0;
+}
+
+static void svc_recovery(SC_HANDLE svc)
+{
+    SC_ACTION a[3] = { { SC_ACTION_RESTART, 0 }, { SC_ACTION_RESTART, 0 }, { SC_ACTION_RESTART, 0 } };
+    SERVICE_FAILURE_ACTIONSW fa = { 0, NULL, NULL, 3, a };
+    ChangeServiceConfig2W(svc, SERVICE_CONFIG_FAILURE_ACTIONS, &fa);
+}
+
+static int svc_start(SC_HANDLE svc)
+{
+    svc_recovery(svc);
+    DWORD state; service_pid(svc, &state);
+    if (state == SERVICE_RUNNING) return 0;
+    if (state != SERVICE_START_PENDING) StartServiceW(svc, 0, NULL);
+    return wait_state(svc, SERVICE_RUNNING, 60) ? 0 : 2;
+}
+
+/* A service.ps1-style script: carried out here. Returns -1 when it is not one. */
+static int service_script(wchar_t **what)
+{
+    wchar_t *script, *action, *arg;
+    if (!file_args(&script, &action, &arg) || !action) return -1;
+    wchar_t *text = read_text(script);
+    if (!text) return -1;
+    wchar_t *name = quoted_after(text, L"$name");
+    if (!name || !find_ci(text, L"switch") || !find_ci(text, L"'stop'") || !find_ci(text, L"'start'")) return -1;
+    wchar_t *dep = quoted_after(text, L"$pace");
+    wchar_t *display = quoted_after(text, L"-DisplayName");
+    SC_HANDLE scm = OpenSCManagerW(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+    if (!scm) return -1;
+    SC_HANDLE svc = OpenServiceW(scm, name, SERVICE_ALL_ACCESS);
+    int rc = 0;
+    if (!_wcsicmp(action, L"stop")) { *what = L"service stop"; if (svc) rc = svc_stop(svc); }
+    else if (!_wcsicmp(action, L"start") && arg)
+    {
+        *what = L"service start";
+        wchar_t path[MAX_PATH * 2]; swprintf(path, MAX_PATH * 2, L"\"%ls\"", arg);
+        wchar_t deps[256] = { 0 };                    /* double-NUL-terminated list */
+        if (dep) wcsncpy(deps, dep, 250);
+        if (svc)
+        {
+            if (!ChangeServiceConfigW(svc, SERVICE_NO_CHANGE, SERVICE_NO_CHANGE, SERVICE_NO_CHANGE, path,
+                                      NULL, NULL, dep ? deps : NULL, NULL, NULL, NULL)) rc = 2;
+        }
+        else if (!(svc = CreateServiceW(scm, name, display ? display : name, SERVICE_ALL_ACCESS, SERVICE_WIN32_OWN_PROCESS,
+                                        SERVICE_AUTO_START, SERVICE_ERROR_NORMAL, path, NULL, NULL, dep ? deps : NULL, NULL, NULL))) rc = 2;
+        if (!rc) rc = svc_start(svc);
+    }
+    else if (!_wcsicmp(action, L"restart")) { *what = L"service restart"; if (svc) rc = svc_start(svc); }
+    else if (!_wcsicmp(action, L"remove")) { *what = L"service remove"; if (svc) { svc_stop(svc); DeleteService(svc); } }
+    else if (dep && find_ci(action, L"-running"))     /* pace-running: is the dependency running? */
+    {
+        *what = L"dependency running?";
+        SC_HANDLE d = OpenServiceW(scm, dep, SERVICE_QUERY_STATUS);
+        DWORD state = 0; if (d) { service_pid(d, &state); CloseServiceHandle(d); }
+        rc = state == SERVICE_RUNNING ? 0 : 1;
+    }
+    else { rc = -1; }
+    if (svc) CloseServiceHandle(svc);
+    CloseServiceHandle(scm);
+    return rc;
+}
+
 int wmain(void)
 {
     const wchar_t *cmdline = GetCommandLineW();
@@ -115,6 +289,12 @@ int wmain(void)
         rc = stop ? 0 : (n ? 0 : 1);
         log_line(stop ? L"stop processes" : (n ? L"running" : L"not running"), cmd, rc);
     }
-    else log_line(L"stub", cmd, rc);
+    else
+    {
+        wchar_t *what = L"service script";
+        int src = service_script(&what);
+        if (src >= 0) { rc = src; log_line(what, cmd, rc); }
+        else log_line(L"stub", cmd, rc);
+    }
     return rc;
 }

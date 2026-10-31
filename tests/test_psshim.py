@@ -28,11 +28,21 @@ class PowerShellShimTest(unittest.TestCase):
         for needle in ("Win32_Process", "StartsWith(", "QueryFullProcessImageNameW", "Stop-Process", "log_line(L\"stub\""):
             self.assertIn(needle, src)
 
+    def test_service_scripts_are_carried_out_not_stubbed(self):
+        """The stub's success for Softube's service.ps1 stop/start left the old
+        daemon running and the service on a deleted exe ("Installer Daemon is
+        outdated", 2026-10-30)."""
+        src = self.SRC.read_text()
+        for needle in ("ControlService(svc, SERVICE_CONTROL_STOP", "ChangeServiceConfigW", "CreateServiceW",
+                       "StartServiceW", "DeleteService", 'quoted_after(text, L"$name")', 'quoted_after(text, L"$pace")'):
+            self.assertIn(needle, src)
+
     def test_build_script_tags_it_as_a_wine_builtin(self):
         sh = Path("scripts/build-wine-fixes.sh").read_text()
         self.assertIn("tools/psshim/powershell.c", sh)
         self.assertIn("Wine builtin DLL", sh)
         self.assertIn("i686-w64-mingw32-gcc", sh)
+        self.assertEqual(sh.count("-ladvapi32 -lshell32"), 2)
 
     def test_nothing_disables_powershell_any_more(self):
         for f in ("vstenv/programs.py", "vstenv/quirks.py"):
