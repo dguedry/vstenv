@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.93" date="2026-10-31">
+      <description>
+        <p>Install electron-builder setups without Wine's PowerShell stub</p>
+      </description>
+    </release>
     <release version="0.1.92" date="2026-10-18">
       <description>
         <p>README: lead with hosting any Windows plugin, and with Native Instruments</p>
