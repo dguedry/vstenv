@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.103" date="2026-10-31">
+      <description>
+        <p>GUI: bundle the tab icons so every distro and theme draws them</p>
+      </description>
+    </release>
     <release version="0.1.102" date="2026-10-31">
       <description>
         <p>GUI: Programs tab icon that draws under every theme</p>
