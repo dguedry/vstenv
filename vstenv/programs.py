@@ -229,10 +229,14 @@ def _installed_uncached(p: Prefix) -> list[Program]:
     from . import vendors
     regs = registry_programs(p) + [x for v in vendors.all() for x in v.programs(p)]; links = shortcut_programs(p)
     by_name: dict[str, Program] = {}
+    def _same(a, b):                 # "Komplete Kontrol" (vendor) is "Native Instruments Komplete Kontrol" (registry)
+        return _norm(a.name) == _norm(b.name) or _bare(a.name) == _bare(b.name)
     for r in regs:
         k = _norm(r.name)
+        if k not in by_name: k = next((n for n, c in by_name.items() if _same(c, r)), k)
         if k in by_name:                                         # HKLM + Wow6432Node duplicates: keep the fuller one
             cur = by_name[k]
+            if "registry" in cur.sources and "registry" not in r.sources: cur.name = r.name   # the vendor's own name reads better
             for f in ("version", "publisher", "exe", "install_dir", "uninstall"):
                 if not getattr(cur, f): setattr(cur, f, getattr(r, f))
             for s in r.sources:
@@ -353,7 +357,8 @@ def uninstall(p: Prefix, prog: Program, reporter=None) -> int:
     (r.ok if cp.returncode == 0 else r.fail)(f"exit {cp.returncode}")
     return cp.returncode
 
-UNINSTALLER_PROC = re.compile(r"(Au_\.exe|_iu[0-9a-z]*\.tmp|unins[0-9]*\.exe|uninstall)", re.I)
+# InstallAware setups (NI) uninstall by re-running the setup with REMOVE=TRUE.
+UNINSTALLER_PROC = re.compile(r"(Au_\.exe|_iu[0-9a-z]*\.tmp|unins[0-9]*\.exe|uninstall|\bREMOVE=TRUE\b)", re.I)
 
 def wait_for_uninstaller(p: Prefix, prog: Program, timeout=1800):
     """Block while an uninstaller (or its temp copy) still runs in the prefix."""

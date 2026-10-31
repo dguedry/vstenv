@@ -247,6 +247,32 @@ class MergeSlashStyleTest(unittest.TestCase):
             names = [x.name for x in out if "SWAM" in x.name]
             self.assertEqual(names, ["SWAM Violin"])
 
+    def test_vendor_program_and_its_vendor_prefixed_registry_record_are_one_row(self):
+        # Native Access installs write "Native Instruments Komplete Kontrol" with the
+        # uninstaller; the NI module lists "Komplete Kontrol" without one. Two rows hid
+        # the Uninstall button from the one users look at.
+        import tempfile, types
+        from unittest import mock
+        from vstenv.wine import Prefix, WineBuild
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Prefix(Path(tmp) / "prefix", WineBuild(Path(tmp) / "wine"))
+            (p.drive_c / "users/me").mkdir(parents=True)
+            exe = r"C:\Program Files\Native Instruments\Komplete Kontrol\Komplete Kontrol.exe"
+            reg = programs.Program(name="Native Instruments Komplete Kontrol", exe=exe, uninstall='cmd.exe /C del "x" && start "" "setup.exe" REMOVE=TRUE',
+                                   sources=["registry"])
+            driver = programs.Program(name="Native Instruments Komplete Kontrol Driver", uninstall='"d.exe" REMOVE=TRUE', sources=["registry"])
+            ni = types.SimpleNamespace(name="Native Instruments", programs=lambda p: [programs.Program(name="Komplete Kontrol", exe=exe, sources=["ni"])])
+            with mock.patch.object(programs, "registry_programs", return_value=[reg, driver]), \
+                 mock.patch.object(programs, "shortcut_programs", return_value=[]), \
+                 mock.patch("vstenv.vendors.all", return_value=[ni]):
+                out = {x.name: x for x in programs.installed(p, fresh=True)}
+            self.assertEqual(set(out), {"Komplete Kontrol", "Native Instruments Komplete Kontrol Driver"})
+            self.assertTrue(out["Komplete Kontrol"].uninstall.startswith("cmd.exe")); self.assertEqual(out["Komplete Kontrol"].exe, exe)
+
+    def test_installaware_removal_counts_as_an_uninstaller(self):
+        self.assertTrue(programs.UNINSTALLER_PROC.search(r'C:\ProgramData\{268F}\Komplete Kontrol Setup PC.exe REMOVE=TRUE MODIFY=FALSE'))
+        self.assertFalse(programs.UNINSTALLER_PROC.search(r'C:\Program Files\Native Instruments\Komplete Kontrol\Komplete Kontrol.exe'))
+
 
 class WatchProgramThreadTest(unittest.TestCase):
     """run() hands the live program to a vendor that observes it (watch_program)
