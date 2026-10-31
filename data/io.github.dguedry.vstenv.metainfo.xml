@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.101" date="2026-10-31">
+      <description>
+        <p>Uninstall: run cmd-style uninstall lines through a batch file</p>
+      </description>
+    </release>
     <release version="0.1.100" date="2026-10-31">
       <description>
         <p>Programs: one row per NI program, with its Uninstall button</p>
