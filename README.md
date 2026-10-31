@@ -362,7 +362,7 @@ sandbox also needs to see every host path Wine reaches through the prefix
 
 **Other Wines on the machine keep working.** Debian's and Ubuntu's Wine keep
 their sockets in `/run/user/<uid>/wine` and refuse to start if that folder is
-readable by others. Flatpaks before 0.1.98 created it that way (mode 0755) on
+readable by others. Flatpaks before 0.1.99 created it that way (mode 0755) on
 every launch, which broke plugins bridged with the distro Wine ("crashes on
 scan"; the only message, `must not be accessible by other users`, goes to the
 DAW's terminal). The app no longer touches that folder, and setup, Health and
