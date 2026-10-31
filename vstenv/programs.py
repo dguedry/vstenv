@@ -344,13 +344,26 @@ def uninstall_argv(uninstall: str) -> list[str]:
     parts = shlex.split(s, posix=False)
     return parts if parts and parts[0].lower().endswith(".exe") else ["cmd", "/c", s]
 
+def cmd_argv(p: Prefix, argv: list[str]) -> list[str]:
+    """A `cmd /c <line>` argv that survives Wine. Wine rebuilds the Windows
+    command line from argv and quotes an argument holding spaces as "...", with
+    inner quotes as \\" -- which cmd does not unescape, so a quoted path in the
+    line arrives mangled ("File not found") and nothing after && runs (Native
+    Access's `cmd.exe /C del "<json>" && start "" "<setup>" REMOVE=TRUE`). The
+    line goes into a batch file instead, which cmd reads exactly as written."""
+    if len(argv) != 3 or argv[0].lower() != "cmd" or argv[1].lower() != "/c": return argv
+    bat = p.drive_c / "windows/temp/vstenv-uninstall.bat"
+    bat.parent.mkdir(parents=True, exist_ok=True)
+    bat.write_bytes(("@echo off\r\n" + argv[2] + "\r\n").encode("utf-8"))
+    return ["cmd", "/c", r"C:\windows\temp\vstenv-uninstall.bat"]
+
 def uninstall(p: Prefix, prog: Program, reporter=None) -> int:
     """Run the program's own uninstaller interactively and wait."""
     r = null_reporter(reporter)
     argv = uninstall_argv(prog.uninstall)
     if not argv: raise RuntimeError(f"{prog.name} did not register an uninstaller; delete its folder from the prefix by hand")
     r.step(f"Uninstalling {prog.name}")
-    cp = p.run(argv, timeout=7200, capture=False)
+    cp = p.run(cmd_argv(p, argv), timeout=7200, capture=False)
     # NSIS (and InnoSetup) uninstallers copy themselves to a temp folder, start that
     # copy and return at once; the real work happens after our call comes back.
     wait_for_uninstaller(p, prog)

@@ -301,3 +301,19 @@ class WatchProgramThreadTest(unittest.TestCase):
                  mock.patch.object(p, "spawn", return_value=Proc()):
                 proc = programs.run(p, prog)
             self.assertFalse(hasattr(proc, "vstenv_watch"), "no thread for the default no-op")
+
+
+class CmdArgvTest(unittest.TestCase):
+    """A cmd /c line goes through a batch file: Wine's argv quoting mangles its inner quotes."""
+    def test_cmd_line_is_written_to_a_batch_file(self):
+        import tempfile
+        from vstenv.wine import Prefix, WineBuild
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Prefix(Path(tmp) / "prefix", WineBuild(Path(tmp) / "wine"))
+            line = 'cmd.exe /C del "C:\\a b\\x.json" && start "" "C:\\s\\Setup PC.exe" REMOVE=TRUE'
+            argv = programs.cmd_argv(p, programs.uninstall_argv(line))
+            self.assertEqual(argv, ["cmd", "/c", r"C:\windows\temp\vstenv-uninstall.bat"])
+            self.assertEqual((p.drive_c / "windows/temp/vstenv-uninstall.bat").read_bytes(), b"@echo off\r\n" + line.encode() + b"\r\n")
+    def test_an_exe_argv_is_left_alone(self):
+        argv = programs.uninstall_argv('"C:\\Foo\\unins000.exe" /SILENT')
+        self.assertEqual(programs.cmd_argv(None, argv), argv)
