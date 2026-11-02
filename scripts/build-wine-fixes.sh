@@ -82,7 +82,7 @@ import hashlib, json, os, sys
 from pathlib import Path
 pkg, version, patches = Path(sys.argv[1]), sys.argv[2], [os.path.basename(p) for p in sys.argv[3:]]
 files = {f.relative_to(pkg).as_posix(): hashlib.sha256(f.read_bytes()).hexdigest()
-         for f in sorted(pkg.rglob("*")) if f.is_file() and f.suffix in (".dll", ".exe")}
+         for f in sorted(pkg.rglob("*")) if f.is_file() and f.suffix in (".dll", ".exe", ".sys")}
 (pkg / "manifest.json").write_text(json.dumps({"wine_version": version, "files": files, "patches": patches,
     "note": "dcomp: DirectComposition for Steinberg's products; advapi32: credential attributes for Steinberg's License Engine sign-in"}, indent=2))
 EOF
