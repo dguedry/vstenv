@@ -308,6 +308,40 @@ def self_update_disabled(p: Prefix) -> bool:
     asar = na_dir(p) / "resources/app.asar"
     return asar.exists() and _AU_OFF in asar.read_bytes()
 
+# NA reads its own "disable hardware acceleration" setting at startup and then
+# appends --disable-gpu itself. Komplete Kontrol (File > Manage Products) and
+# plugins start NA.exe with no arguments, so without this NA ran on its GPU
+# process under Wine: a jittery, barely usable window (2026-10-31). Right after
+# that check, append both switches the launcher passes, unconditionally.
+_GPU_RX = re.compile(rb"try\{\w+(?:\.get\(\)|\[\w+\(\d+\)\]\(\))\.disableHardwareAcceleration&&(\w+)\.commandLine"
+                     rb"\[[^\]]+\]\([^()]*\(?[^()]*\)?\)\}catch\((\w+)\)\{[^{}]*\}")
+_FLAGS_MARK = b"/*VSTENV_NA_FLAGS*/"
+
+def _flags_edit(js: bytes):
+    if _FLAGS_MARK in js: return None
+    ms = list(_GPU_RX.finditer(js))
+    if len(ms) != 1: raise LookupError(f"hardware-acceleration check not found once ({len(ms)})")
+    m = ms[0]; app, err = m.group(1), m.group(2)
+    inject = (b"try{" + app + b'.commandLine.appendSwitch("disable-gpu");' + app + b'.commandLine.appendSwitch("no-sandbox")}catch('
+              + err + b"){}" + _FLAGS_MARK)
+    return js[:m.end()] + inject + js[m.end():]
+
+def bake_launch_flags(p: Prefix, reporter=None) -> str:
+    """Make NA add --disable-gpu and --no-sandbox itself, so it also runs
+    properly when Komplete Kontrol or a plugin starts it without them."""
+    r = null_reporter(reporter)
+    r.step("Native Access: GPU and sandbox switches built in")
+    if launch_flags_baked(p): r.skip("already"); return "already"
+    try: res = _patch_asar(p, {MAIN_RX: _flags_edit}, r)
+    except LookupError as e: r.fail(f"{e} — NA version not yet supported"); return "unsupported"
+    st = res[MAIN_RX]
+    (r.ok if st == "patched" else r.fail)("also when another program starts it" if st == "patched" else st)
+    return st if st == "patched" else "unsupported"
+
+def launch_flags_baked(p: Prefix) -> bool:
+    asar = na_dir(p) / "resources/app.asar"
+    return asar.exists() and _FLAGS_MARK in asar.read_bytes()
+
 def version_notice(p: Prefix) -> dict:
     """installed vs latest (from NI's feed, version string only) and whether latest is validated."""
     inst = pe.version(na_exe(p)) if na_exe(p).exists() else None
@@ -399,13 +433,13 @@ def install_native_access(p: Prefix, installer: Path, reporter=None):
     if not runtime.status(p)["prepared"]: setup.prepare(p, r)
     install(p, installer, r)
     r.step("Patching Native Access.exe stack reserve to 64MB"); r.ok(stack_patch(na_exe(p)))
-    disable_self_update(p, r); ntk_daemon(p, r); config(p, r); download_location(p, r); dependency_patch(p, r); p.wait_idle()
+    disable_self_update(p, r); bake_launch_flags(p, r); ntk_daemon(p, r); config(p, r); download_location(p, r); dependency_patch(p, r); p.wait_idle()
 
 def install_native_access_fixes(p: Prefix, reporter=None):
     """Re-apply the NA-side fixes to an already installed Native Access (repair)."""
     r = null_reporter(reporter)
     r.step("Patching Native Access.exe stack reserve to 64MB"); r.ok(stack_patch(na_exe(p)))
-    disable_self_update(p, r); ntk_daemon(p, r); config(p, r); download_location(p, r); dependency_patch(p, r); p.wait_idle()
+    disable_self_update(p, r); bake_launch_flags(p, r); ntk_daemon(p, r); config(p, r); download_location(p, r); dependency_patch(p, r); p.wait_idle()
 
 def status(p: Prefix) -> dict:
     exe = na_exe(p)
@@ -417,6 +451,7 @@ def status(p: Prefix) -> dict:
         "ntk_version": pe.version(p.drive_c / NTK_REL / "NTKDaemon.exe") if (p.drive_c / NTK_REL / "NTKDaemon.exe").exists() else None,
         "dependency_patch": dependency_patched(p) if exe.exists() else False,
         "self_update_disabled": self_update_disabled(p) if exe.exists() else False,
+        "launch_flags_baked": launch_flags_baked(p) if exe.exists() else False,
         "pending_update": pending_update(p) is not None,
         "running": p.is_running("Native Access.exe"),
     }

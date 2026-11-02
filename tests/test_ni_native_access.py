@@ -85,3 +85,17 @@ class EnsureDaemonTest(unittest.TestCase):
         src = Path("vstenv/vendors/ni/native_access.py").read_text()
         start = src.index("def launch(p: Prefix"); end = src.index("def ensure_daemon")
         self.assertIn("ensure_daemon(p, r)", src[start:end])
+
+
+class LaunchFlagsTest(unittest.TestCase):
+    """NA appends both switches itself, right after its own hardware-acceleration check
+    (Komplete Kontrol's Manage Products starts NA.exe with no arguments)."""
+    JS = (b'foo();try{Gs.get().disableHardwareAcceleration&&t.commandLine[e(2169)](e(1152))}catch(xu){es[e(1667)](e(1254),xu)}'
+          b'try{bar()}catch(q){}')
+    def test_switches_are_appended_after_the_check(self):
+        out = na._flags_edit(self.JS)
+        self.assertIn(b'}catch(xu){es[e(1667)](e(1254),xu)}try{t.commandLine.appendSwitch("disable-gpu");'
+                      b't.commandLine.appendSwitch("no-sandbox")}catch(xu){}/*VSTENV_NA_FLAGS*/try{bar()}', out)
+        self.assertIsNone(na._flags_edit(out), "patched once only")
+    def test_an_unknown_version_is_refused(self):
+        with self.assertRaises(LookupError): na._flags_edit(b"no such check here")

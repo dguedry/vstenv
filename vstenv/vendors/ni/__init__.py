@@ -116,6 +116,7 @@ class NativeInstruments(Vendor):
                            "built into Native Access 3.26+" if dep == "native" else ("" if dep == "patched" else "NA picks an owned product over the installed Player: libraries show 'Requires Kontakt'"),
                            fix="vstenv setup"))
             c.append(Check("NA self-updater disabled", s["self_update_disabled"], "updates only via a downloaded installer", fix="vstenv setup"))
+            c.append(Check("NA runs without GPU and sandbox however it is started", s["launch_flags_baked"], "Komplete Kontrol's Manage Products and plugins start it with no arguments", fix="vstenv setup"))
             v = na.version_notice(p)
             if v["installed_known_bad"]:
                 c.append(Check("Native Access version", False, f"{v['installed']} does not work on this stack: {v['installed_known_bad']}",
