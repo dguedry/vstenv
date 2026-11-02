@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.106" date="2026-11-02">
+      <description>
+        <p>wine-fixes: list .sys modules in the manifest</p>
+      </description>
+    </release>
     <release version="0.1.105" date="2026-11-02">
       <description>
         <p>NI: bake --disable-gpu/--no-sandbox into Native Access itself</p>
