@@ -378,6 +378,16 @@ raises an activating window without being asked, setup switches it to `strict`
 Wine's `UseTakeFocus = N`, which fixes the separate problem of a Wine window
 losing keyboard input after Alt-Tab.
 
+A related case needs a per-program setting. Some programs do not use Win32
+menus for their dropdowns: they open a fullscreen transparent popup and draw
+the menu inside it. Wine hands a fullscreen popup to the window manager, which
+activates it as it would any fullscreen dialog; the program's main window
+deactivates, and the program closes its own menu — the menu flashes and
+vanishes. Komplete Kontrol 2.9.6 does this with every dropdown, including the
+File menu. Setup gives such programs Wine's `Managed = N`
+(`vstenv/unmanaged.py`), so the window manager never sees the menu layers.
+Those programs then draw Wine's own title bar instead of the desktop's.
+
 **Vendor modules.** `vstenv/vendors/__init__.py` defines the interface; the
 core calls it and never names a vendor. A module says what its manager is and
 how to install, fix and launch it; which products are installed; which plugin

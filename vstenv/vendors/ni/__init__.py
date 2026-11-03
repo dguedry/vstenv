@@ -12,10 +12,16 @@ import re
 from pathlib import Path
 
 from .. import Vendor, Product, Check, UrlScheme, Note
+from ... import unmanaged
 from ...installers import installaware
 from ...programs import Program
 from ...wine import Prefix
 from . import native_access as na, products as prod
+
+# Programs whose dropdowns are fullscreen popup windows: the window manager
+# activates the popup, the main window deactivates, and the program closes its
+# own menu (see unmanaged.py). Komplete Kontrol 2.9.6 measured on Cinnamon.
+MENU_POPUP_EXES = ("Komplete Kontrol.exe",)
 
 class NativeInstruments(Vendor):
     id = "ni"
@@ -52,6 +58,7 @@ class NativeInstruments(Vendor):
     # -- prefix -------------------------------------------------------------------------
     def prepare(self, p, r=None):
         na.download_location(p, r)
+        unmanaged.apply(p, list(MENU_POPUP_EXES), r)
 
     # -- content ---------------------------------------------------------------------------
     def products(self, p):
@@ -117,6 +124,13 @@ class NativeInstruments(Vendor):
                            fix="vstenv setup"))
             c.append(Check("NA self-updater disabled", s["self_update_disabled"], "updates only via a downloaded installer", fix="vstenv setup"))
             c.append(Check("NA runs without GPU and sandbox however it is started", s["launch_flags_baked"], "Komplete Kontrol's Manage Products and plugins start it with no arguments", fix="vstenv setup"))
+        missing_unmanaged = [e for e in MENU_POPUP_EXES if not unmanaged.applied(p, e)]
+        if not missing_unmanaged:
+            c.append(Check("Komplete Kontrol menus stay open", True, "the window manager is kept away from its fullscreen menu popups"))
+        elif any(pr.name.lower().startswith("komplete kontrol") for pr in self.programs(p)):
+            c.append(Check("Komplete Kontrol menus stay open", False,
+                           "its dropdowns are fullscreen popups; the window manager activates them and Komplete Kontrol closes its own menu",
+                           fix="vstenv setup"))
             v = na.version_notice(p)
             if v["installed_known_bad"]:
                 c.append(Check("Native Access version", False, f"{v['installed']} does not work on this stack: {v['installed_known_bad']}",
