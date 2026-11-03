@@ -390,13 +390,16 @@ class Window(Adw.ApplicationWindow):
         self._rows_limits = _row("What runs here", "Click for the limits of this environment.", "dialog-information-symbolic", lambda: self.toast(programs.LIMITS, 12))
         g.add(self._rows_limits)
         page.add(g); return box
-    def _draw_programs(self, progs, notes, dc):
+    def _draw_programs(self, progs, notes, dc, um=()):
         """Draw the programs page from data already fetched, so the search box
-        re-draws without re-reading the prefix."""
-        self._programs_data = dict(progs=progs, notes=notes, dc=dc)
+        re-draws without re-reading the prefix. `um` holds the exe paths that are
+        kept away from the window manager (read once, off the UI thread)."""
+        self._programs_data = dict(progs=progs, notes=notes, dc=dc, um=um)
         rows = []
         for x in self._program_filter().apply(progs, lambda y: (y.name, y.version, y.publisher)):
             sub = " · ".join(s for s in (x.version, x.publisher) if s) or ("" if x.exe else "no launcher known (uninstall only)")
+            um_on = x.exe in um
+            if um_on: sub = " · ".join(s for s in (sub, "window manager kept away") if s)
             sfx = []
             if x.exe:
                 b = Gtk.Button(icon_name="media-playback-start-symbolic", valign=Gtk.Align.CENTER, tooltip_text="Run", css_classes=["flat"])
@@ -405,9 +408,9 @@ class Window(Adw.ApplicationWindow):
                 b = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER, tooltip_text="Uninstall", css_classes=["flat"])
                 b.connect("clicked", lambda *_, prog=x: self.uninstall_program(prog)); sfx.append(b)
             if unmanaged.supported(x):
-                sw = Gtk.Switch(valign=Gtk.Align.CENTER, active=unmanaged.is_on(self.prefix, x),
-                                tooltip_text=f"{unmanaged.LABEL} — {unmanaged.EXPLAIN}")
-                sw.connect("state-set", lambda _s, on, prog=x: self.set_unmanaged(prog, on)); sfx.append(sw)
+                b = Gtk.Button(icon_name="view-more-symbolic", valign=Gtk.Align.CENTER,
+                               tooltip_text=f"{unmanaged.LABEL}… — {unmanaged.UNNECESSARY}", css_classes=["flat"])
+                b.connect("clicked", lambda *_, prog=x, cur=um_on: self.ask_unmanaged(prog, cur)); sfx.append(b)
             v = vendors.for_program(x)
             note = vendors.note_for(x.name, notes.get(v.id, [])) if v is not None else None
             if note is None and v is None and dcomp.is_dcomp_program(x, dc): note = dcomp.note()
@@ -441,7 +444,13 @@ class Window(Adw.ApplicationWindow):
                 except Exception: notes[v.id] = []
             try: dc = dcomp.program_exes(self.prefix)
             except Exception: dc = []
-            ui(lambda: self._draw_programs(progs, notes, dc))
+            # one registry read per program, here rather than while drawing rows
+            um = set()
+            for x in progs:
+                try:
+                    if unmanaged.supported(x) and unmanaged.is_on(self.prefix, x): um.add(x.exe)
+                except Exception: pass
+            ui(lambda: self._draw_programs(progs, notes, dc, um))
         threading.Thread(target=work, daemon=True).start()
     def run_program(self, prog):
         v = vendors.for_program(prog)
@@ -534,16 +543,29 @@ class Window(Adw.ApplicationWindow):
 
     def uninstall_program(self, prog):
         self.run_bg(f"Uninstalling {prog.name}", lambda r: (programs.uninstall(self.prefix, prog, r), setup.after_change(self.prefix, r)))
+    def ask_unmanaged(self, prog, on):
+        """Explain the setting, then let the user switch it for this program."""
+        d = Adw.AlertDialog(heading=f"{unmanaged.LABEL}?",
+                            body=f"{prog.name} is currently "
+                                 f"{'kept away from the window manager' if on else 'managed by the window manager'}.\n\n"
+                                 f"{unmanaged.EXPLAIN}")
+        d.add_response("cancel", "Cancel")
+        d.add_response("flip", "Hand back to the window manager" if on else "Keep the window manager away")
+        d.set_response_appearance("flip", Adw.ResponseAppearance.SUGGESTED)
+        d.set_default_response("cancel"); d.set_close_response("cancel")
+        d.connect("response", lambda _d, resp: self.set_unmanaged(prog, not on) if resp == "flip" else None)
+        d.present(self)
+
     def set_unmanaged(self, prog, on):
-        """Toggle "keep the window manager away" for one program (Managed=N)."""
+        """Turn "keep the window manager away" on or off for one program (Managed=N)."""
         def work():
             try: changed = unmanaged.set_for(self.prefix, prog, on)
             except Exception as e: self.toast(f"Could not change {prog.name}: {str(e)[:80]}"); return
             if changed:
                 self.toast(f"{prog.name}: {'the window manager is kept away' if on else 'handed back to the window manager'}"
                            " — restart it to see the change")
+            ui(lambda: self.refresh_programs())
         threading.Thread(target=work, daemon=True).start()
-        return False           # let the switch show the new position
     def install_program(self, path):
         def work(r):
             # A tuple here would evaluate both halves: a failed install would

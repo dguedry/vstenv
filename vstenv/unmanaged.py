@@ -69,7 +69,12 @@ def is_on(p: Prefix, prog) -> bool:
 # What the user is choosing, in their words: the title and the explanation the
 # GUI shows and the CLI prints, kept here so both say the same thing.
 LABEL = "Keep the window manager away"
-EXPLAIN = ("For a program whose menus flash and close as soon as they open: its dropdowns are "
+# Lead with "you probably do not need this": the Programs tab offers it on every
+# program, and turning it on where it is not needed costs the desktop's window
+# controls for nothing.
+UNNECESSARY = ("Most programs do not need this. Only try it if you have a problem it describes.")
+EXPLAIN = (UNNECESSARY + "\n\n"
+           "It is for a program whose menus flash and close as soon as they open: its dropdowns are "
            "fullscreen popup windows, and the window manager activates them, which makes the "
            "program close its own menu. The program then draws its own title bar instead of the "
            "desktop's, and the desktop's window controls (snapping, the window menu) stop applying "
