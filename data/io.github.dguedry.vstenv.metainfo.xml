@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.111" date="2026-11-03">
+      <description>
+        <p>Programs: group background components, and test the page's actions</p>
+      </description>
+    </release>
     <release version="0.1.110" date="2026-11-03">
       <description>
         <p>GUI: confirm uninstall, keep finished tasks readable, refresh lazily</p>
