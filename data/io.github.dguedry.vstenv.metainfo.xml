@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.109" date="2026-11-03">
+      <description>
+        <p>Programs: say the window-manager switch is usually unnecessary</p>
+      </description>
+    </release>
     <release version="0.1.108" date="2026-11-03">
       <description>
         <p>Programs: a per-program switch for keeping the window manager away</p>
