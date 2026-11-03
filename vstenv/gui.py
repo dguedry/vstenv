@@ -137,7 +137,7 @@ class Window(Adw.ApplicationWindow):
         css = Gtk.CssProvider(); css.load_from_data(_CSS)
         Gtk.StyleContext.add_provider_for_display(self.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self.toasts = Adw.ToastOverlay(); self.set_content(self.toasts)
-        self.busy = False; self._rows = {}
+        self.busy = False; self._busy_title = None; self._rows = {}
         tv = Adw.ToolbarView(); self.toasts.set_child(tv)
         self.stack = Adw.ViewStack()
         header = Adw.HeaderBar(); switcher = Adw.ViewSwitcherTitle(stack=self.stack, title=TITLE); header.set_title_widget(switcher)
@@ -164,6 +164,8 @@ class Window(Adw.ApplicationWindow):
         self.task = TaskPage("Working")
         self.task_page = self.stack.add_titled_with_icon(self.task, "task", "Progress", "vstenv-tab-progress-symbolic")
         self.task_page.set_visible(False)
+        self._stale = set()
+        self.stack.connect("notify::visible-child-name", self._refresh_stale_page)
         b = wine.installed_build(); self.prefix = wine.Prefix(paths.PREFIX, b) if b else None
         if not self.is_ready(): self.run_setup(first=True)
         elif setup.needs_upgrade_pass():
@@ -247,8 +249,13 @@ class Window(Adw.ApplicationWindow):
 
     def run_bg(self, title, fn, done=None):
         """Run fn(reporter) in a thread on the Progress page."""
-        if self.busy: self.toast("Another task is still running"); return
-        self.busy = True; self.task.reset(title); self.task_page.set_visible(True); self.stack.set_visible_child_name("task")
+        if self.busy:
+            # Name what is running and offer the page, so the refusal is not a dead end.
+            t = Adw.Toast(title=f"Busy: {self._busy_title or 'a task is running'}", timeout=5,
+                          button_label="Show")
+            t.connect("button-clicked", lambda *_: self.stack.set_visible_child_name("task"))
+            ui(lambda: self.toasts.add_toast(t)); return
+        self.busy = True; self._busy_title = title; self.task.reset(title); self.task_page.set_visible(True); self.stack.set_visible_child_name("task")
         self.task.start(); self.activity("task", f"Working… {title}")
         def worker():
             err = None
@@ -257,16 +264,27 @@ class Window(Adw.ApplicationWindow):
                 err = e; result = None
                 for line in traceback.format_exc().rstrip().splitlines(): self.task.reporter.log(line)
             def finish():
-                self.busy = False; self.task.stop(); self.activity("task", None)
-                if err: self.task.reporter.step(f"Error: {err}"); self.task.reporter.fail()
+                self.busy = False; self._busy_title = None; self.task.stop(); self.activity("task", None)
+                if err:
+                    # Our own errors already say what happened and what to do; only an
+                    # unexpected exception needs the type spelled out.
+                    known = isinstance(err, (RuntimeError, OSError)) and str(err)
+                    self.task.reporter.step(str(err) if known else f"{type(err).__name__}: {err}")
+                    self.task.reporter.fail()
                 if done: done(result, err)
                 self.refresh_all()
                 if err is None: GLib.timeout_add_seconds(3, self._hide_task_page)
             ui(finish)
         threading.Thread(target=worker, daemon=True).start()
     def _hide_task_page(self):
+        """Leave a finished task's page where the user can get back to it.
+
+        It used to be hidden a few seconds after success, which threw away the
+        only record of what happened: the toast is gone by the time anyone
+        wonders. Move off the page so it is not in the way, but keep the tab,
+        so "what did that actually do?" is still answerable until the next task
+        replaces it."""
         if not self.busy and self.stack.get_visible_child_name() == "task": self.stack.set_visible_child_name("plugins")
-        if not self.busy: self.task_page.set_visible(False)
         return False
     def _fill(self, group, rows):
         for r in self._rows.get(group, []): group.remove(r)
@@ -542,6 +560,25 @@ class Window(Adw.ApplicationWindow):
             "in the \u2630 menu, then open it again.", 12), False)[1])
 
     def uninstall_program(self, prog):
+        """Confirm first: the trash icon sits next to Run, and a mis-click here
+        removes software the user paid for."""
+        v = vendors.for_program(prog)
+        extra = ""
+        if v is not None and v.is_manager_program(prog):
+            extra = (f"\n\n{prog.name} is {v.name}'s manager: without it you cannot install, update or "
+                     f"authorise that vendor's products from here until you install it again.")
+        d = Adw.AlertDialog(heading=f"Uninstall {prog.name}?",
+                            body=f"This runs the program's own uninstaller in the prefix. Anything it has "
+                                 f"downloaded or authorised may go with it, and reinstalling may mean "
+                                 f"downloading and signing in again.{extra}")
+        d.add_response("cancel", "Cancel")
+        d.add_response("uninstall", "Uninstall")
+        d.set_response_appearance("uninstall", Adw.ResponseAppearance.DESTRUCTIVE)
+        d.set_default_response("cancel"); d.set_close_response("cancel")
+        d.connect("response", lambda _d, resp: self._do_uninstall(prog) if resp == "uninstall" else None)
+        d.present(self)
+
+    def _do_uninstall(self, prog):
         self.run_bg(f"Uninstalling {prog.name}", lambda r: (programs.uninstall(self.prefix, prog, r), setup.after_change(self.prefix, r)))
     def ask_unmanaged(self, prog, on):
         """Explain the setting, then let the user switch it for this program."""
@@ -817,7 +854,27 @@ class Window(Adw.ApplicationWindow):
             self.get_rows[v.id].set_visible(not installed)
             ver = (v.manager_version(self.prefix) or "") if installed else ""
             self.open_rows[v.id].set_subtitle(f"{ver} · sign in, install or update products." if ver else "Sign in, install or update products.")
-    def refresh_all(self): self.refresh_install(); self.refresh_plugins(); self.refresh_programs(); self.refresh_health(); self.refresh_notices()
+    # Reading a page costs real time in the prefix (the plugin list ~6s, the
+    # program list ~3s), so refreshing all five after every task spent ten
+    # seconds re-reading pages nobody was looking at. Refresh what is on screen
+    # and mark the rest stale; _refresh_stale_page catches them up on the way in.
+    _PAGE_REFRESH = {"install": "refresh_install", "plugins": "refresh_plugins",
+                     "programs": "refresh_programs", "health": "refresh_health"}
+
+    def refresh_all(self):
+        self.refresh_notices()                     # cheap, and drives the header
+        current = self.stack.get_visible_child_name()
+        self._stale = set(self._PAGE_REFRESH) - {current}
+        fn = self._PAGE_REFRESH.get(current)
+        if fn: getattr(self, fn)()
+
+    def _refresh_stale_page(self, *_):
+        """Catch a page up the first time it is shown after something changed."""
+        name = self.stack.get_visible_child_name()
+        if name in getattr(self, "_stale", set()):
+            self._stale.discard(name)
+            fn = self._PAGE_REFRESH.get(name)
+            if fn: getattr(self, fn)()
 
 class App(Adw.Application):
     def __init__(self):
