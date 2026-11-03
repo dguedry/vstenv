@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.108" date="2026-11-03">
+      <description>
+        <p>Programs: a per-program switch for keeping the window manager away</p>
+      </description>
+    </release>
     <release version="0.1.107" date="2026-11-03">
       <description>
         <p>NI: keep the window manager away from Komplete Kontrol's menus</p>
