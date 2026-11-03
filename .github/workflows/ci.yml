@@ -153,6 +153,31 @@ jobs:
         with:
           name: vstenv-flatpak
           path: vstenv.flatpak
+      # The same build as an ostree repo, signed, for the hosted remote: people
+      # who add it get updates through their desktop instead of downloading a
+      # bundle by hand. Unsigned would mean trusting whatever the server returns.
+      - name: Export a signed ostree repo
+        if: env.GPG_KEY != ''
+        env:
+          GPG_KEY: ${{ secrets.FLATPAK_GPG_KEY }}
+        run: |
+          set -euo pipefail
+          # flatpak-builder above already wrote ./repo (--repo=repo,
+          # --default-branch=master); sign it and add the deltas that make an
+          # update a diff rather than a whole new download.
+          echo "$GPG_KEY" | base64 -d | gpg --batch --import
+          KEY=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr:/ {print $10; exit}')
+          flatpak build-sign repo --gpg-sign="$KEY"
+          flatpak build-update-repo --generate-static-deltas --prune \
+            --default-branch=master --title=vstenv --gpg-sign="$KEY" repo
+          test -f repo/summary.sig    # a remote with no signature is not worth publishing
+      - uses: actions/upload-artifact@v4
+        if: env.GPG_KEY != ''
+        env:
+          GPG_KEY: ${{ secrets.FLATPAK_GPG_KEY }}
+        with:
+          name: vstenv-ostree-repo
+          path: repo
           if-no-files-found: error
 
   # yabridge's last release predates Wine 9.22's window changes (mouse clicks in
@@ -262,3 +287,57 @@ jobs:
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "vstenv $TAG" --notes-file release-notes.md
           gh release upload "$TAG" vstenv.flatpak yabridge-*.tar.gz wine-*.tar.xz wine-fixes-*.tar.gz --repo "$GITHUB_REPOSITORY" --clobber
           echo "published $TAG"
+
+  # The hosted Flatpak remote: the signed ostree repo from the flatpak job,
+  # served from GitHub Pages, plus the public key and a short page saying how
+  # to add it. Flathub is not an option for this app -- it needs
+  # --talk-name=org.freedesktop.Flatpak to share one wineserver with the host's
+  # DAWs, which Flathub treats as no sandbox at all -- so we host it ourselves.
+  pages:
+    name: Publish the Flatpak repo
+    needs: [auto-tag, flatpak, release]
+    if: >-
+      always()
+      && needs.flatpak.result == 'success'
+      && needs.release.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.auto-tag.outputs.sha || github.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: vstenv-ostree-repo
+          path: site/repo
+      - name: Assemble the site
+        run: |
+          set -euo pipefail
+          cp flatpak/repo-meta/vstenv.gpg site/vstenv.gpg
+          cp flatpak/repo-meta/vstenv.flatpakrepo site/vstenv.flatpakrepo
+          cp flatpak/repo-meta/index.html site/index.html
+          cp data/io.github.dguedry.vstenv.svg site/icon.svg
+          # The .flatpakrepo carries the key inline, so it must match what we ship.
+          python3 - <<'PY'
+          import base64, pathlib
+          key = pathlib.Path("site/vstenv.gpg").read_bytes()
+          # the armored block, base64 of the DER, as .flatpakrepo wants it
+          import subprocess
+          der = subprocess.run(["gpg", "--dearmor"], input=key, capture_output=True, check=True).stdout
+          p = pathlib.Path("site/vstenv.flatpakrepo")
+          text = p.read_text().replace("@GPGKEY@", base64.b64encode(der).decode())
+          p.write_text(text)
+          PY
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

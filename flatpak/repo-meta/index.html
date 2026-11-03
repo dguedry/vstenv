@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vstenv Flatpak repo</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1b1b1b; --bg: #fafafa; --muted: #5c5c5c; --line: #d8d8d8; --code-bg: #ececec; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg: #e6e6e6; --bg: #17191c; --muted: #a2a8b0; --line: #30343a; --code-bg: #22262b; }
+  }
+  body { margin: 0 auto; padding: 2.5rem 1rem 4rem; max-width: 46rem;
+         font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); }
+  header { display: flex; align-items: center; gap: .9rem; margin-bottom: .5rem; }
+  header img { width: 56px; height: 56px; }
+  h1 { font-size: 1.7rem; margin: 0; }
+  h2 { font-size: 1.1rem; margin: 2.2rem 0 .6rem; }
+  p.lead { color: var(--muted); margin-top: .2rem; }
+  pre { background: var(--code-bg); padding: .85rem 1rem; border-radius: 8px; overflow-x: auto; font-size: .92rem; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  p code { background: var(--code-bg); padding: .1rem .35rem; border-radius: 4px; }
+  footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .9rem; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<header>
+  <img src="icon.svg" alt="">
+  <div>
+    <h1>vstenv</h1>
+    <p class="lead">Windows audio plugins in Linux DAWs, vendor managers included.</p>
+  </div>
+</header>
+
+<h2>Install</h2>
+<p>Add this repo once, then install and update like any other Flatpak app:</p>
+<pre><code>flatpak remote-add --if-not-exists --user vstenv https://dguedry.github.io/vstenv/vstenv.flatpakrepo
+flatpak install --user vstenv io.github.dguedry.vstenv</code></pre>
+<p>Updates arrive with <code>flatpak update</code>, or through your desktop's software app.
+The GNOME&nbsp;50 runtime comes from Flathub, so that remote needs to be configured too.</p>
+
+<h2>Why not Flathub?</h2>
+<p>vstenv shares one Wine session with the DAWs running on your machine, which
+needs a permission (<code>--talk-name=org.freedesktop.Flatpak</code>) that Flathub
+treats as leaving the sandbox entirely. That permission is what lets a plugin
+loaded by your DAW and this app talk to the same <code>wineserver</code>; without
+it the vendor managers crash and plugins hang. So the app is hosted here
+instead.</p>
+
+<h2>Verifying</h2>
+<p>The repo is signed. The key is served beside it as
+<a href="vstenv.gpg">vstenv.gpg</a>, and <code>flatpak remote-add</code> installs
+it from the <code>.flatpakrepo</code> file above, so later updates are checked
+against it.</p>
+
+<h2>Other ways to install</h2>
+<p>Single-file bundles are still attached to every
+<a href="https://github.com/dguedry/vstenv/releases/latest">GitHub release</a>,
+if you would rather not add a remote.</p>
+
+<footer>
+  <a href="https://github.com/dguedry/vstenv">Source and issue tracker</a>
+</footer>
+</body>
+</html>

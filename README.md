@@ -229,12 +229,32 @@ Health lists every check behind these; when one fails it names the fix.
 
 ## Install
 
-Download `vstenv.flatpak` from the [latest release](https://github.com/dguedry/vstenv/releases/latest), then:
+Add the repo once and the app updates itself with everything else:
+
+```sh
+flatpak remote-add --if-not-exists --user vstenv https://dguedry.github.io/vstenv/vstenv.flatpakrepo
+flatpak install --user vstenv io.github.dguedry.vstenv
+flatpak run io.github.dguedry.vstenv
+```
+
+The repo is signed, and `remote-add` takes the key from that file, so later
+updates are checked against it. The GNOME 50 runtime comes from Flathub, so
+that remote has to be configured too.
+
+Or download `vstenv.flatpak` from the
+[latest release](https://github.com/dguedry/vstenv/releases/latest) and install
+the single file, which does not add a remote and does not auto-update:
 
 ```sh
 flatpak install --user vstenv.flatpak     # needs the flathub remote for the GNOME 50 runtime
 flatpak run io.github.dguedry.vstenv
 ```
+
+Not on Flathub: vstenv shares one Wine session with the DAWs on your machine,
+which needs `--talk-name=org.freedesktop.Flatpak` — a permission Flathub treats
+as leaving the sandbox altogether. That permission is exactly what lets a
+plugin loaded by your DAW and this app reach the same `wineserver`; without it
+the vendor managers crash and plugins hang (see "One prefix, many DAWs").
 
 Vendor managers are not bundled. On first run the app prepares the environment
 (a portable Wine build is downloaded), then the Install tab links to each
