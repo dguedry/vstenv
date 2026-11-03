@@ -20,6 +20,17 @@ module: run their installer from the Install tab.
 
 Not affiliated with or endorsed by Native Instruments GmbH, IK Multimedia Production srl or Steinberg Media Technologies GmbH.
 
+## Get it
+
+```sh
+flatpak remote-add --if-not-exists --user vstenv https://dguedry.github.io/vstenv/vstenv.flatpakrepo
+flatpak install --user vstenv io.github.dguedry.vstenv
+flatpak run io.github.dguedry.vstenv
+```
+
+Updates then come with `flatpak update`. See [Install](#install) for the
+single-file bundle, what the first run does, and why this is not on Flathub.
+
 ## What needs help, and why
 
 Wine runs most Windows programs as they are. A few of these vendors' programs
