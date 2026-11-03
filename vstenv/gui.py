@@ -5,7 +5,7 @@ from pathlib import Path
 import gi
 gi.require_version("Gtk", "4.0"); gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk, Gio, Gdk
-from . import __version__, APP_ID, APP_NAME, paths, wine, yabridge, doctor, programs, setup, vendors, menu, runtime, dcomp
+from . import __version__, APP_ID, APP_NAME, paths, wine, yabridge, doctor, programs, setup, vendors, menu, runtime, dcomp, unmanaged
 from .progress import Reporter, OK, FAIL, SKIP, RUN
 from .filtering import Filter
 
@@ -404,6 +404,10 @@ class Window(Adw.ApplicationWindow):
             if x.uninstall:
                 b = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER, tooltip_text="Uninstall", css_classes=["flat"])
                 b.connect("clicked", lambda *_, prog=x: self.uninstall_program(prog)); sfx.append(b)
+            if unmanaged.supported(x):
+                sw = Gtk.Switch(valign=Gtk.Align.CENTER, active=unmanaged.is_on(self.prefix, x),
+                                tooltip_text=f"{unmanaged.LABEL} — {unmanaged.EXPLAIN}")
+                sw.connect("state-set", lambda _s, on, prog=x: self.set_unmanaged(prog, on)); sfx.append(sw)
             v = vendors.for_program(x)
             note = vendors.note_for(x.name, notes.get(v.id, [])) if v is not None else None
             if note is None and v is None and dcomp.is_dcomp_program(x, dc): note = dcomp.note()
@@ -530,6 +534,16 @@ class Window(Adw.ApplicationWindow):
 
     def uninstall_program(self, prog):
         self.run_bg(f"Uninstalling {prog.name}", lambda r: (programs.uninstall(self.prefix, prog, r), setup.after_change(self.prefix, r)))
+    def set_unmanaged(self, prog, on):
+        """Toggle "keep the window manager away" for one program (Managed=N)."""
+        def work():
+            try: changed = unmanaged.set_for(self.prefix, prog, on)
+            except Exception as e: self.toast(f"Could not change {prog.name}: {str(e)[:80]}"); return
+            if changed:
+                self.toast(f"{prog.name}: {'the window manager is kept away' if on else 'handed back to the window manager'}"
+                           " — restart it to see the change")
+        threading.Thread(target=work, daemon=True).start()
+        return False           # let the switch show the new position
     def install_program(self, path):
         def work(r):
             # A tuple here would evaluate both halves: a failed install would

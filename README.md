@@ -388,6 +388,13 @@ File menu. Setup gives such programs Wine's `Managed = N`
 (`vstenv/unmanaged.py`), so the window manager never sees the menu layers.
 Those programs then draw Wine's own title bar instead of the desktop's.
 
+Any program can be switched by hand, because only the ones a vendor module
+names are set up automatically: each row on the Programs tab has a switch for
+it, and the CLI has `vstenv unmanaged "<program>" on|off` (with no `on`/`off`
+it prints the current setting). Restart the program after changing it. Reach
+for it when a program's own menus flash and close as soon as they open; leave
+it off otherwise, since it costs the desktop's window controls.
+
 **Vendor modules.** `vstenv/vendors/__init__.py` defines the interface; the
 core calls it and never names a vendor. A module says what its manager is and
 how to install, fix and launch it; which products are installed; which plugin

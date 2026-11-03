@@ -41,3 +41,36 @@ def apply(p: Prefix, exe_names: list[str], reporter=None,
     if changed:
         r.step(f"Window manager kept out of programs ({why})"); r.ok(", ".join(changed))
     return changed
+
+def clear(p: Prefix, exe_name: str) -> bool:
+    """Hand the program back to the window manager. True if it was set."""
+    if not applied(p, exe_name): return False
+    p.reg_delete_value(key(exe_name), "Managed")
+    return True
+
+def exe_name(prog) -> str:
+    """The executable a Program row runs, as AppDefaults names it."""
+    return prog.exe.rsplit("\\", 1)[-1] if getattr(prog, "exe", None) else ""
+
+def supported(prog) -> bool:
+    """Whether this setting can be offered for a program (it needs a launcher)."""
+    return bool(exe_name(prog))
+
+def set_for(p: Prefix, prog, on: bool) -> bool:
+    """Turn the setting on or off for a Program row. True if anything changed."""
+    name = exe_name(prog)
+    if not name: return False
+    return bool(apply(p, [name])) if on else clear(p, name)
+
+def is_on(p: Prefix, prog) -> bool:
+    name = exe_name(prog)
+    return bool(name) and applied(p, name)
+
+# What the user is choosing, in their words: the title and the explanation the
+# GUI shows and the CLI prints, kept here so both say the same thing.
+LABEL = "Keep the window manager away"
+EXPLAIN = ("For a program whose menus flash and close as soon as they open: its dropdowns are "
+           "fullscreen popup windows, and the window manager activates them, which makes the "
+           "program close its own menu. The program then draws its own title bar instead of the "
+           "desktop's, and the desktop's window controls (snapping, the window menu) stop applying "
+           "to it. Restart the program after changing this.")

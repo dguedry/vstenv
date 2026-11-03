@@ -1,7 +1,7 @@
 """Command-line front end. Every subcommand is a thin call into the package."""
 import argparse, sys
 from pathlib import Path
-from . import __version__, APP_NAME, paths, wine, yabridge, doctor, prefixes, programs, setup, vendors, menu
+from . import __version__, APP_NAME, paths, wine, yabridge, doctor, prefixes, programs, setup, vendors, menu, unmanaged
 from .progress import ConsoleReporter
 
 def _prefix(create=False) -> wine.Prefix:
@@ -141,6 +141,20 @@ def cmd_programs(a):
     w = max(len(x.name) for x in rows)
     for x in rows:
         print(f"  {x.name.ljust(w)}  {x.version:10}  {x.exe or '(uninstall only)'}")
+
+def cmd_unmanaged(a):
+    p = _prefix(); prog = programs.find(p, a.name)
+    if not unmanaged.supported(prog):
+        sys.exit(f"{prog.name} has no launcher, so there is no program to set this for")
+    if a.state is None:
+        print(f"{prog.name} ({unmanaged.exe_name(prog)}): "
+              f"{'the window manager is kept away' if unmanaged.is_on(p, prog) else 'managed by the window manager'}")
+        return
+    on = a.state == "on"
+    changed = unmanaged.set_for(p, prog, on)
+    print(f"{prog.name}: {'the window manager is kept away' if on else 'handed back to the window manager'}"
+          f"{'' if changed else ' (already)'}")
+    if changed: print("Restart the program to see the change.")
 
 def cmd_run(a):
     p = _prefix(); r = ConsoleReporter()
@@ -296,6 +310,11 @@ def main(argv=None):
     s.add_argument("--keep-trace", action="store_true"); s.add_argument("--no-sync", action="store_true"); s.set_defaults(f=cmd_install)
     s = sp.add_parser("sync", help="bridge the prefix's plugins to Linux DAWs with yabridge and refresh the menu"); s.add_argument("dirs", nargs="*", help="extra plugin directories"); s.set_defaults(f=cmd_sync)
     sp.add_parser("programs", help="list Windows programs installed in the prefix").set_defaults(f=cmd_programs)
+    s = sp.add_parser("unmanaged", help=f"{unmanaged.LABEL.lower()} for one program (menus that flash and close)",
+                      description=unmanaged.EXPLAIN)
+    s.add_argument("name", help="program name, or part of it")
+    s.add_argument("state", nargs="?", choices=["on", "off"], help="omit to show the current setting")
+    s.set_defaults(f=cmd_unmanaged)
     s = sp.add_parser("run", help="start an installed program (name or part of it)"); s.add_argument("name"); s.add_argument("--wait", action="store_true"); s.set_defaults(f=cmd_run)
     s = sp.add_parser("uninstall", help="run an installed program's own uninstaller"); s.add_argument("name"); s.add_argument("--no-sync", action="store_true"); s.set_defaults(f=cmd_uninstall)
     s = sp.add_parser("menu", help="desktop menu entries for the prefix's programs"); s.add_argument("action", nargs="?", default="update", choices=["update", "remove"]); s.set_defaults(f=cmd_menu)

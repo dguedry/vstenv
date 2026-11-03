@@ -516,6 +516,11 @@ done"""
     def reg_add(self, key: str, name: str, value: str, kind="REG_SZ"):
         cp = self.run([self.REG64, "add", key, "/v", name, "/t", kind, "/d", str(value), "/f"], timeout=60)
         if cp.returncode != 0: raise RuntimeError(f"reg add failed: {key}\\{name}: {cp.stderr.strip()}")
+    def reg_delete_value(self, key: str, name: str):
+        """Remove one value. A value (or key) that is already gone is not an error."""
+        cp = self.run([self.REG64, "delete", key, "/v", name, "/f"], timeout=60)
+        if cp.returncode != 0 and name.lower() in (cp.stdout + cp.stderr).lower():
+            raise RuntimeError(f"reg delete failed: {key}\\{name}: {cp.stderr.strip()}")
     def reg_query(self, key: str) -> dict[str, str]:
         """The key's values, {} when it does not exist.
 
