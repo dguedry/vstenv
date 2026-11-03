@@ -399,7 +399,7 @@ class Window(Adw.ApplicationWindow):
                                                 "Search by name, version or publisher")
         box.append(bar)
         page = Adw.PreferencesPage(vexpand=True); box.append(page)
-        self.programs_group = Adw.PreferencesGroup(title="Installed programs", description="Everything with an installer record or a Start Menu shortcut in the prefix, plus the vendors' managers. Each also appears in your desktop's application menu.")
+        self.programs_group = Adw.PreferencesGroup(title="Installed programs", description="Everything with an installer record or a Start Menu shortcut in the prefix, plus the vendors' managers. Each also appears in your desktop's application menu. Drivers and other background components are grouped at the end.")
         page.add(self.programs_group)
         g = Adw.PreferencesGroup(title="Install")
         g.add(_menu_row("Install Windows software…", "Pick any installer (.exe or .msi; unzip a downloaded .zip first). A vendor's manager or product is recognized and installed with its fixes; anything else runs as a plain installer. Same as the Install tab's installer.", "document-open-symbolic",
@@ -413,8 +413,7 @@ class Window(Adw.ApplicationWindow):
         re-draws without re-reading the prefix. `um` holds the exe paths that are
         kept away from the window manager (read once, off the UI thread)."""
         self._programs_data = dict(progs=progs, notes=notes, dc=dc, um=um)
-        rows = []
-        for x in self._program_filter().apply(progs, lambda y: (y.name, y.version, y.publisher)):
+        def build_row(x):
             sub = " · ".join(s for s in (x.version, x.publisher) if s) or ("" if x.exe else "no launcher known (uninstall only)")
             um_on = x.exe in um
             if um_on: sub = " · ".join(s for s in (sub, "window manager kept away") if s)
@@ -435,11 +434,24 @@ class Window(Adw.ApplicationWindow):
             if note is not None and note.level == "works": note = None      # a pill only where there is something to say
             row = _noted_row(GLib.markup_escape_text(x.name), GLib.markup_escape_text(sub), note, sfx)
             if x.exe: row.set_tooltip_text(x.exe)
-            rows.append(row)
-        if not rows:
+            return row
+
+        matched = self._program_filter().apply(progs, lambda y: (y.name, y.version, y.publisher))
+        # Drivers, runtimes and licence services are not what anyone came to the
+        # page for, and they are the rows where a stray uninstall does the most
+        # damage. Keep them, one expander down.
+        front = [x for x in matched if not x.background]
+        back = [x for x in matched if x.background]
+        rows = [build_row(x) for x in front]
+        if not rows and not back:
             rows.append(Adw.ActionRow(title="Nothing matches this search", subtitle="Clear the search box to see everything")
                         if self._program_filter().active else
                         Adw.ActionRow(title="No programs found", subtitle="Install one below, or a vendor's manager from the Install tab"))
+        if back:
+            exp = Adw.ExpanderRow(title=f"Background components ({len(back)})",
+                                  subtitle="Drivers, runtimes and licence services other programs rely on. Nothing to open; uninstall only if you know you want it gone.")
+            for x in back: exp.add_row(build_row(x))
+            rows.append(exp)
         self._fill(self.programs_group, rows)
         # the Install tab's store rows: Open when the store app is installed
         for name, _vend, _url in vendors.STORES:

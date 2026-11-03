@@ -50,6 +50,27 @@ class Program:
         """The vendor module this program belongs to ("" for none)."""
         from . import vendors
         v = vendors.for_program(self); return v.id if v else ""
+    @property
+    def background(self) -> bool:
+        """Plumbing rather than something to open: a driver, a licence service, a
+        runtime, an installer helper.
+
+        An installer that expects a person to start the program leaves a Start
+        Menu shortcut, and a vendor module names the programs it knows; what is
+        left is known only to the uninstall registry. That alone would also catch
+        a few real apps whose installers write no shortcut, so the vendors say
+        which of theirs are openable (Vendor.programs) and the list below names
+        the rest. Everything here still installs, runs and uninstalls as before:
+        the flag only decides where the Programs page puts it."""
+        if "shortcut" in self.sources: return False
+        # A source that is neither of the two generic scans is a vendor module
+        # saying "this is one of mine" -- it knows better than the heuristic.
+        if any(s not in ("registry", "shortcut") for s in self.sources): return False
+        return not any(k in self.name.lower() for k in _FOREGROUND_ANYWAY)
+
+# Registry-only entries that are still programs a person opens: an installer
+# that writes no Start Menu shortcut is not evidence of a background component.
+_FOREGROUND_ANYWAY = ("software center", "install assistant", "mediabay", "license manager")
 
 # --- Wine .reg files --------------------------------------------------------------------------
 def _unescape(s: str) -> str:
