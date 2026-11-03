@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.112" date="2026-11-03">
+      <description>
+        <p>Publish a signed Flatpak repo on GitHub Pages</p>
+      </description>
+    </release>
     <release version="0.1.111" date="2026-11-03">
       <description>
         <p>Programs: group background components, and test the page's actions</p>
