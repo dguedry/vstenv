@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.121" date="2026-11-05">
+      <description>
+        <p>PowerShell shim: carry out Start-Process, so Minimal Hub's installs land</p>
+      </description>
+    </release>
     <release version="0.1.120" date="2026-11-05">
       <description>
         <p>README: Jamstix 4 installs through its Manager and bridges as VST2</p>
