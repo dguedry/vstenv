@@ -1,7 +1,7 @@
 """Command-line front end. Every subcommand is a thin call into the package."""
 import argparse, sys
 from pathlib import Path
-from . import __version__, APP_NAME, paths, wine, yabridge, doctor, prefixes, programs, setup, vendors, menu, unmanaged
+from . import __version__, APP_NAME, paths, wine, yabridge, doctor, prefixes, programs, setup, vendors, menu, unmanaged, recipes
 from .progress import ConsoleReporter
 
 def _prefix(create=False) -> wine.Prefix:
@@ -155,6 +155,59 @@ def cmd_unmanaged(a):
     print(f"{prog.name}: {'the window manager is kept away' if on else 'handed back to the window manager'}"
           f"{'' if changed else ' (already)'}")
     if changed: print("Restart the program to see the change.")
+
+def _recipe_target(p, kind: str, name: str):
+    """(key the recipe is stored under, display name, program or None, exe path or None)."""
+    if kind == "program":
+        prog = programs.find(p, name)
+        if not prog.exe: sys.exit(f"{prog.name} has no launcher, so there is nothing to set this for")
+        exe = prog.exe.rsplit("\\", 1)[-1]
+        return exe, prog.name, prog, p.to_host(prog.exe)
+    names = [b["name"] for b in yabridge.bridged(p)]
+    hits = [n for n in names if n.lower() == name.lower()] or [n for n in names if name.lower() in n.lower()]
+    if not hits: sys.exit(f"no bridged plugin matches '{name}' (see: {APP_NAME} plugins)")
+    if len(hits) > 1: sys.exit(f"'{name}' matches several plugins: {', '.join(hits)}")
+    return hits[0], hits[0], None, None
+
+def cmd_recipe(a):
+    p = _prefix()
+    kind = {"program": "programs", "plugin": "plugins"}.get(a.kind, a.kind)
+    if a.action == "list":
+        lines = recipes.in_effect(p)
+        print("\n".join(lines) if lines else "no recipes in effect: everything runs with what the app detected")
+        return
+    if a.action == "update":
+        recipes.update(ConsoleReporter()); return
+    if not a.kind or not a.name: sys.exit(f"usage: {APP_NAME} recipe {a.action} program|plugin <name> ...")
+    key, label, prog, exe_path = _recipe_target(p, a.kind, a.name)
+    if a.action == "show":
+        for knob, (v, who) in recipes.effective(p, kind, key).items():
+            print(f"{label}: {knob} = {v} ({'your choice' if who == 'you' else 'from a recipe' if who == 'recipe' else 'detected'})")
+        return
+    if a.action == "reset":
+        changed = recipes.reset(p, kind, key)
+        if kind == "programs": recipes.apply_program(p, key, {}, ConsoleReporter(), exe_path)
+        else: setup.after_change(p, ConsoleReporter(), force=True)
+        print(f"{label}: back to what the app detects{'' if changed else ' (nothing was set)'}"); return
+    if a.action == "set":
+        settings = {}
+        for kv in a.settings:
+            if "=" not in kv: sys.exit(f"settings look like rendering=wine (have: {', '.join(recipes.KNOBS[kind])})")
+            k, v = kv.split("=", 1); settings[k] = v
+        try: cur = recipes.set_choice(p, kind, key, **settings)
+        except ValueError as e: sys.exit(str(e))
+        if kind == "programs":
+            recipes.apply_program(p, key, cur, ConsoleReporter(), exe_path)
+            print(f"{label}: {', '.join(f'{k}={v}' for k, v in cur.items()) or 'back to detected'}. Restart it to see the change.")
+        else:
+            setup.after_change(p, ConsoleReporter(), force=True)
+            print(f"{label}: {', '.join(f'{k}={v}' for k, v in cur.items()) or 'back to detected'}. Reload the plugin in your DAW to see the change.")
+        return
+    if a.action == "share":
+        settings = {k: v for k, (v, who) in recipes.effective(p, kind, key).items() if who == "you"}
+        url = recipes.share_url(p, kind, key, settings, a.symptom or "", prog.version if prog else None, worked=not a.failed)
+        print("Open this link to send the recipe in (nothing is sent until you press Submit there):\n" + url)
+        return
 
 def cmd_run(a):
     p = _prefix(); r = ConsoleReporter()
@@ -310,6 +363,17 @@ def main(argv=None):
     s.add_argument("--keep-trace", action="store_true"); s.add_argument("--no-sync", action="store_true"); s.set_defaults(f=cmd_install)
     s = sp.add_parser("sync", help="bridge the prefix's plugins to Linux DAWs with yabridge and refresh the menu"); s.add_argument("dirs", nargs="*", help="extra plugin directories"); s.set_defaults(f=cmd_sync)
     sp.add_parser("programs", help="list Windows programs installed in the prefix").set_defaults(f=cmd_programs)
+    s = sp.add_parser("recipe", help="try, keep and share the settings a program or plugin can be given (rendering, window manager, browser)",
+                      description=f"{recipes.UNNECESSARY}\n\nSettings: " + "; ".join(f"{k}: {', '.join(v)}" for k, v in recipes.KNOBS['programs'].items())
+                                  + "\n\n" + "\n".join(f"rendering={k}: {v}" for k, v in recipes.RENDERING_TEXT.items()),
+                      formatter_class=argparse.RawDescriptionHelpFormatter)
+    s.add_argument("action", choices=["list", "show", "set", "reset", "share", "update"])
+    s.add_argument("kind", nargs="?", choices=["program", "plugin"])
+    s.add_argument("name", nargs="?", help="program name (or part of it), or a bridged plugin's file name")
+    s.add_argument("settings", nargs="*", help="for set: rendering=wine wm_away=on browser_software_gl=on")
+    s.add_argument("--symptom", help="for share: what you saw, in a sentence")
+    s.add_argument("--failed", action="store_true", help="for share: report that the setting did not help")
+    s.set_defaults(f=cmd_recipe)
     s = sp.add_parser("unmanaged", help=f"{unmanaged.LABEL.lower()} for one program (menus that flash and close)",
                       description=unmanaged.EXPLAIN)
     s.add_argument("name", help="program name, or part of it")

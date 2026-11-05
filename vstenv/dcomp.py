@@ -47,8 +47,10 @@ def program_fix_applied(p: Prefix, exe_name: str) -> bool:
 def apply_program_overrides(p: Prefix, exe_names: list[str], reporter=None,
                             why="their GUIs draw through DirectComposition") -> list[str]:
     """Wine's own Direct3D 11 for each exe. Returns what changed."""
+    from . import recipes
     r = null_reporter(reporter); changed = []
     for name in sorted(set(exe_names)):
+        if recipes.pinned(p, "programs", name, "rendering"): continue   # a person or a recipe decided
         if program_fix_applied(p, name): continue
         for d in BUILTIN: p.reg_add(overrides_key(name), d, "builtin")
         changed.append(name)
@@ -193,7 +195,10 @@ def plugin_overrides(p: Prefix) -> list[tuple[str, str]]:
     return out
 
 def all_plugin_overrides(p: Prefix) -> list[tuple[str, str]]:
-    """Vendor-declared entries, then the scanned ones."""
-    from . import vendors
-    out = [e for v in vendors.all() for e in v.plugin_dll_overrides(p)]
-    return out + [e for e in plugin_overrides(p) if e not in out]
+    """Recipes and choices first (a person decided), then vendor-declared
+    entries, then the scanned ones."""
+    from . import vendors, recipes
+    out = list(recipes.plugin_overrides(p))
+    chosen = {name for name, _ in out}
+    out += [e for v in vendors.all() for e in v.plugin_dll_overrides(p) if e[0] not in chosen and e not in out]
+    return out + [e for e in plugin_overrides(p) if e[0] not in chosen and e not in out]

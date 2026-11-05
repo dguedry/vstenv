@@ -5,7 +5,7 @@ from pathlib import Path
 import gi
 gi.require_version("Gtk", "4.0"); gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk, Gio, Gdk
-from . import __version__, APP_ID, APP_NAME, paths, wine, yabridge, doctor, programs, setup, vendors, menu, runtime, dcomp, unmanaged
+from . import __version__, APP_ID, APP_NAME, paths, wine, yabridge, doctor, programs, setup, vendors, menu, runtime, dcomp, unmanaged, recipes, webview2
 from .progress import Reporter, OK, FAIL, SKIP, RUN
 from .filtering import Filter
 
@@ -101,6 +101,83 @@ def _pill(level):
     """A small coloured word on the right of a row: works / patched / limited / cannot run."""
     return Gtk.Label(label=vendors.LEVEL_LABELS.get(level, level), valign=Gtk.Align.CENTER,
                      css_classes=["caption", "pill", PILL_CLASS.get(level, "dim-label")], tooltip_text="Compatibility under Wine: click the row for the note")
+
+_RENDERING_LABELS = {"auto": "Auto (detected)", "dxvk": "DXVK", "wine": "Wine's Direct3D", "gdi": "No Direct3D 11"}
+_TRI_LABELS = {"auto": "Auto (detected)", "on": "On", "off": "Off"}
+_WM_TEXT = {"auto": "Off unless a vendor module asks for it (Komplete Kontrol's menus need it).",
+            "on": unmanaged.EXPLAIN.split("\n\n", 1)[-1], "off": "The window manager handles its windows, as for any program."}
+_GL_TEXT = {"auto": "Hardware rendering with the full-frame presentation flags, unless the prefix-wide switch in the menu is on.",
+            "on": "The embedded browser draws in software. Try it when its window stays blank or black.",
+            "off": "Hardware rendering, whatever the prefix-wide switch says."}
+_WHO = {"you": "your choice", "recipe": "a shared recipe", "auto": "what the app detected"}
+
+
+class TroubleshootDialog(Adw.Dialog):
+    """The few settings one program or plugin can be given: try one, keep what
+    worked, share it. Thin over recipes.py; the window does the work."""
+    def __init__(self, win, kind, key, label, version=None, exe_path=None, is_browser=False):
+        super().__init__(title=f"Troubleshoot {label}", content_width=580)
+        self.win, self.kind, self.key, self.label, self.version, self.exe_path = win, kind, key, label, version, exe_path
+        eff = recipes.effective(win.prefix, kind, key)
+        tv = Adw.ToolbarView(); tv.add_top_bar(Adw.HeaderBar())
+        page = Adw.PreferencesPage()
+        g = Adw.PreferencesGroup(description=recipes.UNNECESSARY + (" Changes apply the next time the program starts."
+                                                                     if kind == "programs" else " Changes apply the next time your DAW loads the plugin."))
+        self.rows = {}
+        self.rows["rendering"] = self._combo(g, "Direct3D", _RENDERING_LABELS, recipes.RENDERING_TEXT, eff["rendering"])
+        if kind == "programs":
+            self.rows["wm_away"] = self._combo(g, unmanaged.LABEL, _TRI_LABELS, _WM_TEXT, eff["wm_away"])
+            if is_browser:
+                self.rows["browser_software_gl"] = self._combo(g, "Software rendering for its browser window", _TRI_LABELS, _GL_TEXT,
+                                                               eff["browser_software_gl"])
+        page.add(g)
+        g2 = Adw.PreferencesGroup(title="Share what you found",
+                                  description="A setting that fixed something here can help the next person. Share opens a "
+                                              "prefilled issue on the project's GitHub in your browser; nothing is sent until "
+                                              "you press Submit there.")
+        self.symptom = Adw.EntryRow(title="What was wrong, in a sentence"); g2.add(self.symptom)
+        share = Adw.ActionRow(title="Share this recipe…", subtitle="With the settings chosen above", activatable=True)
+        share.add_suffix(Gtk.Image(icon_name="go-next-symbolic")); share.connect("activated", lambda *_: self.share())
+        g2.add(share); page.add(g2)
+        tv.set_content(page)
+        bar = Gtk.Box(spacing=8, margin_top=6, margin_bottom=12, margin_start=12, margin_end=12, halign=Gtk.Align.END)
+        reset = Gtk.Button(label="Reset to detected"); reset.connect("clicked", lambda *_: self.reset()); bar.append(reset)
+        apply = Gtk.Button(label="Apply", css_classes=["suggested-action"]); apply.connect("clicked", lambda *_: self.apply()); bar.append(apply)
+        tv.add_bottom_bar(bar)
+        self.set_child(tv)
+
+    def _combo(self, group, title, labels, texts, current):
+        """A row with the choices of one knob; its subtitle explains the one selected."""
+        keys = list(labels)
+        row = Adw.ComboRow(title=title, model=Gtk.StringList.new([labels[k] for k in keys]))
+        value, who = current
+        row.set_selected(keys.index(value) if value in keys else 0)
+        row.set_use_markup(False)          # the texts quote names; no escaping games
+        def explain(*_):
+            k = keys[row.get_selected()]
+            row.set_subtitle(texts.get(k, "") + (f"  (now: {_WHO[who]})" if k == value else ""))
+        row.connect("notify::selected", explain); explain()
+        row.vstenv_keys = keys
+        group.add(row)
+        return row
+
+    def values(self) -> dict:
+        return {knob: row.vstenv_keys[row.get_selected()] for knob, row in self.rows.items()}
+
+    def apply(self):
+        vals = self.values()
+        try: cur = recipes.set_choice(self.win.prefix, self.kind, self.key, **vals)
+        except ValueError as e: self.win.toast(str(e)); return
+        self.close(); self.win.apply_recipe(self.kind, self.key, self.label, cur, self.exe_path)
+
+    def reset(self):
+        recipes.reset(self.win.prefix, self.kind, self.key)
+        self.close(); self.win.apply_recipe(self.kind, self.key, self.label, {}, self.exe_path)
+
+    def share(self):
+        url = recipes.share_url(self.win.prefix, self.kind, self.key, self.values(), self.symptom.get_text().strip(), self.version)
+        Gtk.UriLauncher(uri=url).launch(self.win, None, None)
+
 
 def _noted_row(title, subtitle, note, suffixes=()):
     """An ActionRow, or, when there is a note, an ExpanderRow with the pill on the
@@ -360,7 +437,13 @@ class Window(Adw.ApplicationWindow):
             g = next(iter(self.product_groups.values()), None)
             if g: g.set_visible(True); self._fill(g, [Adw.ActionRow(title="Nothing installed yet", subtitle="Open a vendor's manager from the Install tab")])
         shown = self._plugin_filter().apply(bridged, lambda b: (b.get("name"), b.get("info")))
-        brows = [Adw.ActionRow(title=GLib.markup_escape_text(b["name"]), subtitle=GLib.markup_escape_text(b["info"])) for b in shown]
+        def brow(b):
+            r = Adw.ActionRow(title=GLib.markup_escape_text(b["name"]), subtitle=GLib.markup_escape_text(b["info"]))
+            t = Gtk.Button(icon_name="view-more-symbolic", valign=Gtk.Align.CENTER, css_classes=["flat"],
+                           tooltip_text=f"Troubleshoot… — {recipes.UNNECESSARY}")
+            t.connect("clicked", lambda *_, name=b["name"]: self.troubleshoot_plugin(name)); r.add_suffix(t)
+            return r
+        brows = [brow(b) for b in shown]
         if not brows:
             brows.append(Adw.ActionRow(title="Nothing matches this search", subtitle="Clear the search box to see everything")
                          if self._plugin_filter().active else
@@ -408,11 +491,12 @@ class Window(Adw.ApplicationWindow):
         self._rows_limits = _row("What runs here", "Click for the limits of this environment.", "dialog-information-symbolic", lambda: self.toast(programs.LIMITS, 12))
         g.add(self._rows_limits)
         page.add(g); return box
-    def _draw_programs(self, progs, notes, dc, um=()):
+    def _draw_programs(self, progs, notes, dc, um=(), hosts=()):
         """Draw the programs page from data already fetched, so the search box
         re-draws without re-reading the prefix. `um` holds the exe paths that are
-        kept away from the window manager (read once, off the UI thread)."""
-        self._programs_data = dict(progs=progs, notes=notes, dc=dc, um=um)
+        kept away from the window manager and `hosts` the exe names whose window
+        is an embedded browser (both read once, off the UI thread)."""
+        self._programs_data = dict(progs=progs, notes=notes, dc=dc, um=um, hosts=hosts)
         def build_row(x):
             sub = " · ".join(s for s in (x.version, x.publisher) if s) or ("" if x.exe else "no launcher known (uninstall only)")
             um_on = x.exe in um
@@ -426,8 +510,8 @@ class Window(Adw.ApplicationWindow):
                 b.connect("clicked", lambda *_, prog=x: self.uninstall_program(prog)); sfx.append(b)
             if unmanaged.supported(x):
                 b = Gtk.Button(icon_name="view-more-symbolic", valign=Gtk.Align.CENTER,
-                               tooltip_text=f"{unmanaged.LABEL}… — {unmanaged.UNNECESSARY}", css_classes=["flat"])
-                b.connect("clicked", lambda *_, prog=x, cur=um_on: self.ask_unmanaged(prog, cur)); sfx.append(b)
+                               tooltip_text=f"Troubleshoot… — {recipes.UNNECESSARY}", css_classes=["flat"])
+                b.connect("clicked", lambda *_, prog=x: self.troubleshoot_program(prog, hosts)); sfx.append(b)
             v = vendors.for_program(x)
             note = vendors.note_for(x.name, notes.get(v.id, [])) if v is not None else None
             if note is None and v is None and dcomp.is_dcomp_program(x, dc): note = dcomp.note()
@@ -478,7 +562,9 @@ class Window(Adw.ApplicationWindow):
             try: on = unmanaged.applied_all(self.prefix)
             except Exception: on = set()
             um = {x.exe for x in progs if unmanaged.supported(x) and unmanaged.exe_name(x) in on}
-            ui(lambda: self._draw_programs(progs, notes, dc, um))
+            try: hosts = set(webview2.host_exes(self.prefix))      # cached scan: a stat per exe
+            except Exception: hosts = set()
+            ui(lambda: self._draw_programs(progs, notes, dc, um, hosts))
         threading.Thread(target=work, daemon=True).start()
     def run_program(self, prog):
         v = vendors.for_program(prog)
@@ -590,29 +676,31 @@ class Window(Adw.ApplicationWindow):
 
     def _do_uninstall(self, prog):
         self.run_bg(f"Uninstalling {prog.name}", lambda r: (programs.uninstall(self.prefix, prog, r), setup.after_change(self.prefix, r)))
-    def ask_unmanaged(self, prog, on):
-        """Explain the setting, then let the user switch it for this program."""
-        d = Adw.AlertDialog(heading=f"{unmanaged.LABEL}?",
-                            body=f"{prog.name} is currently "
-                                 f"{'kept away from the window manager' if on else 'managed by the window manager'}.\n\n"
-                                 f"{unmanaged.EXPLAIN}")
-        d.add_response("cancel", "Cancel")
-        d.add_response("flip", "Hand back to the window manager" if on else "Keep the window manager away")
-        d.set_response_appearance("flip", Adw.ResponseAppearance.SUGGESTED)
-        d.set_default_response("cancel"); d.set_close_response("cancel")
-        d.connect("response", lambda _d, resp: self.set_unmanaged(prog, not on) if resp == "flip" else None)
-        d.present(self)
+    def troubleshoot_program(self, prog, hosts=()):
+        """The settings this program can be given (recipes.py), in a dialog."""
+        exe = unmanaged.exe_name(prog)
+        TroubleshootDialog(self, "programs", exe, prog.name, version=prog.version,
+                           exe_path=self.prefix.to_host(prog.exe), is_browser=exe in set(hosts)).present(self)
 
-    def set_unmanaged(self, prog, on):
-        """Turn "keep the window manager away" on or off for one program (Managed=N)."""
-        def work():
-            try: changed = unmanaged.set_for(self.prefix, prog, on)
-            except Exception as e: self.toast(f"Could not change {prog.name}: {str(e)[:80]}"); return
-            if changed:
-                self.toast(f"{prog.name}: {'the window manager is kept away' if on else 'handed back to the window manager'}"
-                           " — restart it to see the change")
-            ui(lambda: self.refresh_programs())
-        threading.Thread(target=work, daemon=True).start()
+    def troubleshoot_plugin(self, name):
+        TroubleshootDialog(self, "plugins", name, name).present(self)
+
+    def apply_recipe(self, kind, key, label, settings, exe_path=None):
+        """Write a dialog's choice to the prefix. A program's settings are a few
+        registry values; a plugin's go through the host launcher's override
+        file, which the after-install pass rewrites."""
+        said = ", ".join(f"{k}={v}" for k, v in settings.items()) or "back to what the app detected"
+        if kind == "programs":
+            def work():
+                try: recipes.apply_program(self.prefix, key, settings, None, exe_path)
+                except Exception as e: self.toast(f"Could not change {label}: {str(e)[:80]}"); return
+                self.toast(f"{label}: {said} — restart it to see the change", 6)
+                ui(lambda: self.refresh_programs())
+            threading.Thread(target=work, daemon=True).start()
+        else:
+            def done(_r, err):
+                if not err: self.toast(f"{label}: {said} — reload it in your DAW to see the change", 6)
+            self.run_bg(f"Applying the recipe for {label}", lambda r: setup.after_change(self.prefix, r, force=True), done)
     def install_program(self, path):
         def work(r):
             # A tuple here would evaluate both halves: a failed install would
