@@ -73,13 +73,28 @@ class Program:
 _FOREGROUND_ANYWAY = ("software center", "install assistant", "mediabay", "license manager")
 
 # --- Wine .reg files --------------------------------------------------------------------------
+_ESCAPE = re.compile(r"\\(.)", re.S)
+
 def _unescape(s: str) -> str:
-    out, i = [], 0
-    while i < len(s):
-        c = s[i]
-        if c == "\\" and i + 1 < len(s): out.append(s[i + 1]); i += 2
-        else: out.append(c); i += 1
-    return "".join(out)
+    return _ESCAPE.sub(r"\1", s) if "\\" in s else s
+
+# A hive is parsed once per change: the two files are several MB, every page
+# of the GUI wanted them, and parsing both took seconds per refresh.
+_hives: dict[str, tuple[tuple[int, int], dict]] = {}
+
+def hive_sections(path: Path) -> dict[str, dict[str, str]]:
+    """reg_sections() of a hive file, cached by its size and mtime. {} when the
+    file is missing. The on-disk hive may lag a running wineserver by up to a
+    minute; read the live registry (Prefix.reg_query) where that matters."""
+    try: st = path.stat()
+    except OSError: return {}
+    stamp = (st.st_size, st.st_mtime_ns)
+    hit = _hives.get(str(path))
+    if hit and hit[0] == stamp: return hit[1]
+    try: sections = reg_sections(path.read_text(encoding="utf-8", errors="replace"))
+    except OSError: return {}
+    _hives[str(path)] = (stamp, sections)
+    return sections
 
 def reg_sections(text: str) -> dict[str, dict[str, str]]:
     """{'Key\\Path': {'Name': 'string value'}} for a Wine .reg file. Only string
@@ -101,8 +116,7 @@ def reg_sections(text: str) -> dict[str, dict[str, str]]:
 def registry_programs(p: Prefix) -> list[Program]:
     out = []
     for regfile in (p.path / "system.reg", p.path / "user.reg"):
-        try: sections = reg_sections(regfile.read_text(encoding="utf-8", errors="replace"))
-        except OSError: continue
+        sections = hive_sections(regfile)
         for key, vals in sections.items():
             if not any(key.lower().startswith(u.lower() + "\\") for u in UNINSTALL_KEYS): continue
             name = vals.get("DisplayName", "").strip()

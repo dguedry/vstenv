@@ -137,10 +137,9 @@ def ni_programs(p: Prefix) -> list:
     """NI applications from HKLM Software/Native Instruments/<Name>/InstallDir: those
     this app deployed itself have no Uninstall record. Libraries (no exe) are skipped;
     Native Access manages their removal."""
-    from ...programs import Program, reg_sections, find_exe
+    from ...programs import Program, hive_sections, find_exe
     out = []
-    try: sections = reg_sections((p.path / "system.reg").read_text(encoding="utf-8", errors="replace"))
-    except OSError: return out
+    sections = hive_sections(p.path / "system.reg")
     for key, vals in sections.items():
         if not key.startswith(NI_REG_PREFIX) or "\\" in key[len(NI_REG_PREFIX):]: continue
         name = key[len(NI_REG_PREFIX):]; d = vals.get("InstallDir", "")

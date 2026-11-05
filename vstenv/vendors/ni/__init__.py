@@ -35,7 +35,11 @@ class NativeInstruments(Vendor):
     # -- Native Access -----------------------------------------------------------
     def manager_installed(self, p): return na.na_exe(p).exists()
     def manager_version(self, p):
-        v = na.status(p)["version"]
+        # Just the file version: na.status() also scans the host's processes,
+        # which cost every GUI page a second for a number that does not change.
+        from ... import pe
+        exe = na.na_exe(p)
+        v = pe.version(exe) if exe.exists() else None
         return ".".join(v.split(".")[:3]) if v else None
     def manager_exe_names(self): return ("Native Access.exe",)
     def manager_notice(self, p):

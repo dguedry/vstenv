@@ -62,6 +62,27 @@ class RegTest(unittest.TestCase):
         self.assertEqual(secs[k]["UninstallString"], r'"C:\Program Files\IK Multimedia\IK Product Manager\Uninstall IK Product Manager.exe" /allusers')
         self.assertEqual(secs[r"Software\Microsoft\Windows\CurrentVersion\Uninstall\{e5426377}"]["SystemComponent"], "1")
 
+    def test_unescape_handles_both_escapes_and_leaves_plain_text_alone(self):
+        self.assertEqual(programs._unescape(r"C:\\Program Files\\X"), r"C:\Program Files\X")
+        self.assertEqual(programs._unescape(r'say \"hi\"'), 'say "hi"')
+        self.assertEqual(programs._unescape("no escapes here"), "no escapes here")
+
+    def test_hive_is_parsed_once_until_it_changes(self):
+        """Both hives are several MB and every GUI page wanted them: a tab switch
+        parsed them three times over and took seconds."""
+        import os, tempfile, time
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "system.reg"; f.write_text(SYSTEM_REG)
+            a = programs.hive_sections(f); b = programs.hive_sections(f)
+            self.assertIs(a, b)
+            self.assertIn(r"Software\Microsoft\Windows\CurrentVersion\Uninstall\a401809f", a)
+            f.write_text(SYSTEM_REG + '\n[Software\\\\Extra] 1\n"Name"="v"\n')
+            os.utime(f, ns=(time.time_ns() + 10**9, time.time_ns() + 10**9))
+            c = programs.hive_sections(f)
+            self.assertIsNot(a, c); self.assertIn(r"Software\Extra", c)
+            self.assertEqual(programs.hive_sections(Path(d) / "missing.reg"), {})
+
 class LnkTest(unittest.TestCase):
     def test_parse(self):
         b = make_lnk(r"C:\Program Files\X\X.exe", "X", r"C:\Program Files\X", "--flag")

@@ -249,6 +249,7 @@ def plugin_signature(p: Prefix) -> frozenset:
 
 def sync(p: Prefix, reporter=None, extras=()) -> dict:
     r = null_reporter(reporter)
+    forget_status(p)                # what this does is exactly what the cache holds
     install(r)
     # Never hand plugins to a DAW that would run them with another Wine: its
     # prefix update replaces this prefix's DLLs (seen with the host's wine 9.0).
@@ -291,6 +292,7 @@ def sync(p: Prefix, reporter=None, extras=()) -> dict:
         r.ok(f"{len(removed)} from {', '.join(owners)}" if removed else "nothing removed")
     r.step("Syncing yabridge")
     cp = subprocess.run([str(YCTL), "sync", "--prune"], capture_output=True, text=True, env=env, timeout=1800)
+    forget_status(p)
     summary = next((l for l in cp.stdout.splitlines() if l.startswith("Finished")), "")
     if not summary: summary = (cp.stderr or cp.stdout).strip().splitlines()[-1:] or [""]; summary = summary[0][:160]
     (r.ok if cp.returncode == 0 else r.fail)(summary)
@@ -298,9 +300,24 @@ def sync(p: Prefix, reporter=None, extras=()) -> dict:
         if l.startswith("WARNING"): r.log(l)
     return {"dirs": [str(d) for d in dirs], "removed_dirs": removed, "returncode": cp.returncode, "output": cp.stdout, "summary": summary}
 
-def status(p: Prefix) -> str:
+# `yabridgectl status` walks every plugin dir (3-4 s here); the GUI's pages ask
+# for it more than once per refresh, so one answer serves for a short while.
+# sync() forgets it, since that is what changes it.
+_status_cache: dict[str, tuple[float, str]] = {}
+STATUS_TTL = 30.0
+
+def status(p: Prefix, fresh=False) -> str:
     if not YCTL.exists(): return "yabridge not installed"
-    return subprocess.run([str(YCTL), "status"], capture_output=True, text=True, env=_yctl_env(p), timeout=120).stdout
+    import time
+    hit = _status_cache.get(str(p.path))
+    if hit and not fresh and time.monotonic() - hit[0] < STATUS_TTL: return hit[1]
+    out = subprocess.run([str(YCTL), "status"], capture_output=True, text=True, env=_yctl_env(p), timeout=120).stdout
+    _status_cache[str(p.path)] = (time.monotonic(), out)
+    return out
+
+def forget_status(p: Prefix | None = None):
+    if p is None: _status_cache.clear()
+    else: _status_cache.pop(str(p.path), None)
 
 # --- which wine runs the plugin host ---------------------------------------------------------------
 # yabridge starts its Windows-side plugin host through yabridge-host.exe, a

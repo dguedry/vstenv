@@ -474,12 +474,10 @@ class Window(Adw.ApplicationWindow):
                 except Exception: notes[v.id] = []
             try: dc = dcomp.program_exes(self.prefix)
             except Exception: dc = []
-            # one registry read per program, here rather than while drawing rows
-            um = set()
-            for x in progs:
-                try:
-                    if unmanaged.supported(x) and unmanaged.is_on(self.prefix, x): um.add(x.exe)
-                except Exception: pass
+            # one hive read for every program's switch, not a registry query each
+            try: on = unmanaged.applied_all(self.prefix)
+            except Exception: on = set()
+            um = {x.exe for x in progs if unmanaged.supported(x) and unmanaged.exe_name(x) in on}
             ui(lambda: self._draw_programs(progs, notes, dc, um))
         threading.Thread(target=work, daemon=True).start()
     def run_program(self, prog):

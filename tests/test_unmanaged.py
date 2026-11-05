@@ -18,6 +18,22 @@ class FakeProgram:
 
 
 class UnmanagedTest(unittest.TestCase):
+    def test_applied_all_reads_every_switch_from_the_hive_in_one_go(self):
+        """The Programs page asked the registry once per program (a wine
+        process each) and took seconds; one hive read answers for all."""
+        import tempfile
+        from pathlib import Path
+        hive = ('WINE REGISTRY Version 2\n\n'
+                '[Software\\\\Wine\\\\AppDefaults\\\\Komplete Kontrol.exe\\\\X11 Driver] 1\n"Managed"="N"\n\n'
+                '[Software\\\\Wine\\\\AppDefaults\\\\Other.exe\\\\X11 Driver] 1\n"Managed"="Y"\n\n'
+                '[Software\\\\Wine\\\\AppDefaults\\\\Third.exe\\\\DllOverrides] 1\n"d3d11"="builtin"\n')
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "user.reg").write_text(hive)
+            class P: path = Path(d)
+            self.assertEqual(unmanaged.applied_all(P()), {"Komplete Kontrol.exe"})
+            class Q: path = Path(d) / "nowhere"
+            self.assertEqual(unmanaged.applied_all(Q()), set())
+
     def test_key_is_per_program(self):
         self.assertEqual(unmanaged.key("Komplete Kontrol.exe"),
                          r"HKCU\Software\Wine\AppDefaults\Komplete Kontrol.exe\X11 Driver")

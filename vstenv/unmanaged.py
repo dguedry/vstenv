@@ -30,6 +30,21 @@ def key(exe_name: str) -> str: return rf"HKCU\Software\Wine\AppDefaults\{exe_nam
 def applied(p: Prefix, exe_name: str) -> bool:
     return p.reg_query(key(exe_name)).get("Managed") == "N"
 
+_PREFIX = "Software\\Wine\\AppDefaults\\"
+_SUFFIX = "\\X11 Driver"
+
+def applied_all(p: Prefix) -> set[str]:
+    """Every exe name with the setting, read from the on-disk hive in one go:
+    the Programs page asks for all of them at once, and a registry query per
+    program (one wine process each) made it take seconds. The hive may lag a
+    change by up to a minute; the page applies its own switch flips directly."""
+    from .programs import hive_sections
+    out = set()
+    for k, vals in hive_sections(p.path / "user.reg").items():
+        if k.startswith(_PREFIX) and k.endswith(_SUFFIX) and vals.get("Managed") == "N":
+            out.add(k[len(_PREFIX):-len(_SUFFIX)])
+    return out
+
 def apply(p: Prefix, exe_names: list[str], reporter=None,
           why="their dropdowns are fullscreen popups the window manager would activate") -> list[str]:
     """Set Managed=N for each exe. Returns the names that changed."""
