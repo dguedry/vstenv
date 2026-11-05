@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.120" date="2026-11-05">
+      <description>
+        <p>README: Jamstix 4 installs through its Manager and bridges as VST2</p>
+      </description>
+    </release>
     <release version="0.1.119" date="2026-11-05">
       <description>
         <p>FireMonkey programs draw through GDI+: disable d3d11/dxgi for their exe</p>
