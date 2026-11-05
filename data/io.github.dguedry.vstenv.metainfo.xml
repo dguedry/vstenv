@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.114" date="2026-11-05">
+      <description>
+        <p>Minimal Audio: install the Hub as a program and render its WebView2 window</p>
+      </description>
+    </release>
     <release version="0.1.113" date="2026-11-03">
       <description>
         <p>README: put the install commands at the top</p>
