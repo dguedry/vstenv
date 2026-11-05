@@ -30,6 +30,15 @@ DXVK = {
 }
 # The DLLs DXVK replaces. d3d8 is left out: nothing here needs it.
 DLLS = ("d3d9", "d3d10core", "d3d11", "dxgi")
+# Both bitnesses: the tarball's x64 DLLs go to system32, its x32 ones to
+# syswow64. The override below is per DLL name, not per bitness, so a prefix
+# with only the 64-bit set told Wine "native" for 32-bit programs too, and
+# every 32-bit program importing d3d9 died at startup with
+# STATUS_DLL_NOT_FOUND (Jamstix 4 Manager, a 32-bit Delphi app: exit 53).
+ARCHES = (("x64", "windows/system32"), ("x32", "windows/syswow64"))
+# "native,builtin": DXVK first, Wine's own Direct3D if the DXVK DLL cannot be
+# loaded, rather than no program at all.
+OVERRIDE = "native,builtin"
 MARKER = "vstenv-dxvk.json"          # in the prefix, records what we installed
 BACKUP_SUFFIX = ".wine-builtin"       # Wine's own DLL, kept next to the DXVK one
 
@@ -147,48 +156,67 @@ def installed_version(p: Prefix) -> str | None:
     m = marker(p)
     return m.get("version") if m else None
 
-def _extract(reporter) -> Path:
+def _extract(reporter) -> dict[str, Path]:
+    """The tarball's DLL folders by architecture: {'x64': dir, 'x32': dir}."""
     r = null_reporter(reporter)
     tgz = fetch(DXVK["url"], paths.DOWNLOADS / Path(DXVK["url"]).name, sha256=DXVK.get("sha256"), reporter=r, label="DXVK")
     d = paths.DOWNLOADS / f"dxvk-{DXVK['version']}-x"
     shutil.rmtree(d, ignore_errors=True); d.mkdir(parents=True)
     with tarfile.open(tgz) as t: t.extractall(d, filter="tar")
-    for cand in d.rglob("x64"):
-        if (cand / "d3d11.dll").exists(): return cand
-    raise FileNotFoundError("no x64/d3d11.dll in the DXVK tarball")
+    out = {}
+    for arch, _ in ARCHES:
+        out[arch] = next((c for c in d.rglob(arch) if (c / "d3d11.dll").exists()), None)
+    if out.get("x64") is None: raise FileNotFoundError("no x64/d3d11.dll in the DXVK tarball")
+    return out
+
+def complete(p: Prefix) -> bool:
+    """The pinned version is installed for every architecture the prefix has.
+    A prefix set up before the 32-bit set was installed says so in its marker
+    (no 'arches'), and gets it on the next pass."""
+    m = marker(p) or {}
+    if m.get("version") != DXVK["version"]: return False
+    wanted = [arch for arch, sub in ARCHES if (p.drive_c / sub).is_dir()]
+    return set(m.get("arches", [])) >= set(wanted)
+
+def _swap_in(src: Path, dst: Path, keep_backup: bool):
+    """Replace dst by src: a backup of Wine's own copy is kept once, and the
+    file is never written in place (a running plugin has it mapped)."""
+    backup = dst.with_name(dst.name + BACKUP_SUFFIX)
+    if keep_backup and dst.exists() and not backup.exists(): shutil.copy2(dst, backup)
+    tmp = dst.with_name(f".{dst.name}.new")
+    shutil.copy(src, tmp); tmp.replace(dst)
 
 def install(p: Prefix, reporter=None, force=False) -> dict:
-    """Put DXVK's DLLs in the prefix and tell Wine to use them, when the machine
-    has a hardware Vulkan driver. Idempotent; returns what was done."""
+    """Put DXVK's DLLs in the prefix, 64- and 32-bit, and tell Wine to use them,
+    when the machine has a hardware Vulkan driver. Idempotent; returns what was done."""
     r = null_reporter(reporter)
     ok, detail = vulkan_ok()
     if not ok:
         r.step("Installing DXVK (Direct3D on Vulkan)"); r.skip(detail)
         return {"installed": False, "reason": detail}
-    if installed_version(p) == DXVK["version"] and not force:
+    if complete(p) and not force:
         return {"installed": True, "version": DXVK["version"], "reason": "already installed"}
 
     r.step(f"Installing DXVK {DXVK['version']} for plugin GUIs")
     src = _extract(r)
-    s32 = p.drive_c / "windows/system32"
-    s32.mkdir(parents=True, exist_ok=True)
-    copied = []
-    for dll in DLLS:
-        f = src / f"{dll}.dll"
-        if not f.exists(): continue
-        dst = s32 / f"{dll}.dll"
-        backup = s32 / f"{dll}.dll{BACKUP_SUFFIX}"
-        if dst.exists() and not backup.exists(): shutil.copy2(dst, backup)   # keep Wine's own
-        tmp = s32 / f".{dll}.dll.new"                                        # never write in place:
-        shutil.copy(f, tmp); tmp.replace(dst)                                # a running plugin has it mapped
-        copied.append(dll)
+    copied, arches = [], []
+    for arch, sub in ARCHES:
+        d = p.drive_c / sub
+        if src.get(arch) is None or (arch != "x64" and not d.is_dir()): continue   # no syswow64: no 32-bit side
+        d.mkdir(parents=True, exist_ok=True)
+        for dll in DLLS:
+            f = src[arch] / f"{dll}.dll"
+            if not f.exists(): continue
+            _swap_in(f, d / f"{dll}.dll", keep_backup=True)
+            if dll not in copied: copied.append(dll)
+        arches.append(arch)
     # Prefix-wide: any plugin, now or later, gets the working renderer. A program
     # that misbehaves under DXVK can be excepted with an AppDefaults override.
-    p.reg_import_values({r"HKCU\Software\Wine\DllOverrides": {d: ("REG_SZ", "native") for d in copied}},
+    p.reg_import_values({r"HKCU\Software\Wine\DllOverrides": {d: ("REG_SZ", OVERRIDE) for d in copied}},
                         "vstenv-dxvk.reg")
-    (p.drive_c / MARKER).write_text(json.dumps({"version": DXVK["version"], "dlls": copied, "vulkan": detail}))
-    r.ok(f"{len(copied)} DLLs, Vulkan: {detail}")
-    return {"installed": True, "version": DXVK["version"], "dlls": copied, "vulkan": detail}
+    (p.drive_c / MARKER).write_text(json.dumps({"version": DXVK["version"], "dlls": copied, "arches": arches, "vulkan": detail}))
+    r.ok(f"{len(copied)} DLLs ({', '.join(arches)}), Vulkan: {detail}")
+    return {"installed": True, "version": DXVK["version"], "dlls": copied, "arches": arches, "vulkan": detail}
 
 def uninstall(p: Prefix, reporter=None) -> bool:
     """Put Wine's own Direct3D DLLs back and drop the overrides."""
@@ -196,11 +224,11 @@ def uninstall(p: Prefix, reporter=None) -> bool:
     m = marker(p)
     if not m: return False
     r.step("Removing DXVK (back to Wine's renderer)")
-    s32 = p.drive_c / "windows/system32"
-    for dll in m.get("dlls", DLLS):
-        backup = s32 / f"{dll}.dll{BACKUP_SUFFIX}"
-        if backup.exists():
-            tmp = s32 / f".{dll}.dll.new"; shutil.copy(backup, tmp); tmp.replace(s32 / f"{dll}.dll")
+    for _, sub in ARCHES:
+        d = p.drive_c / sub
+        for dll in m.get("dlls", DLLS):
+            backup = d / f"{dll}.dll{BACKUP_SUFFIX}"
+            if backup.exists(): _swap_in(backup, d / f"{dll}.dll", keep_backup=False)
     p.reg_import_values({r"HKCU\Software\Wine\DllOverrides": {d: ("REG_SZ", "builtin") for d in m.get("dlls", DLLS)}},
                         "vstenv-dxvk-off.reg")
     (p.drive_c / MARKER).unlink(missing_ok=True)
@@ -212,4 +240,5 @@ def status(p: Prefix) -> dict:
     m = marker(p)
     return {"vulkan_ok": ok, "vulkan": detail,
             "installed": m is not None, "version": (m or {}).get("version"),
+            "arches": (m or {}).get("arches", []), "complete": complete(p),
             "wanted": DXVK["version"]}

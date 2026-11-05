@@ -253,6 +253,7 @@ through yabridge, including [StageRig](https://github.com/dguedry/stagerig).
 | Spitfire Audio (no module: plain Windows installer) | Spitfire Audio app 3.4 | Reaches and holds its Sign In page and browses normally: the patched dxgi/wined3d/win32u give it real DXGI composition swapchains (ported from giang17/wine) that present straight into its window, where Wine's hidden-window emulation deadlocked. Draws through the same patched dcomp.dll + Wine Direct3D as any JUCE 8 program |
 | Audio Modeling | Software Center 1.x (WebView2) | Signs in, downloads products, TRY videos play; its own install attempts fail under Wine (mis-quoted installer arguments), so the app rescues each download and finishes it unattended, announced by a desktop notification (nine SWAM products installed and bridged this way) |
 | Minimal Audio | Minimal Hub 1.1.11 (Tauri + WebView2) | Installed as a program from its download; signs in and shows the account's library, drawn through software rendering (solid black without it); installing its plugins through the Hub is not yet verified |
+| Rayzoon (no module: plain Windows program) | Jamstix 4 Manager 1.3.0, run from the Install tab | Opens to its welcome and Connect screen (a 32-bit program: it needed the 32-bit DXVK DLLs); downloading and installing Jamstix through it is not yet verified |
 | Orchestral Tools (no module: plain Windows installer) | SINE Player (JUCE + WebView2) | Installs and bridges; sign-in works against Orchestral Tools' servers, typed blind — the fields take input but do not display it (see "WebView2 apps"); the Store browses and the tips video plays; a web tab's page sticks over the native views until a restart |
 | Gig Performer (no module: plain Windows installer) | Gig Performer 5 (5.3.3) installer, run from the Install tab | Installs and runs as a standalone host under Wine, OpenGL interface and all. Its window is maximized by the window manager on sight, which left Wine's idea of its position stale and the pointer landing off its targets; the app now resyncs the window as it appears, so clicks land where the pointer is |
 
@@ -480,7 +481,10 @@ Electron bundle make it work (accept Wine's `ver` output in its os-info module;
 disable GPU acceleration in the app itself, since a plugin may start it), and it
 launches with `--disable-gpu`. IK's JUCE plugin GUIs draw through Direct3D and
 need DXVK to repaint; the app installs DXVK when the machine has a real Vulkan
-driver and says so in Health when it does not.
+driver and says so in Health when it does not. Both the 64-bit and the 32-bit
+DLLs go in: Wine's DLL override is per name, not per bitness, so with only the
+64-bit set a 32-bit program that imports Direct3D (Rayzoon's Jamstix 4
+Manager) could not start at all.
 
 ### Steinberg module
 

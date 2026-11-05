@@ -141,8 +141,10 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
                        f"not used: {d['vulkan']}; Wine's own renderer is fine for most plugins, but some (JUCE/Direct3D GUIs) will not repaint until their window is resized",
                        fix="install a Vulkan driver for your GPU, then: vstenv dxvk install"))
     else:
-        c.append(Check("DXVK (plugin GUI rendering)", d["installed"],
-                       (f"{d['version']} on {d['vulkan']}" if d["installed"] else f"Vulkan is available ({d['vulkan']}) but DXVK is not installed"), fix="vstenv dxvk install"))
+        c.append(Check("DXVK (plugin GUI rendering)", d["installed"] and d["complete"],
+                       (f"{d['version']} on {d['vulkan']}" + ("" if d["complete"] else
+                        "; the 32-bit DLLs are missing, so 32-bit programs that draw through Direct3D cannot start (re-run setup)"))
+                       if d["installed"] else f"Vulkan is available ({d['vulkan']}) but DXVK is not installed", fix="vstenv dxvk install"))
     ystat = yabridge.status(p)
     foreign_dirs = prefixes.foreign_yabridge_dirs(p, ystat)
     c.append(Check("yabridge lists only this prefix", not foreign_dirs,
