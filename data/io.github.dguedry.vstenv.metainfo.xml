@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.117" date="2026-11-05">
+      <description>
+        <p>GUI: a second activation raises the window instead of opening another</p>
+      </description>
+    </release>
     <release version="0.1.116" date="2026-11-05">
       <description>
         <p>Minimal Hub: a desktop menu entry, since it needs nothing at launch</p>
