@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.122" date="2026-11-05">
+      <description>
+        <p>GUI: tabs open in well under a second instead of seconds</p>
+      </description>
+    </release>
     <release version="0.1.121" date="2026-11-05">
       <description>
         <p>PowerShell shim: carry out Start-Process, so Minimal Hub's installs land</p>
