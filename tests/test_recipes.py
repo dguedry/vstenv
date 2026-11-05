@@ -166,6 +166,11 @@ class ShareTest(unittest.TestCase):
         self.assertEqual(recipes._clean(json.loads(block))["programs"]["X.exe"]["rendering"], "wine")   # the table accepts it as is
         self.assertIn("- gpu: GPU", body)
 
+    def test_a_share_with_nothing_chosen_is_a_report(self):
+        with mock.patch.object(recipes, "environment", return_value={"vstenv": "0.1.0", "wine": "w", "dxvk": "-", "gpu": "G", "session": "s", "distribution": "d"}):
+            title, body = recipes.share_text(None, "programs", "X.exe", {"rendering": "auto"}, "it crashes")
+        self.assertTrue(title.startswith("Report: X.exe")); self.assertIn("nothing changed", body)
+
     def test_share_url_is_a_prefilled_issue_link(self):
         with mock.patch.object(recipes, "environment", return_value={"vstenv": "0.1.0", "wine": "w", "dxvk": "-", "gpu": "G", "session": "s", "distribution": "d"}):
             url = recipes.share_url(None, "plugins", "S.vst3", {"rendering": "gdi"}, "controls vanish", worked=False)

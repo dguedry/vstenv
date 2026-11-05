@@ -291,7 +291,10 @@ def share_text(p: Prefix | None, kind: str, name: str, settings: dict, symptom: 
     if symptom: entry["why"] = symptom
     env = environment(p)
     entry["confirmed"] = [f"{env['gpu']}; {env['session']}; vstenv {env['vstenv']}"]
-    title = f"Recipe: {name}" + (f" ({program_version})" if program_version else "") + ("" if worked else " — did not help")
+    # No setting chosen is a report, not a recipe: still worth filing, and the
+    # merge step refuses it rather than putting an empty entry in the table.
+    title = (f"Recipe: {name}" if kept else f"Report: {name}") + (f" ({program_version})" if program_version else "") + \
+            ("" if worked else " — did not help")
     lines = [f"**{'Worked' if worked else 'Did not help'}:** " + (", ".join(f"{k}={v}" for k, v in kept.items()) or "nothing changed"),
              "", f"**Symptom:** {symptom or '(please describe what you saw)'}", "",
              "```json", json.dumps({kind: {name: entry}}, indent=1), "```", "",
