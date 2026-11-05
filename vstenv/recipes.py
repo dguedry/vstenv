@@ -39,10 +39,15 @@ from . import paths
 from .progress import null_reporter
 from .wine import Prefix
 
+from . import remedies
+
 RENDERING = ("auto", "dxvk", "wine", "gdi")
 TRISTATE = ("auto", "on", "off")
+# "installs" are remedies for running an installer file (remedies.py), keyed
+# by the file's name; a key may hold * for the version part of a name.
 KNOBS = {"programs": {"rendering": RENDERING, "wm_away": TRISTATE, "browser_software_gl": TRISTATE},
-         "plugins": {"rendering": RENDERING}}
+         "plugins": {"rendering": RENDERING},
+         "installs": dict(remedies.KNOBS)}
 KINDS = tuple(KNOBS)
 
 # What each option means, in the words the UI and the CLI use.
@@ -167,6 +172,19 @@ def pinned(p: Prefix, kind: str, name: str, knob: str) -> bool:
     return knob in choices(p)[kind].get(name, {}) or knob in table()[kind].get(name, {})
 
 
+def install_settings(p: Prefix, file_name: str) -> tuple[dict, str]:
+    """The remedy recorded for an installer file: (settings, who), who being
+    'you', 'recipe' or '' when there is none. Names match case-insensitively;
+    a table key may hold * (Serum2_Setup_*.exe)."""
+    import fnmatch
+    low = file_name.lower()
+    for who, entries in (("you", choices(p)["installs"]), ("recipe", table()["installs"])):
+        for key, settings in entries.items():
+            if key.lower() == low or fnmatch.fnmatchcase(low, key.lower()):
+                return {k: v for k, v in settings.items() if k in KNOBS["installs"]}, who
+    return {}, ""
+
+
 def effective(p: Prefix, kind: str, name: str) -> dict[str, tuple[str, str]]:
     """{knob: (value, who)}: who is 'you' (a choice), 'recipe' (the table) or
     'auto' (detection), for every knob of this kind."""
@@ -283,9 +301,12 @@ def environment(p: Prefix | None = None) -> dict[str, str]:
 
 
 def share_text(p: Prefix | None, kind: str, name: str, settings: dict, symptom: str = "",
-               program_version: str | None = None, worked: bool = True) -> tuple[str, str]:
+               program_version: str | None = None, worked: bool = True, extra: str = "",
+               diagnosis: list | None = None) -> tuple[str, str]:
     """(title, body) for an issue: the recipe as a JSON block the table takes
-    as is, the symptom in the person's words, and the environment."""
+    as is, the symptom in the person's words, and the environment. `extra` is
+    output to attach (an installer's log tail, already scrubbed); `diagnosis`
+    what the app made of a failure."""
     kept = {k: v for k, v in settings.items() if k in KNOBS[kind] and v != "auto"}
     entry = dict(kept)
     if symptom: entry["why"] = symptom
@@ -293,19 +314,24 @@ def share_text(p: Prefix | None, kind: str, name: str, settings: dict, symptom: 
     entry["confirmed"] = [f"{env['gpu']}; {env['session']}; vstenv {env['vstenv']}"]
     # No setting chosen is a report, not a recipe: still worth filing, and the
     # merge step refuses it rather than putting an empty entry in the table.
-    title = (f"Recipe: {name}" if kept else f"Report: {name}") + (f" ({program_version})" if program_version else "") + \
+    what = "Install fix" if kind == "installs" else "Recipe"
+    title = (f"{what}: {name}" if kept else f"Report: {name}") + (f" ({program_version})" if program_version else "") + \
             ("" if worked else " — did not help")
     lines = [f"**{'Worked' if worked else 'Did not help'}:** " + (", ".join(f"{k}={v}" for k, v in kept.items()) or "nothing changed"),
-             "", f"**Symptom:** {symptom or '(please describe what you saw)'}", "",
-             "```json", json.dumps({kind: {name: entry}}, indent=1), "```", "",
-             "**Environment**"] + [f"- {k}: {v}" for k, v in env.items()]
+             "", f"**Symptom:** {symptom or '(please describe what you saw)'}"]
+    if diagnosis: lines += ["", "**The app's reading:** " + " ".join(diagnosis)]
+    lines += ["", "```json", json.dumps({kind: {name: entry}}, indent=1), "```", "",
+              "**Environment**"] + [f"- {k}: {v}" for k, v in env.items()]
+    if extra: lines += ["", "<details><summary>Output</summary>", "", "```", extra[-5000:], "```", "</details>"]
     return title, "\n".join(lines)
 
 
 def share_url(p: Prefix | None, kind: str, name: str, settings: dict, symptom: str = "",
-              program_version: str | None = None, worked: bool = True) -> str:
+              program_version: str | None = None, worked: bool = True, extra: str = "", diagnosis: list | None = None) -> str:
     """A link that opens a prefilled issue on the repository: nothing is sent
-    until the person presses Submit there."""
-    title, body = share_text(p, kind, name, settings, symptom, program_version, worked)
-    q = urllib.parse.urlencode({"title": title, "body": body, "labels": "recipe"})
+    until the person presses Submit there. A failed install goes in as
+    `install-failure`, anything that worked as `recipe`."""
+    title, body = share_text(p, kind, name, settings, symptom, program_version, worked, extra, diagnosis)
+    label = "install-failure" if (kind == "installs" and not worked) else "recipe"
+    q = urllib.parse.urlencode({"title": title, "body": body, "labels": label})
     return f"{ISSUES_URL}?{q}"

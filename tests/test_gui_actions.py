@@ -111,6 +111,16 @@ class GuiActionsTest(unittest.TestCase):
         self.assertIn("self.troubleshoot_program(prog, hosts)", self._body("_draw_programs", 4000))
         self.assertIn("self.troubleshoot_plugin(name)", self._body("_draw_plugins", 4000))
 
+    def test_a_failed_install_ends_in_remedies_not_a_toast(self):
+        body = self._body("install_program", 2500)
+        self.assertIn("InstallFailedDialog(self, path, err)", body)
+        self.assertIn("remedy=remedy", body); self.assertIn("self.remedy_worked(path, remedy)", body)
+        i = self.src.index("class InstallFailedDialog"); dlg = self.src[i:self.src.index("\ndef _noted_row", i)]
+        self.assertIn("remedies.options(", dlg); self.assertIn("self.win.install_program(self.path, remedy=settings)", dlg)
+        self.assertIn('"installs"', dlg); self.assertIn("worked=False", dlg); self.assertIn("report.scrub(", dlg)
+        kept = self._body("remedy_worked")
+        self.assertIn('recipes.set_choice(self.prefix, "installs", name, **remedy)', kept); self.assertIn("worked=True", kept)
+
     def test_applying_a_recipe_takes_the_right_path_per_kind(self):
         body = self._body("apply_recipe")
         self.assertIn("recipes.apply_program(", body)                 # a program: a few registry values

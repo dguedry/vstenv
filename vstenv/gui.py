@@ -111,6 +111,10 @@ _GL_TEXT = {"auto": "Hardware rendering with the full-frame presentation flags, 
             "off": "Hardware rendering, whatever the prefix-wide switch says."}
 _WHO = {"you": "your choice", "recipe": "a shared recipe", "auto": "what the app detected"}
 
+def remedies_label(settings):
+    from . import remedies
+    return remedies.label(settings)
+
 
 class TroubleshootDialog(Adw.Dialog):
     """The few settings one program or plugin can be given: try one, keep what
@@ -176,6 +180,52 @@ class TroubleshootDialog(Adw.Dialog):
 
     def share(self):
         url = recipes.share_url(self.win.prefix, self.kind, self.key, self.values(), self.symptom.get_text().strip(), self.version)
+        Gtk.UriLauncher(uri=url).launch(self.win, None, None)
+
+
+class InstallFailedDialog(Adw.Dialog):
+    """A failed install ends here: what the failure says, the remedies worth
+    trying (the fitting ones first), and a way to send the failure in."""
+    def __init__(self, win, path, err):
+        super().__init__(title=f"{Path(path).name} did not install", content_width=600)
+        self.win, self.path, self.err = win, Path(path), err
+        tv = Adw.ToolbarView(); tv.add_top_bar(Adw.HeaderBar())
+        page = Adw.PreferencesPage()
+        from . import remedies
+        tech = getattr(err, "tech", "unknown"); code = getattr(err, "exit_code", None)
+        what = [f"Exit code {code}" if code is not None else "It did not finish",
+                f"installer technology: {remedies.TECH_LABEL.get(tech, tech)}"]
+        g = Adw.PreferencesGroup(title="What happened", description=" · ".join(what))
+        for line in getattr(err, "diagnosis", []) or ["Nothing in its output that the app recognises. The remedies below are the usual suspects, in order."]:
+            g.add(Adw.ActionRow(title=GLib.markup_escape_text(line), title_lines=0))
+        page.add(g)
+        g2 = Adw.PreferencesGroup(title="Try one", description="Each runs the installer again with one change. Pick the one whose description matches what you saw.")
+        for rid, lab, when, settings, suggested in remedies.options(tech, code, getattr(err, "log_tail", lambda: "")()):
+            row = Adw.ActionRow(title=lab, subtitle=when, subtitle_lines=0, activatable=True)
+            if suggested: row.add_suffix(_pill("patched")); row.set_title(lab + "  (fits this failure)")
+            row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+            row.connect("activated", lambda *_, s=settings: self.retry(s))
+            g2.add(row)
+        page.add(g2)
+        g3 = Adw.PreferencesGroup(title="Send it in", description="Opens a prefilled issue on the project's GitHub with the exit code, the "
+                                                                    "installer's output (your user name removed) and this machine's facts; "
+                                                                    "nothing is sent until you press Submit there.")
+        self.symptom = Adw.EntryRow(title="What you saw, in a sentence"); g3.add(self.symptom)
+        share = Adw.ActionRow(title="Share this failure…", activatable=True); share.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+        share.connect("activated", lambda *_: self.share()); g3.add(share)
+        log = getattr(err, "log", None)
+        if log: g3.add(Adw.ActionRow(title="Its output was kept", subtitle=GLib.markup_escape_text(str(log)), subtitle_lines=0))
+        page.add(g3)
+        tv.set_content(page); self.set_child(tv)
+
+    def retry(self, settings):
+        self.close(); self.win.install_program(self.path, remedy=settings)
+
+    def share(self):
+        from . import report
+        url = recipes.share_url(self.win.prefix, "installs", self.path.name, getattr(self.err, "remedy", {}) or {},
+                                self.symptom.get_text().strip(), worked=False,
+                                extra=report.scrub(getattr(self.err, "log_tail", lambda: "")()), diagnosis=getattr(self.err, "diagnosis", []))
         Gtk.UriLauncher(uri=url).launch(self.win, None, None)
 
 
@@ -701,19 +751,41 @@ class Window(Adw.ApplicationWindow):
             def done(_r, err):
                 if not err: self.toast(f"{label}: {said} — reload it in your DAW to see the change", 6)
             self.run_bg(f"Applying the recipe for {label}", lambda r: setup.after_change(self.prefix, r, force=True), done)
-    def install_program(self, path):
+    def install_program(self, path, remedy=None):
+        """Run an installer; with `remedy`, run it again the way a remedy says.
+        A failure opens the remedies dialog; a success after a remedy keeps it
+        for this file and offers to share it."""
         def work(r):
             # A tuple here would evaluate both halves: a failed install would
             # still run the environment pass, spending a minute bridging and
             # syncing menus for something that was not installed.
-            programs.install(self.prefix, path, r)
+            programs.install(self.prefix, path, r, remedy=remedy)
             setup.after_change(self.prefix, r)
         def done(_result, err):
             if isinstance(err, programs.InstallCancelled):
                 self.toast(f"{Path(path).name} was cancelled — nothing was changed")
             elif isinstance(err, programs.InstallFailed):
                 self.toast(f"{Path(path).name} failed — the environment was left alone")
-        self.run_bg(f"Installing {Path(path).name}", work, done)
+                ui(lambda: InstallFailedDialog(self, path, err).present(self))
+            elif not err and remedy:
+                self.remedy_worked(path, remedy)
+        self.run_bg(f"Installing {Path(path).name}" + (f" ({remedies_label(remedy)})" if remedy else ""), work, done)
+
+    def remedy_worked(self, path, remedy):
+        """Keep the remedy for this installer file, and ask about sharing it."""
+        name = Path(path).name
+        try: recipes.set_choice(self.prefix, "installs", name, **remedy)
+        except Exception: pass
+        d = Adw.AlertDialog(heading=f"{name} installed",
+                            body=f"It worked with: {remedies_label(remedy)}. That is kept for this file, so installing it again "
+                                 "just works.\n\nShare it? That opens a prefilled issue on the project's GitHub in your browser; once "
+                                 "merged, everyone's app applies it to this installer by itself. Nothing is sent until you press Submit there.")
+        d.add_response("later", "Not now"); d.add_response("share", "Share this fix…")
+        d.set_response_appearance("share", Adw.ResponseAppearance.SUGGESTED); d.set_default_response("share"); d.set_close_response("later")
+        def resp(_d, r):
+            if r == "share":
+                Gtk.UriLauncher(uri=recipes.share_url(self.prefix, "installs", name, remedy, "", worked=True)).launch(self, None, None)
+        d.connect("response", resp); d.present(self)
 
     # ---- install page -------------------------------------------------------------------
     def build_install(self):

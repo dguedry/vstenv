@@ -57,7 +57,7 @@ class HookTest(unittest.TestCase):
     programs.run an installed program, before either starts."""
     def test_install_and_run_consult_fmx(self):
         src = Path("vstenv/programs.py").read_text()
-        i = src.index("def install(p: Prefix, installer"); body = src[i:src.index("\n    cp = p.run(argv", i)]
+        i = src.index("def install(p: Prefix, installer"); body = src[i:src.index("p.run(argv", i)]
         self.assertIn("fmx.apply_if_fmx(p, installer", body)
         j = src.index("def run(p: Prefix, prog"); body = src[j:src.index("proc = p.spawn(", j)]
         self.assertIn("fmx.apply_if_fmx(p, p.to_host(prog.exe)", body)

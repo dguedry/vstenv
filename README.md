@@ -374,6 +374,24 @@ the installer finishes; nothing needs moving by hand.
   one program draw wrong until it is reset. The built-in detection stays the
   default; a recipe narrows it for one named program or plugin. No recipe is
   needed for the vendor fixes in "What needs help": those are not settings.
+- **A failed install ends in things to try, not a toast.** The installer's
+  output is kept (`logs/install-<file>.log`) and every attempt is journaled
+  (`logs/installs.jsonl`). When one fails, the app says what the exit code and
+  the output mean where it recognises them (a missing DLL by name, a Tauri
+  program that is not a setup, a Qt setup's "Unknown exception caught", …)
+  and lists the remedies — each a single change to how the *installer* is
+  run, with one line on when it helps: run it unattended with the arguments
+  its technology documents (Inno Setup, NSIS, InstallBuilder, MSI, Qt
+  Installer Framework are known), tell it an older Windows, give it Wine's
+  Direct3D or none, disable Wine's network-list service, or install the file
+  as the program it is. The fitting ones come first. A remedy that works is
+  kept for that file and offered for sharing exactly like a recipe; once
+  merged, the app applies it by itself the next time anyone installs that
+  file (`vstenv/recipes.json`, "installs", with `*` for a version in the
+  name). *Share this failure…* files the rest — exit code, the app's reading,
+  the output with your user name removed, the machine's facts — as an
+  `install-failure` issue. From a terminal: `vstenv install FILE --remedy
+  silent=on`, and the failure message lists the same remedies.
 - **Plugins** — what each vendor's manager installed, and what is bridged for DAWs.
   Anything that only works because the app patched something carries a pill
   (*patched*, *limited*, *cannot run*) and expands to one sentence saying what

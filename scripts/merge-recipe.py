@@ -40,7 +40,7 @@ def merge(table: dict, new: dict) -> list[str]:
     done = []
     for kind in recipes.KINDS:
         table.setdefault(kind, {})
-        for name, entry in new[kind].items():
+        for name, entry in new.get(kind, {}).items():
             old = table[kind].get(name, {})
             merged = {k: v for k, v in old.items() if k == "confirmed"}
             merged.update({k: v for k, v in entry.items() if k != "confirmed"})

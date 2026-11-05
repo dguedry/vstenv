@@ -121,13 +121,33 @@ def cmd_install(a):
         res = v.install_product(p, src, r, keep_trace=a.keep_trace)
         print(f"  {res['name']}: installed via {res['method']}")
     else:
+        remedy = None
+        if a.remedy:
+            from . import remedies
+            remedy = {}
+            for kv in a.remedy:
+                if "=" not in kv: sys.exit(f"--remedy takes key=value (have: {', '.join(remedies.KNOBS)})")
+                k, v = kv.split("=", 1)
+                if k not in remedies.KNOBS or v not in remedies.KNOBS[k]:
+                    sys.exit(f"{k} can be {', '.join(remedies.KNOBS.get(k, ()))}; see: {APP_NAME} recipe --help")
+                remedy[k] = v
         try:
-            programs.install(p, src, r)
+            programs.install(p, src, r, remedy=remedy)
         except programs.InstallFailed as e:
             # Nothing was installed, so there is nothing to bridge or sync; the
             # environment pass would only make a failure look like a success.
+            from . import remedies
             print(f"  {e}")
+            for line in e.diagnosis: print(f"  {line}")
+            if e.log: print(f"  its output: {e.log}")
+            print("  Things to try (each re-runs it with one change):")
+            for rid, lab, when, settings, suggested in remedies.options(e.tech, e.exit_code, e.log_tail()):
+                print(f"    --remedy {' '.join(f'{k}={v}' for k, v in settings.items()):<24} {lab}{'  (fits this failure)' if suggested else ''}")
+            print(f"  Share it: {APP_NAME} recipe share install {src.name} --failed --symptom \"...\"")
             raise SystemExit(1)
+        if remedy:
+            recipes.set_choice(p, "installs", src.name, **remedy)
+            print(f"  kept for {src.name}: {remedies.label(remedy)}. Share it: {APP_NAME} recipe share install {src.name}")
     if not a.no_sync: setup.after_change(p, r)
 
 def cmd_sync(a):
@@ -163,6 +183,8 @@ def _recipe_target(p, kind: str, name: str):
         if not prog.exe: sys.exit(f"{prog.name} has no launcher, so there is nothing to set this for")
         exe = prog.exe.rsplit("\\", 1)[-1]
         return exe, prog.name, prog, p.to_host(prog.exe)
+    if kind == "install":
+        return Path(name).name, Path(name).name, None, None      # an installer file: its name is the key
     names = [b["name"] for b in yabridge.bridged(p)]
     hits = [n for n in names if n.lower() == name.lower()] or [n for n in names if name.lower() in n.lower()]
     if not hits: sys.exit(f"no bridged plugin matches '{name}' (see: {APP_NAME} plugins)")
@@ -171,7 +193,7 @@ def _recipe_target(p, kind: str, name: str):
 
 def cmd_recipe(a):
     p = _prefix()
-    kind = {"program": "programs", "plugin": "plugins"}.get(a.kind, a.kind)
+    kind = {"program": "programs", "plugin": "plugins", "install": "installs"}.get(a.kind, a.kind)
     if a.action == "list":
         lines = recipes.in_effect(p)
         print("\n".join(lines) if lines else "no recipes in effect: everything runs with what the app detected")
@@ -187,7 +209,7 @@ def cmd_recipe(a):
     if a.action == "reset":
         changed = recipes.reset(p, kind, key)
         if kind == "programs": recipes.apply_program(p, key, {}, ConsoleReporter(), exe_path)
-        else: setup.after_change(p, ConsoleReporter(), force=True)
+        elif kind == "plugins": setup.after_change(p, ConsoleReporter(), force=True)
         print(f"{label}: back to what the app detects{'' if changed else ' (nothing was set)'}"); return
     if a.action == "set":
         settings = {}
@@ -196,12 +218,15 @@ def cmd_recipe(a):
             k, v = kv.split("=", 1); settings[k] = v
         try: cur = recipes.set_choice(p, kind, key, **settings)
         except ValueError as e: sys.exit(str(e))
+        said = ", ".join(f"{k}={v}" for k, v in cur.items()) or "back to detected"
         if kind == "programs":
             recipes.apply_program(p, key, cur, ConsoleReporter(), exe_path)
-            print(f"{label}: {', '.join(f'{k}={v}' for k, v in cur.items()) or 'back to detected'}. Restart it to see the change.")
+            print(f"{label}: {said}. Restart it to see the change.")
+        elif kind == "installs":
+            print(f"{label}: {said}. Used the next time this file is installed.")
         else:
             setup.after_change(p, ConsoleReporter(), force=True)
-            print(f"{label}: {', '.join(f'{k}={v}' for k, v in cur.items()) or 'back to detected'}. Reload the plugin in your DAW to see the change.")
+            print(f"{label}: {said}. Reload the plugin in your DAW to see the change.")
         return
     if a.action == "share":
         settings = {k: v for k, (v, who) in recipes.effective(p, kind, key).items() if who == "you"}
@@ -360,6 +385,7 @@ def main(argv=None):
     s = sp.add_parser("products", help="list what the vendors' managers installed"); s.add_argument("--vendor"); s.set_defaults(f=cmd_products)
     s = sp.add_parser("install", help="install any downloaded Windows installer: a vendor's manager or product is recognized and installed with its fixes, anything else runs as a plain installer")
     s.add_argument("installer"); s.add_argument("--generic", action="store_true", help="run it interactively even if a vendor module recognises it")
+    s.add_argument("--remedy", nargs="+", metavar="KEY=VALUE", help="run it with a remedy: silent=on, winver=win8, rendering=wine|gdi, disable_dll=netprofm, as_program=on")
     s.add_argument("--keep-trace", action="store_true"); s.add_argument("--no-sync", action="store_true"); s.set_defaults(f=cmd_install)
     s = sp.add_parser("sync", help="bridge the prefix's plugins to Linux DAWs with yabridge and refresh the menu"); s.add_argument("dirs", nargs="*", help="extra plugin directories"); s.set_defaults(f=cmd_sync)
     sp.add_parser("programs", help="list Windows programs installed in the prefix").set_defaults(f=cmd_programs)
@@ -368,9 +394,9 @@ def main(argv=None):
                                   + "\n\n" + "\n".join(f"rendering={k}: {v}" for k, v in recipes.RENDERING_TEXT.items()),
                       formatter_class=argparse.RawDescriptionHelpFormatter)
     s.add_argument("action", choices=["list", "show", "set", "reset", "share", "update"])
-    s.add_argument("kind", nargs="?", choices=["program", "plugin"])
-    s.add_argument("name", nargs="?", help="program name (or part of it), or a bridged plugin's file name")
-    s.add_argument("settings", nargs="*", help="for set: rendering=wine wm_away=on browser_software_gl=on")
+    s.add_argument("kind", nargs="?", choices=["program", "plugin", "install"])
+    s.add_argument("name", nargs="?", help="program name (or part of it), a bridged plugin's file name, or an installer's file name")
+    s.add_argument("settings", nargs="*", help="for set: rendering=wine wm_away=on browser_software_gl=on; for an install: silent=on winver=win8 ...")
     s.add_argument("--symptom", help="for share: what you saw, in a sentence")
     s.add_argument("--failed", action="store_true", help="for share: report that the setting did not help")
     s.set_defaults(f=cmd_recipe)
