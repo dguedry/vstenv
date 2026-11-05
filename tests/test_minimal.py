@@ -30,9 +30,15 @@ class RecognitionTest(unittest.TestCase):
         for n in ("Current Installer.exe", "Rift 2 Setup.exe", "Native-Access-2.exe", "minimalistic-icons.exe"):
             self.assertFalse(self.v.accepts_manager_installer(Path(n)), n)
 
-    def test_the_hub_is_run_through_the_app(self):
+    def test_the_hub_gets_a_menu_entry_unlike_other_managers(self):
+        """Its fixes are registry settings, so a desktop entry (which starts it
+        through `vstenv run` anyway) loses nothing; the Programs page and the
+        manager row both still treat it as the vendor's manager."""
         from vstenv.programs import Program
-        self.assertTrue(vendors.run_through_app(Program(name="Minimal Hub", exe=r"C:\x\Minimal Hub.exe")))
+        hub = Program(name="Minimal Hub", exe=r"C:\x\Minimal Hub.exe")
+        self.assertFalse(vendors.run_through_app(hub))
+        self.assertTrue(self.v.is_manager_program(hub))
+        self.assertTrue(vendors.run_through_app(Program(name="Native Access", exe=r"C:\x\Native Access.exe")))
 
     def test_hub_app_is_told_from_a_setup_by_content(self):
         with tempfile.TemporaryDirectory() as tmp:

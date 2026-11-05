@@ -6,8 +6,9 @@ Microsoft's WebView2 control (an embedded Edge) and keeps itself up to date
 in place. Picked under "Install Windows software", the generic path would run
 it as a setup and wait for it to exit, so this module recognises the file and
 installs it as a program instead: copied into Program Files, listed on the
-Programs page and opened from the app like the other vendor managers -- and,
-mainly, put where the WebView2 handling can see it.
+Programs page, given a desktop menu entry (menu_entry: unlike the other
+managers it needs nothing at launch, and the entry starts it through `vstenv
+run` anyway) -- and, mainly, put where the WebView2 handling can see it.
 
 That handling is the point. Every WebView2 host in Program Files gets the
 full-frame presentation flags through WebView2's policy registry key (see
@@ -22,8 +23,8 @@ apps" setting on. The Hub is a sign-in and download window; software
 rendering costs it nothing noticeable.
 
 Its plugins install to the standard VST3 and VST2 folders and are bridged as
-they appear while the Hub runs (launched through the app) and again when it
-closes, as for any manager.
+they appear while the Hub runs (from the app or its menu entry, both go
+through `vstenv run`) and again when it closes, as for any manager.
 """
 from __future__ import annotations
 
@@ -57,6 +58,7 @@ class MinimalAudio(Vendor):
     name = "Minimal Audio"
     publisher = re.compile(r"^minimal(\s*audio)?$", re.I)
     manager_name = MANAGER
+    menu_entry = True          # nothing happens at launch; its fixes are registry settings
     download_page = "https://www.minimal.audio/"
     installer_hint = "the Minimal Hub download for Windows (Minimal Hub.exe)"
 

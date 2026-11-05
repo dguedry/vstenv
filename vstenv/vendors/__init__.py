@@ -76,6 +76,12 @@ class Vendor:
     name: str = ""                    # "Native Instruments"
     publisher: re.Pattern = re.compile(r"$^")   # matches the Publisher installers write
     manager_name: str | None = None   # the vendor's installer/manager application, if it has one
+    # A manager normally has no desktop menu entry (run_through_app): the app's
+    # own window is where its launch fixes and install rescue live. A module
+    # whose manager needs nothing at launch (its fixes are registry settings)
+    # may say so, and the manager gets an entry like any program -- one that
+    # still starts it through `vstenv run`, with bridging while it runs.
+    menu_entry: bool = False
     download_page: str | None = None  # where the user gets that application
     installer_hint: str = ""          # what its installer file is called
     daemon_ports: tuple[int, ...] = () # localhost ports a vendor helper daemon binds (one per machine)
@@ -267,7 +273,7 @@ _NO_MODULE_MANAGERS = (
 def run_through_app(prog: "Program") -> bool:
     """True if this program is a vendor manager/installer that vstenv wraps, so it
     should be started from the app rather than given a desktop menu shortcut."""
-    if any(v.is_manager_program(prog) for v in all()): return True
+    if any(v.is_manager_program(prog) and not v.menu_entry for v in all()): return True
     n = prog.name.lower()
     return any(k in n for k in _NO_MODULE_MANAGERS)
 

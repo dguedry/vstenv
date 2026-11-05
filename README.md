@@ -123,7 +123,8 @@ the program does and what the app does about it.
 - **Minimal Audio (Minimal Hub).** Its Windows download is not an installer:
   `Minimal Hub.exe` is the program itself, a Tauri app whose whole window is a
   WebView2 control. The app recognises the file and installs it as a program
-  (copied into Program Files, opened from the app like the other managers)
+  (copied into Program Files, with a desktop menu entry as well as the app's
+  manager row — it needs nothing at launch, unlike the other managers)
   instead of running it as a setup. Its window comes up solid black under
   Wine, even with the presentation flags every WebView2 host gets, on
   hardware where Audio Modeling's Center renders fine, so the app switches
