@@ -21,6 +21,16 @@ class GuiActionsTest(unittest.TestCase):
         end = min(i + chars, nxt if nxt != -1 else len(self.src))
         return self.src[i:end]
 
+    # -- one window per app -----------------------------------------------------
+    def test_activating_a_running_app_reuses_its_window(self):
+        """The app is single-instance: a launcher click while it runs is a second
+        activation. It used to open another window each time (three cascaded
+        windows after two clicks); it must raise the one that exists."""
+        body = self._body("do_activate")
+        self.assertIn("get_windows()", body)
+        self.assertEqual(body.count("Window(self)"), 1)
+        self.assertIn("present()", body)
+
     # -- uninstall asks first ---------------------------------------------------
     def test_uninstall_confirms_before_running_anything(self):
         """The trash icon sits next to Run; a mis-click costs paid software."""

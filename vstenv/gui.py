@@ -909,7 +909,12 @@ class App(Adw.Application):
             act = Gio.SimpleAction(name=f"tab{i}"); act.connect("activate", lambda *_, p=page: self.win.stack.set_visible_child_name(p))
             self.add_action(act); self.set_accels_for_action(f"app.tab{i}", [f"<Control>{i}"])
     def do_activate(self):
-        self.win = Window(self); self.win.present()
+        """One window. The app is single-instance, so a launcher click while it
+        runs lands here as a second activation: raise the window that exists
+        rather than open another next to it."""
+        if not getattr(self, "win", None) or self.win not in self.get_windows():
+            self.win = Window(self)
+        self.win.present()
 
     def do_open(self, files, n_files, hint):
         """A Windows installer was opened with this app (double-clicked, or
