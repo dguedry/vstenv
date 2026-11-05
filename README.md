@@ -120,6 +120,15 @@ the program does and what the app does about it.
   to replace a plugin a DAW has loaded ("Cannot start installation. Files are
   in use."), so it is started through the app rather than a desktop shortcut,
   and Health lists the plugins currently held open.
+- **Minimal Audio (Minimal Hub).** Its Windows download is not an installer:
+  `Minimal Hub.exe` is the program itself, a Tauri app whose whole window is a
+  WebView2 control. The app recognises the file and installs it as a program
+  (copied into Program Files, opened from the app like the other managers)
+  instead of running it as a setup. Its window comes up solid black under
+  Wine, even with the presentation flags every WebView2 host gets, on
+  hardware where Audio Modeling's Center renders fine, so the app switches
+  this one program to software rendering through the same policy key; the
+  sign-in page then draws normally.
 - **Softube (Softube Central).** Wine's own `powershell.exe` is a placeholder
   that runs nothing and reports success for every command. Softube's installers
   ask PowerShell whether Softube Central is running, take that success as
@@ -150,9 +159,10 @@ work and states what it was.
 
 Some vendors build their app's window on Microsoft's WebView2 control (an
 embedded Edge/Chromium): Orchestral Tools' SINE Player, Audio Modeling's
-Software Center. The app makes four arrangements for them, and with all four
-Audio Modeling's Software Center works fully, it renders flicker-free and its
-login takes typing:
+Software Center, Minimal Audio's Hub. The app makes four arrangements for
+them, and with all four Audio Modeling's Software Center works fully, it
+renders flicker-free and its login takes typing (the Hub needs a fifth,
+software rendering, set for it alone — see "Minimal Audio" above):
 
 - **The WebView2 runtime is installed on demand** when an app that needs it is
   detected; without one these apps crash at startup rather than failing politely
@@ -233,6 +243,7 @@ through yabridge, including [StageRig](https://github.com/dguedry/stagerig).
 | iZotope | Product Portal 1.4, Ozone 9 Advanced 9.13 installer | Every Ozone module bridged as VST3 and VST2, working out of the box. Installs cleanly: the app waits out the helper its installer hands off to, and ends the Electron Product Portal the installer leaves behind — under stock Wine that keeps crash-looping and starves loaded plugins until the Wine session is unusable |
 | Spitfire Audio (no module: plain Windows installer) | Spitfire Audio app 3.4 | Reaches and holds its Sign In page and browses normally: the patched dxgi/wined3d/win32u give it real DXGI composition swapchains (ported from giang17/wine) that present straight into its window, where Wine's hidden-window emulation deadlocked. Draws through the same patched dcomp.dll + Wine Direct3D as any JUCE 8 program |
 | Audio Modeling | Software Center 1.x (WebView2) | Signs in, downloads products, TRY videos play; its own install attempts fail under Wine (mis-quoted installer arguments), so the app rescues each download and finishes it unattended, announced by a desktop notification (nine SWAM products installed and bridged this way) |
+| Minimal Audio | Minimal Hub 1.1.11 (Tauri + WebView2) | Installed as a program from its download; signs in and shows the account's library, drawn through software rendering (solid black without it); installing its plugins through the Hub is not yet verified |
 | Orchestral Tools (no module: plain Windows installer) | SINE Player (JUCE + WebView2) | Installs and bridges; sign-in works against Orchestral Tools' servers, typed blind — the fields take input but do not display it (see "WebView2 apps"); the Store browses and the tips video plays; a web tab's page sticks over the native views until a restart |
 | Gig Performer (no module: plain Windows installer) | Gig Performer 5 (5.3.3) installer, run from the Install tab | Installs and runs as a standalone host under Wine, OpenGL interface and all. Its window is maximized by the window manager on sight, which left Wine's idea of its position stale and the pointer landing off its targets; the app now resyncs the window as it appears, so clicks land where the pointer is |
 
