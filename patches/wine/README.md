@@ -83,7 +83,19 @@ declares `$name = '<service>'` and switches on stop / start <exe> / restart /
 remove / <dependency>-running (Softube's Installer Helper `service.ps1`) is
 carried out through the service control manager -- the stub's success had
 left the old daemon running and the service pointing at a deleted exe ("Installer
-Daemon is outdated"). Anything else exits 0, as before. Every
+Daemon is outdated"). `Start-Process` is carried out too (Minimal Hub,
+2026-11-04): the Hub installs its products by writing a script of
+`Start-Process -FilePath '<Inno installer>' -ArgumentList '/VERYSILENT ...'
+-PassThru` lines followed by `Wait-Process`, and runs it through
+`powershell -Command "$p = Start-Process -FilePath '<Hub>' -ArgumentList
+'--run-elevated-ps1 "<script>"' -Verb RunAs -Wait -PassThru; exit
+$p.ExitCode"`, whereupon the Hub runs `powershell -File <script>`; the stub's
+success at the first step meant "installed" with nothing run and the download
+deleted. A `-Command` with Start-Process starts that program (waiting for its
+exit code with `-Wait`); a `-File` script of Start-Process lines runs each in
+turn, waiting, honouring its `New-Item -ItemType Directory` and `Remove-Item`
+lines, and exits 1 if any failed. Verified with the Hub's exact chain: Squash
+1.4 installed, bridged and loading. Anything else exits 0, as before. Every
 call is logged to `%LOCALAPPDATA%\vstenv-powershell.log`. The build tags it
 "Wine builtin DLL" at 0x40, as Wine's own modules are, or Wine will not load it
 from `lib/wine` as its builtin; it ships in the wine-fixes tarball as

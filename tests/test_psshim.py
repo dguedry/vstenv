@@ -37,6 +37,20 @@ class PowerShellShimTest(unittest.TestCase):
                        "StartServiceW", "DeleteService", 'quoted_after(text, L"$name")', 'quoted_after(text, L"$pace")'):
             self.assertIn(needle, src)
 
+    def test_start_process_is_carried_out(self):
+        """Minimal Hub installs its products through `Start-Process` in a script
+        it runs elevated via PowerShell (2026-11-04); the stub's success meant
+        "installed" with nothing run and the download deleted."""
+        src = self.SRC.read_text()
+        for needle in ("Start-Process", "-FilePath", "-ArgumentList", "CreateProcessW", "WaitForSingleObject",
+                       "GetExitCodeProcess", "start_process_script", "start_process_command",
+                       "SHCreateDirectoryExW", "DeleteFileW", 'L"install script"', 'L"start-process"'):
+            self.assertIn(needle, src)
+        # a -Command without -Wait must not block on the program it started
+        self.assertIn('find_ci(text, L"-Wait") != NULL', src)
+        # the stub answer still comes last, after every understood form
+        self.assertLess(src.index("start_process_command()) >= 0"), src.index('log_line(L"stub"'))
+
     def test_build_script_tags_it_as_a_wine_builtin(self):
         sh = Path("scripts/build-wine-fixes.sh").read_text()
         self.assertIn("tools/psshim/powershell.c", sh)

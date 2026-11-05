@@ -24,6 +24,22 @@
    sc.exe has no `config` -- reading the names it needs (the dependency in
    `$pace = '...'`, the display name in `-DisplayName '...'`) from the script.
 
+   Start-Process is the third case (Minimal Hub, 2026-11-04). The Hub installs
+   its products by writing a script of `Start-Process -FilePath '<installer>'
+   -ArgumentList '/VERYSILENT ...' -PassThru` lines followed by `Wait-Process`,
+   and runs it elevated through `powershell -Command "$p = Start-Process
+   -FilePath '<Hub>' -ArgumentList '--run-elevated-ps1 "<script>"' -Verb RunAs
+   -Wait -PassThru; exit $p.ExitCode"`; the Hub then runs `powershell -File
+   <script>`. The stub's success at the first step meant "installed" with
+   nothing run and the download deleted. Both steps are carried out here: a
+   -Command with Start-Process starts that program (and, with -Wait, waits and
+   returns its exit code); a -File script made of Start-Process lines runs
+   each one in turn, waiting, and exits 1 if any failed -- `New-Item
+   -ItemType Directory` and `Remove-Item` lines in it are honoured too, so the
+   installers' log folder exists and the downloads are cleaned up as the
+   script intends. There is no elevation under Wine, so -Verb RunAs is simply
+   a start.
+
    Anything else exits 0, exactly as the stub did. Every call is logged to
    %LOCALAPPDATA%\vstenv-powershell.log so the next surprise can be read. */
 #include <windows.h>
@@ -33,6 +49,7 @@
 #include <wchar.h>
 #include <wctype.h>
 #include <shellapi.h>
+#include <shlobj.h>
 
 static void log_line(const wchar_t *what, const wchar_t *cmd, int rc)
 {
@@ -275,6 +292,130 @@ static int service_script(wchar_t **what)
     return rc;
 }
 
+/* ---- Start-Process ---------------------------------------------------------------- */
+
+/* The PowerShell string literal at p ('...' with '' for a quote, or "..."):
+   malloc'd text, and *endp just past its closing quote. NULL if p is not one. */
+static wchar_t *ps_string(const wchar_t *p, const wchar_t **endp)
+{
+    while (*p == L' ' || *p == L'\t') p++;
+    wchar_t q = *p;
+    if (q != L'\'' && q != L'"') return NULL;
+    wchar_t *out = calloc(wcslen(p) + 1, sizeof(wchar_t));
+    if (!out) return NULL;
+    size_t n = 0;
+    for (p++; *p; p++)
+    {
+        if (*p == q)
+        {
+            if (q == L'\'' && p[1] == L'\'') { out[n++] = q; p++; continue; }
+            break;
+        }
+        out[n++] = *p;
+    }
+    if (*p != q) { free(out); return NULL; }
+    if (endp) *endp = p + 1;
+    return out;
+}
+
+/* The literal after `-Name` within this statement (up to the next newline or
+   semicolon), or NULL. */
+static wchar_t *param(const wchar_t *stmt, const wchar_t *name)
+{
+    const wchar_t *end = stmt;
+    while (*end && *end != L'\n' && *end != L';') end++;
+    const wchar_t *p = find_ci(stmt, name);
+    if (!p || p >= end) return NULL;
+    return ps_string(p + wcslen(name), NULL);
+}
+
+/* Start exe with args in its own folder; with wait, its exit code, else 0.
+   -1 if it could not be started. */
+static int start_process(const wchar_t *exe, const wchar_t *args, BOOL wait)
+{
+    size_t len = wcslen(exe) + (args ? wcslen(args) : 0) + 8;
+    wchar_t *cmdline = calloc(len, sizeof(wchar_t));
+    if (!cmdline) return -1;
+    swprintf(cmdline, len, L"\"%ls\"%ls%ls", exe, args && *args ? L" " : L"", args ? args : L"");
+    wchar_t *dir = wcsdup(exe), *slash = dir ? wcsrchr(dir, L'\\') : NULL;
+    if (slash) *slash = 0;
+    STARTUPINFOW si = { sizeof si }; PROCESS_INFORMATION pi = { 0 };
+    BOOL ok = CreateProcessW(NULL, cmdline, NULL, NULL, FALSE, 0, NULL, slash ? dir : NULL, &si, &pi);
+    free(cmdline); free(dir);
+    if (!ok) return -1;
+    DWORD code = 0;
+    if (wait) { WaitForSingleObject(pi.hProcess, INFINITE); GetExitCodeProcess(pi.hProcess, &code); }
+    CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
+    return wait ? (int)code : 0;
+}
+
+/* Every Start-Process in `text`, in order, each waited for: 0 if all exited 0,
+   1 otherwise, -1 if there is none. New-Item -ItemType Directory and
+   Remove-Item lines are carried out on the way. */
+static int run_start_processes(const wchar_t *text, BOOL wait_each)
+{
+    int found = 0, failed = 0;
+    for (const wchar_t *p = text; (p = find_ci(p, L"Start-Process")); p += 13)
+    {
+        wchar_t *exe = param(p, L"-FilePath");
+        if (!exe) continue;
+        wchar_t *args = param(p, L"-ArgumentList");
+        found++;
+        int rc = start_process(exe, args, wait_each);
+        if (rc != 0) failed++;
+        free(exe); free(args);
+    }
+    if (!found) return -1;
+    for (const wchar_t *p = text; (p = find_ci(p, L"Remove-Item")); p += 11)
+    {
+        wchar_t *path = param(p, L"-Path");
+        if (!path) path = ps_string(p + 11, NULL);
+        if (!path) { const wchar_t *f = find_ci(p, L"-Force"); if (f) path = ps_string(f + 6, NULL); }
+        if (path) { DeleteFileW(path); free(path); }
+    }
+    return failed ? 1 : 0;
+}
+
+static void make_directories(const wchar_t *text)
+{
+    for (const wchar_t *p = text; (p = find_ci(p, L"New-Item")); p += 8)
+    {
+        if (!find_ci(p, L"Directory")) continue;
+        wchar_t *path = param(p, L"-Path");
+        if (path) { SHCreateDirectoryExW(NULL, path, NULL); free(path); }
+    }
+}
+
+/* `-File <script>` whose body is Start-Process lines (the Hub's install script). */
+static int start_process_script(void)
+{
+    wchar_t *script, *action, *arg;
+    if (!file_args(&script, &action, &arg)) return -1;
+    wchar_t *text = read_text(script);
+    if (!text || !find_ci(text, L"Start-Process")) return -1;
+    make_directories(text);
+    return run_start_processes(text, TRUE);
+}
+
+/* `-Command "... Start-Process -FilePath '<exe>' ... [-Wait] ..."`, as given
+   on the command line (after CommandLineToArgvW, so \" is already "). */
+static int start_process_command(void)
+{
+    int argc; wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (!argv) return -1;
+    int i = 1;
+    for (; i < argc; i++) if (!_wcsicmp(argv[i], L"-Command") || !_wcsicmp(argv[i], L"-c")) break;
+    if (i >= argc - 1) return -1;
+    size_t len = 1; for (int j = i + 1; j < argc; j++) len += wcslen(argv[j]) + 1;
+    wchar_t *text = calloc(len, sizeof(wchar_t));
+    if (!text) return -1;
+    for (int j = i + 1; j < argc; j++) { wcscat(text, argv[j]); if (j < argc - 1) wcscat(text, L" "); }
+    if (!find_ci(text, L"Start-Process")) { free(text); return -1; }
+    int rc = run_start_processes(text, find_ci(text, L"-Wait") != NULL);
+    free(text);
+    return rc;
+}
+
 int wmain(void)
 {
     const wchar_t *cmdline = GetCommandLineW();
@@ -293,6 +434,8 @@ int wmain(void)
     {
         wchar_t *what = L"service script";
         int src = service_script(&what);
+        if (src < 0 && (src = start_process_script()) >= 0) what = L"install script";
+        if (src < 0 && (src = start_process_command()) >= 0) what = L"start-process";
         if (src >= 0) { rc = src; log_line(what, cmd, rc); }
         else log_line(L"stub", cmd, rc);
     }

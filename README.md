@@ -129,7 +129,13 @@ the program does and what the app does about it.
   Wine, even with the presentation flags every WebView2 host gets, on
   hardware where Audio Modeling's Center renders fine, so the app switches
   this one program to software rendering through the same policy key; the
-  sign-in page then draws normally.
+  sign-in page then draws normally. The Hub installs its products through
+  PowerShell: it writes a script of `Start-Process` lines (each product's
+  Inno Setup installer, run silently) and asks PowerShell to run it elevated.
+  Wine's PowerShell is a placeholder that reports success for everything, so
+  the Hub believed every install had happened and deleted the download. The
+  app's PowerShell replacement (see Softube below) now carries `Start-Process`
+  out, on the command line and in a script, so the Hub's installs land.
 - **Softube (Softube Central).** Wine's own `powershell.exe` is a placeholder
   that runs nothing and reports success for every command. Softube's installers
   ask PowerShell whether Softube Central is running, take that success as
@@ -260,7 +266,7 @@ through yabridge, including [StageRig](https://github.com/dguedry/stagerig).
 | iZotope | Product Portal 1.4, Ozone 9 Advanced 9.13 installer | Every Ozone module bridged as VST3 and VST2, working out of the box. Installs cleanly: the app waits out the helper its installer hands off to, and ends the Electron Product Portal the installer leaves behind — under stock Wine that keeps crash-looping and starves loaded plugins until the Wine session is unusable |
 | Spitfire Audio (no module: plain Windows installer) | Spitfire Audio app 3.4 | Reaches and holds its Sign In page and browses normally: the patched dxgi/wined3d/win32u give it real DXGI composition swapchains (ported from giang17/wine) that present straight into its window, where Wine's hidden-window emulation deadlocked. Draws through the same patched dcomp.dll + Wine Direct3D as any JUCE 8 program |
 | Audio Modeling | Software Center 1.x (WebView2) | Signs in, downloads products, TRY videos play; its own install attempts fail under Wine (mis-quoted installer arguments), so the app rescues each download and finishes it unattended, announced by a desktop notification (nine SWAM products installed and bridged this way) |
-| Minimal Audio | Minimal Hub 1.1.11 (Tauri + WebView2) | Installed as a program from its download; signs in and shows the account's library, drawn through software rendering (solid black without it); installing its plugins through the Hub is not yet verified |
+| Minimal Audio | Minimal Hub 1.1.11 (Tauri + WebView2) | Installed as a program from its download; signs in and shows the account's library, drawn through software rendering (solid black without it); installs Squash 1.4 through its PowerShell-driven install script (carried out by the app's PowerShell replacement), bridged as VST3 and VST2 and loading in a plugin host |
 | Rayzoon (no module: plain Windows program) | Jamstix 4 Manager 1.3.0, run from the Install tab | Opens and draws correctly through its GDI+ canvas (a 32-bit FireMonkey program: it needed the 32-bit DXVK DLLs to start and the FireMonkey override to draw); downloads and installs Jamstix 4 and audioM8 as 64-bit VST2, bridged when the Manager closes; playing them in a DAW not yet verified |
 | Orchestral Tools (no module: plain Windows installer) | SINE Player (JUCE + WebView2) | Installs and bridges; sign-in works against Orchestral Tools' servers, typed blind — the fields take input but do not display it (see "WebView2 apps"); the Store browses and the tips video plays; a web tab's page sticks over the native views until a restart |
 | Gig Performer (no module: plain Windows installer) | Gig Performer 5 (5.3.3) installer, run from the Install tab | Installs and runs as a standalone host under Wine, OpenGL interface and all. Its window is maximized by the window manager on sight, which left Wine's idea of its position stale and the pointer landing off its targets; the app now resyncs the window as it appears, so clicks land where the pointer is |
