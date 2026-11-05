@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.116" date="2026-11-05">
+      <description>
+        <p>Minimal Hub: a desktop menu entry, since it needs nothing at launch</p>
+      </description>
+    </release>
     <release version="0.1.115" date="2026-11-05">
       <description>
         <p>Wine fixes: keep the pointer visible over WebView2 windows (winex11.so)</p>
