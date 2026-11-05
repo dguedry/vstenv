@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PureWindowsPath
 from .progress import null_reporter
 from .wine import Prefix
-from . import quirks, launchwait
+from . import quirks, launchwait, fmx
 
 UNINSTALL_KEYS = (r"Software\Microsoft\Windows\CurrentVersion\Uninstall",
                   r"Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall")
@@ -328,6 +328,8 @@ def run(p: Prefix, prog: Program, reporter=None):
     if why: raise RuntimeError(f"{prog.name} cannot run here: {why}")
     if not prog.exe: raise RuntimeError(f"{prog.name} has no known launcher (only an uninstaller)")
     if prog.install_dir: quirks.apply(p, prog.name, prog.install_dir, r)
+    try: fmx.apply_if_fmx(p, p.to_host(prog.exe), r)      # a FireMonkey GUI draws right only with GDI+
+    except Exception: pass
     r.step(f"Starting {prog.name}")
     cwd = p.to_host(prog.workdir) if prog.workdir else None
     extra = quirks.launch_args(p, prog.name, prog.install_dir) if prog.install_dir else []
@@ -468,7 +470,12 @@ def install(p: Prefix, installer: Path, reporter=None) -> int:
     before = {(x.name, x.install_dir) for x in installed(p)}
     pids_before = {pid for pid, _ in p.processes()}
     if installer.suffix.lower() == ".msi": argv = ["msiexec", "/i", str(installer)]
-    else: argv = [str(installer)]
+    else:
+        argv = [str(installer)]
+        # Some "installers" are the vendor's own downloader (Jamstix 4 Manager),
+        # run from here every time: a FireMonkey one needs its override now.
+        try: fmx.apply_if_fmx(p, installer, r)
+        except Exception: pass
     cp = p.run(argv, timeout=7200, capture=False)
     if cp.returncode in _SUCCESS_REBOOT:
         # The installer finished and asked for a reboot, which a Wine prefix
