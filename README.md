@@ -183,6 +183,14 @@ software rendering, set for it alone — see "Minimal Audio" above):
   not hold here: half-drawn regions alternate and embedded video churns (the
   Center's catalog once flashed constantly; SINE's tips video was an empty
   flickering box).
+- **A patched X11 driver (`winex11.so`) keeps the pointer visible.** The
+  embedded browser is a separate process that sets the cursor for the host's
+  window; Wine cannot resolve a cursor handle from another process, and its
+  driver then left the window on the empty cursor it had set when the pointer
+  entered, so the mouse vanished over the whole window (Wine bug 58922). The
+  patched driver shows the theme's arrow instead — a link's hand or a text
+  field's I-beam is not known on this side, so everything is an arrow, but the
+  pointer is there.
 
 Two Software Center quirks get their own fixes. Its product installs fail under
 Wine: the Center passes the installer's `--mode unattended` as one mis-quoted

@@ -189,6 +189,31 @@ the object rather than crashing when it is already gone. Verified 2026-09-30:
 the Software Center runs past the point it crashed; HALion Sonic (OLE-heavy)
 unaffected. A candidate for upstreaming.
 
+## winex11-cursor-from-other-process-<version>.patch
+
+The pointer vanished over every WebView2 window (Minimal Audio's Hub, a Tauri
+app; Wine bug 58922 reports the same for a plain WebView2 host and Adobe's
+installer). WebView2's browser process (`msedgewebview2.exe`) calls
+`SetCursor` for the window its host process owns. Wine forwards the handle to
+the window's process, and win32u cannot resolve an icon object that lives in
+another process (`get_icon_ptr icon handle ... from other process`), so
+`create_cursor` fails and the X11 driver returned without touching the window
+-- which left it on the cursor set when the pointer entered: the empty one,
+because the host's own thread (tao) has no cursor of its own. Measured with
+XFixes: a 1x1 fully transparent cursor for as long as the pointer was over
+the window.
+
+The patch defines the theme's arrow (Xcursor `left_ptr`, else the X font
+arrow) when the cursor cannot be created, instead of leaving the window
+alone. The real shape is not known on this side -- a link's hand and a text
+field's I-beam show as an arrow -- but the pointer is visible. Same approach
+as the workaround attached to the bug (unmerged). The library is the unix
+side of the driver, `lib/wine/x86_64-unix/winex11.so`, built from a second,
+X-enabled configure of the same patched tree with every optional part the
+pinned build has (XInput2, Xcursor, XRandR, Xrender, Xfixes, Xinerama,
+Xcomposite, XF86VidMode, OpenGL, Vulkan); the script refuses to package it if
+one is missing.
+
 ## dcomp-steinberg-<version>.patch
 
 DirectComposition for Steinberg's current products. Their GUI library

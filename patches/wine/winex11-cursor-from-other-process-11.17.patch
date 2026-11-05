@@ -1,0 +1,35 @@
+winex11: show an arrow for a cursor set from another process.
+
+WebView2's browser process (msedgewebview2.exe) calls SetCursor for the
+window its host process owns; Wine forwards the handle to the window's
+process, which cannot resolve an icon object that lives in another process
+(win32u: "icon handle ... from other process"), so create_cursor fails. The
+driver then returned without touching the window, leaving it on the cursor
+set when the pointer entered: the empty one, as the host's own thread has no
+cursor. The pointer vanished over every WebView2 window (Minimal Hub; Wine
+bug 58922, the same diagnosis in its last comment). Define the theme's arrow
+instead. The real shape (hand, I-beam) is not known on this side.
+
+--- a/dlls/winex11.drv/mouse.c
++++ b/dlls/winex11.drv/mouse.c
+@@ -213,7 +213,19 @@ static void set_window_cursor( Window window, HCURSOR handle )
+     else if (XFindContext( gdi_display, (XID)handle, cursor_context, (char **)&cursor ))
+     {
+         /* try to create it */
+-        if (!(cursor = create_cursor( handle ))) return;
++        if (!(cursor = create_cursor( handle )))
++        {
++            /* A handle from another process (WebView2's browser sets the cursor of
++             * its host's window) cannot be resolved here; leaving the window alone
++             * keeps it on the empty cursor set when the pointer entered. Show the
++             * theme's arrow instead. */
++            WARN( "cannot create cursor %p (from another process?), using the default arrow\n", handle );
++#ifdef SONAME_LIBXCURSOR
++            if (pXcursorLibraryLoadCursor) cursor = pXcursorLibraryLoadCursor( gdi_display, "left_ptr" );
++#endif
++            if (!cursor) cursor = XCreateFontCursor( gdi_display, XC_left_ptr );
++            if (!cursor) return;
++        }
+
+         XLockDisplay( gdi_display );
+         if (!XFindContext( gdi_display, (XID)handle, cursor_context, (char **)&prev ))

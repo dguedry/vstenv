@@ -26,6 +26,12 @@ PATCHES=("$HERE"/patches/wine/*-"$VERSION".patch)
 # PE modules to rebuild, by file name. Wine keeps a DLL in dlls/<name> and a
 # driver in dlls/<name>.sys, so the source folder is the name minus a .dll suffix.
 MODULES=(dcomp.dll advapi32.dll dxgi.dll ole32.dll wined3d.dll win32u.dll hidparse.sys)
+# Unix-side libraries to rebuild (lib/wine/x86_64-unix). winex11.so is the X11
+# driver: a cursor set from another process (WebView2's browser) must show as
+# an arrow rather than nothing. It is built in a second, X-enabled configure
+# of the same patched tree, with the same optional X, OpenGL and Vulkan parts
+# as the pinned build, so the rebuilt driver loses no feature.
+UNIX_MODULES=(winex11.so)
 # WINE_FIXES_WORK=<dir> keeps the patched tree (unstripped DLL for symbols).
 if [ -n "${WINE_FIXES_WORK:-}" ]; then WORK="$WINE_FIXES_WORK"; mkdir -p "$WORK"; else WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT; fi
 cd "$WORK"
@@ -61,6 +67,28 @@ PKG="$WORK/wine-fixes"; mkdir -p "$PKG"
 for M in "${MODULES[@]}"; do
     x86_64-w64-mingw32-strip --strip-unneeded -o "$PKG/$M" "$SRC/dlls/${M%.dll}/x86_64-windows/$M" 2>/dev/null || cp "$SRC/dlls/${M%.dll}/x86_64-windows/$M" "$PKG/$M"
 done
+
+# The X11 driver needs the X, OpenGL and Vulkan headers the PE configure left
+# out; reconfigure the same (already patched) tree with them and build only
+# that library. Its import stubs for ntdll.so/win32u.so are made on the way.
+echo "== configure again, with X/OpenGL/Vulkan, for the unix libraries"
+./configure --enable-win64 --disable-tests --without-freetype --without-fontconfig --without-alsa --without-pulse \
+    --without-gstreamer --without-wayland --without-dbus --without-usb --without-udev \
+    --without-gnutls --without-krb5 --without-sane --without-gphoto --without-cups --without-netapi \
+    --without-opencl --without-pcap --without-pcsclite --without-capi --without-v4l2 --without-oss --without-ffmpeg \
+    --without-inotify --without-sdl >/dev/null
+# Every optional part the pinned winex11.so has; a missing -dev package would
+# silently drop one (XInput2 is the mouse, Xcursor the pointer themes).
+for FEATURE in SONAME_LIBXCURSOR SONAME_LIBXI SONAME_LIBXRANDR SONAME_LIBXRENDER SONAME_LIBXFIXES SONAME_LIBXINERAMA \
+               SONAME_LIBXCOMPOSITE SONAME_LIBXXF86VM SONAME_LIBVULKAN SONAME_LIBGL HAVE_X11_EXTENSIONS_XINPUT2_H; do
+    grep -q "^#define $FEATURE" include/config.h || { echo "winex11: $FEATURE not detected; install its -dev package" >&2; exit 1; }
+done
+mkdir -p "$PKG/x86_64-unix"
+for U in "${UNIX_MODULES[@]}"; do
+    echo "== build $U"
+    make -j"$(nproc)" "dlls/${U%.so}.drv/$U" >/dev/null
+    strip --strip-unneeded -o "$PKG/x86_64-unix/$U" "$SRC/dlls/${U%.so}.drv/$U" 2>/dev/null || cp "$SRC/dlls/${U%.so}.drv/$U" "$PKG/x86_64-unix/$U"
+done
 # powershell.exe in place of Wine's stub (tools/psshim): it answers "is this program
 # running?" honestly and exits 0 for anything else, as the stub did. Built for both
 # bitnesses and tagged "Wine builtin DLL" at 0x40, as Wine's own builds are, or Wine
@@ -82,7 +110,7 @@ import hashlib, json, os, sys
 from pathlib import Path
 pkg, version, patches = Path(sys.argv[1]), sys.argv[2], [os.path.basename(p) for p in sys.argv[3:]]
 files = {f.relative_to(pkg).as_posix(): hashlib.sha256(f.read_bytes()).hexdigest()
-         for f in sorted(pkg.rglob("*")) if f.is_file() and f.suffix in (".dll", ".exe", ".sys")}
+         for f in sorted(pkg.rglob("*")) if f.is_file() and f.suffix in (".dll", ".exe", ".sys", ".so")}
 (pkg / "manifest.json").write_text(json.dumps({"wine_version": version, "files": files, "patches": patches,
     "note": "dcomp: DirectComposition for Steinberg's products; advapi32: credential attributes for Steinberg's License Engine sign-in"}, indent=2))
 EOF
