@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.118" date="2026-11-05">
+      <description>
+        <p>DXVK: install the 32-bit DLLs too; 32-bit Direct3D programs could not start</p>
+      </description>
+    </release>
     <release version="0.1.117" date="2026-11-05">
       <description>
         <p>GUI: a second activation raises the window instead of opening another</p>
