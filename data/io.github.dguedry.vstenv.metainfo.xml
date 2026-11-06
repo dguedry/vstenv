@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.125" date="2026-11-06">
+      <description>
+        <p>Troubleshoot: the crossed wrench and screwdriver, which reads as tools</p>
+      </description>
+    </release>
     <release version="0.1.124" date="2026-11-06">
       <description>
         <p>Recipes: try, keep and share settings for programs, plugins and installers</p>
