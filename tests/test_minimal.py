@@ -130,6 +130,28 @@ class InventoryTest(unittest.TestCase):
             with mock.patch("vstenv.programs.installed", return_value=[]):
                 self.assertEqual([x.name for x in self.v.products(p)], ["Current", "Rift"])
 
+    def test_health_notices_hub_installs_that_never_landed(self):
+        """A user installed four products in the Hub and saw none bridged: an
+        older app's PowerShell stub let the Hub's install script report success
+        without running it (2026-11-05). The Hub's own log says what it
+        installed; what is actually in the prefix says whether it landed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            p = _prefix(tmp)
+            exe = p.drive_c / HUB_DIR / HUB_EXE; exe.parent.mkdir(parents=True); exe.write_bytes(b"MZ")
+            log = p.user_dir / "AppData/Local/Minimal/Hub/logs/minimal-hub.log"; log.parent.mkdir(parents=True)
+            log.write_text("[2026-11-05][01:12:19][minimal_hub_lib::downloader][INFO] Download: finished C:\\users\\me\\AppData\\Local\\Temp\\squash.exe (19051896 bytes)\n"
+                           "[2026-11-05][01:12:20][minimal_hub_lib::analytics][INFO] [analytics] v3_hub_install_succeeded sent\n"
+                           "[2026-11-05][01:13:00][minimal_hub_lib::downloader][INFO] Download: finished C:\\users\\me\\AppData\\Local\\Temp\\morph-eq.exe (1 bytes)\n"
+                           "[2026-11-05][01:14:00][minimal_hub_lib::downloader][INFO] Download: finished C:\\users\\me\\AppData\\Local\\Temp\\hub_1.2.0.exe (1 bytes)\n")
+            (p.drive_c / "Program Files/Common Files/VST3/Squash.vst3").mkdir(parents=True)
+            self.assertEqual(self.v.hub_installs(p), ["squash", "morph-eq"])      # the Hub's own update is not a product
+            self.assertEqual(self.v.missing_installs(p), ["morph-eq"])
+            with mock.patch.object(Prefix, "reg_query", return_value={HUB_EXE: self.v.flags(p)}):
+                c = {x.name: x for x in self.v.checks(p)}
+            self.assertFalse(c["Minimal Hub installs landed"].ok); self.assertIn("morph-eq", c["Minimal Hub installs landed"].detail)
+            (p.drive_c / "Program Files/Common Files/VST3/Morph EQ.vst3").mkdir()
+            self.assertEqual(self.v.missing_installs(p), [])
+
     def test_health_flags_a_missing_software_gl_value(self):
         with tempfile.TemporaryDirectory() as tmp:
             p = _prefix(tmp)

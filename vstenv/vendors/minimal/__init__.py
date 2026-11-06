@@ -177,6 +177,35 @@ class MinimalAudio(Vendor):
                      "software rendering through WebView2's policy key; sign-in and downloads then draw normally.")]
 
     # -- health ---------------------------------------------------------------------------
+    # -- did the Hub's installs land? --------------------------------------------------------
+    _DOWNLOAD = re.compile(r"Download: finished .*[\\/]([^\\/]+)\.exe \(\d+ bytes\)")
+
+    def hub_installs(self, p: Prefix) -> list[str]:
+        """Product names the Hub's own log says it downloaded and installed."""
+        log = self.logs(p)["minimal-hub.log"]
+        try: text = log.read_text(errors="replace")
+        except OSError: return []
+        out = []
+        for m in self._DOWNLOAD.finditer(text):
+            name = m.group(1)
+            if name.lower() == "hub" or name.lower().startswith("hub_"): continue     # its own update
+            if name not in out: out.append(name)
+        return out
+
+    @staticmethod
+    def _norm(s: str) -> str: return re.sub(r"[^a-z0-9]", "", s.lower())
+
+    def missing_installs(self, p: Prefix) -> list[str]:
+        """Products the Hub reported installed with nothing of theirs in the
+        prefix: the Hub installs through PowerShell, and before the app's
+        replacement carried Start-Process out (v0.1.121) the install was
+        reported done with nothing run and the download deleted."""
+        present = set()
+        for d in (p.drive_c / "Program Files/Common Files/VST3", p.drive_c / "Program Files/VstPlugins",
+                  p.drive_c / PRODUCTS_DIR):
+            if d.is_dir(): present.update(self._norm(x.stem) for x in d.iterdir())
+        return [n for n in self.hub_installs(p) if self._norm(n) not in present]
+
     def checks(self, p):
         c = [Check(f"{MANAGER} installed", self.manager_installed(p), self.manager_version(p) or "",
                    fix=f"download it from {self.download_page}, then pick the file under Install")]
@@ -188,6 +217,14 @@ class MinimalAudio(Vendor):
             c.append(Check(f"{MANAGER} software rendering", ok,
                            "set through the WebView2 policy key" if ok else "its window will come up black",
                            fix="re-run setup"))
+            missing = self.missing_installs(p)
+            if self.hub_installs(p):
+                c.append(Check(f"{MANAGER} installs landed", not missing,
+                               "every product the Hub installed is in the prefix" if not missing else
+                               f"the Hub reported these installed but nothing of theirs is here: {', '.join(missing)}. "
+                               "An app older than 0.1.121 let the Hub's install script report success without running it. "
+                               "Update the app, open it once (it applies the update's fixes), then reinstall them in the Hub.",
+                               fix="update the app, open it, then reinstall the products in Minimal Hub"))
         return c
 
 
