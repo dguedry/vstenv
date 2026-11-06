@@ -25,10 +25,11 @@ Not affiliated with or endorsed by Native Instruments GmbH, IK Multimedia Produc
 ```sh
 flatpak remote-add --if-not-exists --user vstenv https://dguedry.github.io/vstenv/vstenv.flatpakrepo
 flatpak install --user vstenv io.github.dguedry.vstenv
-flatpak run io.github.dguedry.vstenv
 ```
 
-Updates then come with `flatpak update`. See [Install](#install) for the
+Then open **VST Environment** from your app menu (it is under Audio; from a
+terminal, `flatpak run io.github.dguedry.vstenv`). Updates come with
+`flatpak update`. See [Install](#install) for the
 single-file bundle, what the first run does, and why this is not on Flathub.
 
 ## Screenshots
@@ -294,8 +295,10 @@ Add the repo once and the app updates itself with everything else:
 ```sh
 flatpak remote-add --if-not-exists --user vstenv https://dguedry.github.io/vstenv/vstenv.flatpakrepo
 flatpak install --user vstenv io.github.dguedry.vstenv
-flatpak run io.github.dguedry.vstenv
 ```
+
+The app appears in your menu as **VST Environment** (under Audio); from a
+terminal it is `flatpak run io.github.dguedry.vstenv`.
 
 The repo is signed, and `remote-add` takes the key from that file, so later
 updates are checked against it. The GNOME 50 runtime comes from Flathub, so
@@ -307,8 +310,9 @@ the single file, which does not add a remote and does not auto-update:
 
 ```sh
 flatpak install --user vstenv.flatpak     # needs the flathub remote for the GNOME 50 runtime
-flatpak run io.github.dguedry.vstenv
 ```
+
+It lands in the menu the same way.
 
 Not on Flathub: vstenv shares one Wine session with the DAWs on your machine,
 which needs `--talk-name=org.freedesktop.Flatpak` — a permission Flathub treats

@@ -29,9 +29,9 @@ or your desktop's software app):
 \`\`\`sh
 flatpak remote-add --if-not-exists --user vstenv https://dguedry.github.io/vstenv/vstenv.flatpakrepo
 flatpak install --user vstenv io.github.dguedry.vstenv
-flatpak run io.github.dguedry.vstenv
 \`\`\`
 
+Then open **VST Environment** from your app menu (or \`flatpak run io.github.dguedry.vstenv\`).
 Already on the repo? Just \`flatpak update\`. Prefer a single file? Download
 \`vstenv.flatpak\` below and \`flatpak install --user vstenv.flatpak\` (no
 automatic updates that way). Either needs the Flathub remote for the GNOME
