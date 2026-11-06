@@ -19,6 +19,32 @@
     <binary>vstenv</binary>
     <binary>vstenv-gui</binary>
   </provides>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/dguedry/vstenv/main/data/screenshots/plugins.png</image>
+      <caption>Plugins: what each vendor's manager installed, and what needed help</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/dguedry/vstenv/main/data/screenshots/programs.png</image>
+      <caption>Programs: run, uninstall, troubleshoot</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/dguedry/vstenv/main/data/screenshots/troubleshoot.png</image>
+      <caption>Troubleshoot: the settings one program can be given</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/dguedry/vstenv/main/data/screenshots/install-failed.png</image>
+      <caption>A failed install: what it means and what to try</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/dguedry/vstenv/main/data/screenshots/install.png</image>
+      <caption>Install: vendor stores and any installer</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/dguedry/vstenv/main/data/screenshots/health.png</image>
+      <caption>Health: every check, with its fix</caption>
+    </screenshot>
+  </screenshots>
   <url type="homepage">https://github.com/dguedry/vstenv</url>
   <url type="bugtracker">https://github.com/dguedry/vstenv/issues</url>
   <url type="vcs-browser">https://github.com/dguedry/vstenv</url>

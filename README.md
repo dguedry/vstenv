@@ -31,6 +31,20 @@ flatpak run io.github.dguedry.vstenv
 Updates then come with `flatpak update`. See [Install](#install) for the
 single-file bundle, what the first run does, and why this is not on Flathub.
 
+## Screenshots
+
+| Plugins: what each vendor's manager installed, what needed help | Programs: run, uninstall, troubleshoot |
+|---|---|
+| ![Plugins tab](data/screenshots/plugins.png) | ![Programs tab](data/screenshots/programs.png) |
+
+| Troubleshoot: the settings one program can be given | A failed install: what it means, what to try |
+|---|---|
+| ![Troubleshoot dialog](data/screenshots/troubleshoot.png) | ![Failed install dialog](data/screenshots/install-failed.png) |
+
+| Install: vendor stores and any installer | Health: every check, with its fix |
+|---|---|
+| ![Install tab](data/screenshots/install.png) | ![Health tab](data/screenshots/health.png) |
+
 ## What needs help, and why
 
 Wine runs most Windows programs as they are. A few of these vendors' programs
