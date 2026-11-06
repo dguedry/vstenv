@@ -35,6 +35,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.123" date="2026-11-06">
+      <description>
+        <p>Minimal Hub: Health says when the Hub's installs never landed</p>
+      </description>
+    </release>
     <release version="0.1.122" date="2026-11-05">
       <description>
         <p>GUI: tabs open in well under a second instead of seconds</p>
