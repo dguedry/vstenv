@@ -489,7 +489,7 @@ class Window(Adw.ApplicationWindow):
         shown = self._plugin_filter().apply(bridged, lambda b: (b.get("name"), b.get("info")))
         def brow(b):
             r = Adw.ActionRow(title=GLib.markup_escape_text(b["name"]), subtitle=GLib.markup_escape_text(b["info"]))
-            t = Gtk.Button(icon_name="view-more-symbolic", valign=Gtk.Align.CENTER, css_classes=["flat"],
+            t = Gtk.Button(icon_name="applications-utilities-symbolic", valign=Gtk.Align.CENTER, css_classes=["flat"],
                            tooltip_text=f"Troubleshoot… — {recipes.UNNECESSARY}")
             t.connect("clicked", lambda *_, name=b["name"]: self.troubleshoot_plugin(name)); r.add_suffix(t)
             return r
@@ -559,7 +559,7 @@ class Window(Adw.ApplicationWindow):
                 b = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER, tooltip_text="Uninstall", css_classes=["flat"])
                 b.connect("clicked", lambda *_, prog=x: self.uninstall_program(prog)); sfx.append(b)
             if unmanaged.supported(x):
-                b = Gtk.Button(icon_name="view-more-symbolic", valign=Gtk.Align.CENTER,
+                b = Gtk.Button(icon_name="applications-utilities-symbolic", valign=Gtk.Align.CENTER,
                                tooltip_text=f"Troubleshoot… — {recipes.UNNECESSARY}", css_classes=["flat"])
                 b.connect("clicked", lambda *_, prog=x: self.troubleshoot_program(prog, hosts)); sfx.append(b)
             v = vendors.for_program(x)
