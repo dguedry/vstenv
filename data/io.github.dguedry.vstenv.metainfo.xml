@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.127" date="2026-11-06">
+      <description>
+        <p>README, release notes: the app is in the menu as VST Environment; flatpak run is the terminal way</p>
+      </description>
+    </release>
     <release version="0.1.126" date="2026-11-06">
       <description>
         <p>Screenshots: the four tabs, Troubleshoot and a failed install, in the README and metainfo</p>
