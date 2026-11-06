@@ -23,15 +23,19 @@ WINE="$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); from vstenv.win
 cat <<MD
 ## Install
 
-**Download \`vstenv.flatpak\`** below, then:
+**Add the repo once, then updates arrive like any other Flatpak** (\`flatpak update\`,
+or your desktop's software app):
 
 \`\`\`sh
-flatpak install --user vstenv.flatpak
+flatpak remote-add --if-not-exists --user vstenv https://dguedry.github.io/vstenv/vstenv.flatpakrepo
+flatpak install --user vstenv io.github.dguedry.vstenv
 flatpak run io.github.dguedry.vstenv
 \`\`\`
 
-That is the whole app. It needs the Flathub remote for the GNOME runtime; on
-first run it downloads the rest by itself.
+Already on the repo? Just \`flatpak update\`. Prefer a single file? Download
+\`vstenv.flatpak\` below and \`flatpak install --user vstenv.flatpak\` (no
+automatic updates that way). Either needs the Flathub remote for the GNOME
+runtime; on first run the app downloads the rest by itself.
 
 ## The other files
 
