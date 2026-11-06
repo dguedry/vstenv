@@ -98,6 +98,35 @@ class GuiActionsTest(unittest.TestCase):
         from vstenv import unmanaged
         self.assertTrue(unmanaged.EXPLAIN.startswith(unmanaged.UNNECESSARY))
 
+    # -- troubleshoot: the recipe knobs, per program and per plugin ------------------
+    def test_troubleshoot_dialog_covers_the_knobs_and_says_it_is_usually_unnecessary(self):
+        i = self.src.index("class TroubleshootDialog"); body = self.src[i:self.src.index("\ndef _noted_row", i)]
+        self.assertIn("recipes.UNNECESSARY", body)
+        for knob in ("rendering", "wm_away", "browser_software_gl"): self.assertIn(f'"{knob}"', body)
+        self.assertIn("recipes.set_choice(", body); self.assertIn("recipes.reset(", body)
+        self.assertIn("recipes.share_url(", body); self.assertIn("Gtk.UriLauncher", body)
+        self.assertIn("recipes.RENDERING_TEXT", body)          # every option explains itself
+
+    def test_both_pages_offer_troubleshoot(self):
+        self.assertIn("self.troubleshoot_program(prog, hosts)", self._body("_draw_programs", 4000))
+        self.assertIn("self.troubleshoot_plugin(name)", self._body("_draw_plugins", 4000))
+
+    def test_a_failed_install_ends_in_remedies_not_a_toast(self):
+        body = self._body("install_program", 2500)
+        self.assertIn("InstallFailedDialog(self, path, err)", body)
+        self.assertIn("remedy=remedy", body); self.assertIn("self.remedy_worked(path, remedy)", body)
+        i = self.src.index("class InstallFailedDialog"); dlg = self.src[i:self.src.index("\ndef _noted_row", i)]
+        self.assertIn("remedies.options(", dlg); self.assertIn("self.win.install_program(self.path, remedy=settings)", dlg)
+        self.assertIn('"installs"', dlg); self.assertIn("worked=False", dlg); self.assertIn("report.scrub(", dlg)
+        kept = self._body("remedy_worked")
+        self.assertIn('recipes.set_choice(self.prefix, "installs", name, **remedy)', kept); self.assertIn("worked=True", kept)
+
+    def test_applying_a_recipe_takes_the_right_path_per_kind(self):
+        body = self._body("apply_recipe")
+        self.assertIn("recipes.apply_program(", body)                 # a program: a few registry values
+        self.assertIn("setup.after_change(self.prefix, r, force=True)", body)   # a plugin: the launcher's file, rewritten
+        self.assertIn("restart it", body); self.assertIn("reload it in your DAW", body)
+
 
 if __name__ == "__main__":
     unittest.main()

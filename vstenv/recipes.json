@@ -1,0 +1,6 @@
+{
+ "version": 1,
+ "_about": "Recipes the app ships: settings a program or plugin needs under Wine that detection does not find on its own. Keys are the program's exe name or the plugin's file name; values are only the knobs recipes.py knows (rendering: dxvk | wine | gdi; wm_away / browser_software_gl: on | off), plus 'why' and 'confirmed'. A newer copy of this file is fetched from the repository at setup. Send a recipe in from the app (Troubleshoot -> Share) or at https://github.com/dguedry/vstenv/issues/new.",
+ "programs": {},
+ "plugins": {}
+}

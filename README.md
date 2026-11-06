@@ -347,6 +347,51 @@ the installer finishes; nothing needs moving by hand.
 
 ## What you get
 
+- **Troubleshoot, per program and per plugin** — most of the fixes above are
+  the same few settings turned one way or another, keyed by the program's
+  exe name in Wine's registry: which Direct3D it gets (DXVK; Wine's own; none,
+  so a framework that can falls back to plain Windows drawing), whether the
+  window manager is kept away from its windows, and, for a program whose
+  window is an embedded browser, whether that browser draws in software. The
+  app detects what each program needs; when detection is wrong for something
+  new, the *Troubleshoot* button on a program's row (and on a bridged
+  plugin's) lets you try the other settings, with one line each on when to
+  try it, and keep the one that works. Your choice sticks across setup runs;
+  *Reset to detected* hands it back. Plugins have no exe of their own (they
+  run inside yabridge's host), so their one setting, Direct3D, travels as a
+  DLL override the host applies when it loads that plugin — reload the
+  plugin in the DAW to see it. Health lists every setting in effect.
+- **Recipes** — a setting that fixed something for you can fix it for the
+  next person. *Share this recipe…* in the Troubleshoot dialog opens a
+  prefilled issue on this project's GitHub in your browser, with the
+  settings, your one-line description of the symptom and the facts a
+  maintainer needs (vstenv, Wine and DXVK versions, GPU, session type);
+  nothing is sent until you press Submit there. Merged recipes live in
+  [`vstenv/recipes.json`](vstenv/recipes.json); the app ships a copy and
+  fetches a newer one from the repository at setup, so a recipe reaches
+  everyone without a release. A recipe can only set values from the fixed
+  menu above — no commands, no paths — so the worst a bad one can do is make
+  one program draw wrong until it is reset. The built-in detection stays the
+  default; a recipe narrows it for one named program or plugin. No recipe is
+  needed for the vendor fixes in "What needs help": those are not settings.
+- **A failed install ends in things to try, not a toast.** The installer's
+  output is kept (`logs/install-<file>.log`) and every attempt is journaled
+  (`logs/installs.jsonl`). When one fails, the app says what the exit code and
+  the output mean where it recognises them (a missing DLL by name, a Tauri
+  program that is not a setup, a Qt setup's "Unknown exception caught", …)
+  and lists the remedies — each a single change to how the *installer* is
+  run, with one line on when it helps: run it unattended with the arguments
+  its technology documents (Inno Setup, NSIS, InstallBuilder, MSI, Qt
+  Installer Framework are known), tell it an older Windows, give it Wine's
+  Direct3D or none, disable Wine's network-list service, or install the file
+  as the program it is. The fitting ones come first. A remedy that works is
+  kept for that file and offered for sharing exactly like a recipe; once
+  merged, the app applies it by itself the next time anyone installs that
+  file (`vstenv/recipes.json`, "installs", with `*` for a version in the
+  name). *Share this failure…* files the rest — exit code, the app's reading,
+  the output with your user name removed, the machine's facts — as an
+  `install-failure` issue. From a terminal: `vstenv install FILE --remedy
+  silent=on`, and the failure message lists the same remedies.
 - **Plugins** — what each vendor's manager installed, and what is bridged for DAWs.
   Anything that only works because the app patched something carries a pill
   (*patched*, *limited*, *cannot run*) and expands to one sentence saying what
@@ -534,6 +579,8 @@ vstenv doctor | report | rescue-install | finish-installs | dxvk | wine-fixes | 
 vstenv manager <vendor> apply-pending-update   install an update the manager downloaded for itself, with this app's fixes
 vstenv wedge [status|clear]        no Wine GUI can open a window: show it, or restart (and boot) the Wine session
 vstenv webview2 software-gl [on|off]   software rendering for WebView2 apps (the ☰ menu checkbox); no value shows it
+vstenv recipe list | show program|plugin NAME | set program|plugin NAME rendering=wine [wm_away=on] [browser_software_gl=on]
+vstenv recipe reset program|plugin NAME | share program|plugin NAME [--symptom "..."] [--failed] | update
 ```
 
 ## Development
@@ -546,6 +593,19 @@ flatpak/build.sh                     # build and install the Flatpak from the wo
 Pushing to `main` auto-tags the next patch release and publishes the bundle; the
 push's last commit subject becomes the release note. `scripts/release.sh`
 cuts a release with a chosen version and note.
+
+**Reviewing a recipe.** A user's *Share this recipe…* files an issue with the
+`recipe` label and a ```json block. Check that the symptom and the setting
+make sense (the block can only hold the fixed menu of settings, so there is
+nothing dangerous to look for — only whether it is plausible and specific
+enough to help others), then add the `approved` label. The
+`.github/workflows/recipe.yml` workflow merges the block into
+`vstenv/recipes.json` with `scripts/merge-recipe.py` (a second report of the
+same recipe adds a confirmation rather than replacing it), commits to `main`
+with `[no-release]`, and closes the issue; every app picks the table up at its
+next setup pass. An issue without a usable block gets a comment saying what is
+missing and loses the label. To merge one by hand: save the issue body to a
+file and run `scripts/merge-recipe.py <file>`.
 
 ## License
 

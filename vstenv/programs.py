@@ -18,7 +18,7 @@ needs it (a vendor module asks for it, or the user installs it from the
 Install tab). No embedded browser (Gecko) is installed: nothing supported
 needs one. Vendor modules contribute extra program sources (Vendor.programs).
 """
-import os, re, shlex, struct, threading, time
+import json, os, re, shlex, struct, threading, time
 from dataclasses import dataclass, field
 from pathlib import Path, PureWindowsPath
 from .progress import null_reporter
@@ -455,7 +455,18 @@ def _exe_name(cmdline: str) -> str:
     return other[-1] if other else cmdline[:60]
 
 class InstallFailed(RuntimeError):
-    """An installer exited non-zero: the environment is left alone."""
+    """An installer exited non-zero: the environment is left alone. Carries
+    what a person needs to try something else: the file, its technology, the
+    exit code, the captured output, and what the output says (remedies.diagnose)."""
+    def __init__(self, msg, installer: Path | None = None, tech: str = "unknown", exit_code: int | None = None,
+                 log: Path | None = None, diagnosis: list | None = None, remedy: dict | None = None):
+        super().__init__(msg)
+        self.installer, self.tech, self.exit_code, self.log = installer, tech, exit_code, log
+        self.diagnosis, self.remedy = diagnosis or [], remedy or {}
+
+    def log_tail(self, chars=6000) -> str:
+        try: return self.log.read_text(errors="replace")[-chars:] if self.log else ""
+        except OSError: return ""
 
 class InstallCancelled(InstallFailed):
     """The person cancelled the installer; not an error worth a red failure."""
@@ -464,13 +475,55 @@ class InstallCancelled(InstallFailed):
 _CANCELLED = {1602}        # ERROR_INSTALL_USEREXIT
 _SUCCESS_REBOOT = {3010}   # ERROR_SUCCESS_REBOOT_REQUIRED -- done, as far as Wine cares
 
-def install(p: Prefix, installer: Path, reporter=None) -> int:
+JOURNAL = "installs.jsonl"          # in logs/: one line per install attempt
+
+def _journal(entry: dict):
+    try:
+        from . import paths
+        paths.LOGS.mkdir(parents=True, exist_ok=True)
+        with open(paths.LOGS / JOURNAL, "a", encoding="utf-8") as f: f.write(json.dumps(entry) + "\n")
+    except OSError: pass
+
+def journal(last: int = 20) -> list[dict]:
+    """The most recent install attempts, newest first."""
+    from . import paths
+    try: lines = (paths.LOGS / JOURNAL).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError: return []
+    out = []
+    for line in reversed(lines[-last:]):
+        try: out.append(json.loads(line))
+        except ValueError: pass
+    return out
+
+def install(p: Prefix, installer: Path, reporter=None, remedy: dict | None = None) -> int:
     """Run any Windows installer interactively: .msi through msiexec, anything else
-    as a program. Plugins it drops are bridged by the caller (yabridge.sync)."""
+    as a program. Plugins it drops are bridged by the caller (yabridge.sync).
+
+    `remedy` is a remedies.py settings dict for this run (unattended, an older
+    Windows, another Direct3D, ...); with none given, one recorded for this
+    file -- the person's own, or a shared recipe -- is used. The installer's
+    output goes to logs/install-<file>.log and every attempt to logs/installs.jsonl,
+    so a failure can be read afterwards and shared."""
+    from . import remedies, recipes, paths
     r = null_reporter(reporter)
     installer = Path(installer)
     if not installer.is_file(): raise FileNotFoundError(f"installer not found: {installer}")
+    tech = remedies.technology(installer)
+    who = ""
+    if remedy is None:
+        try: remedy, who = recipes.install_settings(p, installer.name)
+        except Exception: remedy = None
+    remedy = dict(remedy or {})
     r.step(f"Running installer: {installer.name}")
+    r.log(f"installer technology: {remedies.TECH_LABEL.get(tech, tech)}")
+    if remedy: r.log(f"with: {remedies.label(remedy)}" + (f" ({'your remedy' if who == 'you' else 'a shared recipe'})" if who else ""))
+    if remedy.get("as_program") == "on":
+        exe = remedies.install_as_program(p, installer, r)
+        r.ok(f"installed as a program: {exe}")
+        _journal({"time": time.strftime("%Y-%m-%d %H:%M:%S"), "file": installer.name, "size": installer.stat().st_size,
+                  "tech": tech, "remedy": remedy, "exit": 0, "seconds": 0, "as_program": exe})
+        invalidate()
+        return 0
     # If the desktop shell has stopped mapping Wine windows, the installer will
     # run with no window at all and look hung. Say so before it starts, rather
     # than leaving someone to wonder whether the installer is broken.
@@ -490,7 +543,18 @@ def install(p: Prefix, installer: Path, reporter=None) -> int:
         # run from here every time: a FireMonkey one needs its override now.
         try: fmx.apply_if_fmx(p, installer, r)
         except Exception: pass
-    cp = p.run(argv, timeout=7200, capture=False)
+    extra, env, cleanup = remedies.prepare(p, installer, remedy, tech)
+    argv += extra
+    # The installer's own output is the one thing that explains a failure
+    # ("Library d3d9.dll ... not found"); keep it, per file.
+    paths.LOGS.mkdir(parents=True, exist_ok=True)
+    log = paths.LOGS / f"install-{re.sub(r'[^A-Za-z0-9._-]+', '_', installer.stem)}.log"
+    t0 = time.time()
+    try: cp = p.run(argv, timeout=7200, env=env or None, stderr_to=log)
+    finally: cleanup()
+    seconds = round(time.time() - t0, 1)
+    entry = {"time": time.strftime("%Y-%m-%d %H:%M:%S"), "file": installer.name, "size": installer.stat().st_size,
+             "tech": tech, "remedy": remedy, "exit": cp.returncode, "seconds": seconds, "log": log.name}
     if cp.returncode in _SUCCESS_REBOOT:
         # The installer finished and asked for a reboot, which a Wine prefix
         # does not need; treat it as the success it is.
@@ -503,11 +567,18 @@ def install(p: Prefix, installer: Path, reporter=None) -> int:
         # ordinary cancel are not failures: 1602 is "user cancelled" and 3010
         # is "needs a reboot", which under Wine means it finished.
         r.fail(f"exit {cp.returncode}")
+        _journal(entry)
         if cp.returncode in _CANCELLED:
-            raise InstallCancelled(f"{installer.name} was cancelled (exit {cp.returncode})")
-        raise InstallFailed(f"{installer.name} failed (exit {cp.returncode}); nothing was changed")
+            raise InstallCancelled(f"{installer.name} was cancelled (exit {cp.returncode})", installer, tech, cp.returncode, log)
+        try: text = log.read_text(errors="replace")[-20000:]
+        except OSError: text = ""
+        diagnosis = remedies.diagnose(tech, cp.returncode, text)
+        for line in diagnosis: r.log(line)
+        raise InstallFailed(f"{installer.name} failed (exit {cp.returncode}); nothing was changed",
+                            installer, tech, cp.returncode, log, diagnosis, remedy)
     else:
         r.ok(f"exit {cp.returncode}")
+    _journal(entry)
     # The process we ran may be only a wrapper: the real setup it unpacked and
     # started keeps installing after it returns (iZotope's does), and bridging
     # before that finishes misses every plugin it is about to drop.

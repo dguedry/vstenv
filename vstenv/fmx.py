@@ -45,6 +45,8 @@ def applied(p: Prefix, exe_name: str) -> bool:
 
 def apply(p: Prefix, exe_name: str, reporter=None) -> bool:
     """Disable d3d11 and dxgi for this exe. Returns True if something changed."""
+    from . import recipes
+    if recipes.pinned(p, "programs", exe_name, "rendering"): return False   # a person or a recipe decided
     if applied(p, exe_name): return False
     r = null_reporter(reporter)
     r.step(f"GDI+ drawing for {exe_name} ({WHY})")

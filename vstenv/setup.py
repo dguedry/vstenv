@@ -1,7 +1,7 @@
 """Setting the environment up and keeping it consistent: the core steps, then
 every vendor module's own, in one idempotent pass."""
 from pathlib import Path
-from . import paths, runtime, dxvk, yabridge, menu, urlschemes, vendors, tools, winefixes, dcomp, desktopfix, webview2, programs, runtimedir
+from . import paths, runtime, dxvk, yabridge, menu, urlschemes, vendors, tools, winefixes, dcomp, desktopfix, webview2, programs, runtimedir, recipes
 from .progress import null_reporter
 from .wine import Prefix
 
@@ -31,6 +31,9 @@ def prepare(p: Prefix, reporter=None):
     _guarded(r, "WebView2 presentation flags", lambda: webview2.apply_presentation_flags(p, r))
     for v in vendors.all():
         _guarded(r, f"{v.name}: preparing", lambda v=v: v.prepare(p, r))
+    # Recipes last: a person's choice, or a merged recipe, wins over detection.
+    _guarded(r, "Recipe table", lambda: recipes.update(r))
+    _guarded(r, "Recipes", lambda: recipes.apply_all(p, r))
     _guarded(r, "URL handlers", lambda: urlschemes.register_all(p, r))
     _guarded(r, "Wine runtime folder", runtimedir.heal)     # distro Wine refuses a /run/user/<uid>/wine open to others
     _guarded(r, "Desktop window behaviour", lambda: desktopfix.apply(r))   # Cinnamon: stop Wine windows raising themselves
@@ -138,6 +141,7 @@ def after_change(p: Prefix, reporter=None, force=False) -> dict:
     if webview2.needed(p):
         _guarded(r, "Microsoft WebView2 runtime", lambda: webview2.install(p, r))
     _guarded(r, "WebView2 presentation flags", lambda: webview2.apply_presentation_flags(p, r))
+    _guarded(r, "Recipes", lambda: recipes.apply_all(p, r))
     _guarded(r, "Plugin DLL overrides", lambda: yabridge.write_plugin_overrides(dcomp.all_plugin_overrides(p)))
     res = yabridge.sync(p, r)
     _guarded(r, "Desktop menu entries", lambda: menu.sync(p, r))

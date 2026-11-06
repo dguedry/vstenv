@@ -22,4 +22,8 @@ ik = "vstenv.vendors.ik:VENDOR"
 steinberg = "vstenv.vendors.steinberg:VENDOR"
 
 [tool.setuptools]
-packages = ["vstenv", "vstenv.vendors", "vstenv.vendors.ni", "vstenv.vendors.ik", "vstenv.vendors.steinberg", "vstenv.installers"]
+packages = ["vstenv", "vstenv.vendors", "vstenv.vendors.ni", "vstenv.vendors.ik", "vstenv.vendors.steinberg", "vstenv.vendors.am",
+            "vstenv.vendors.roland", "vstenv.vendors.izotope", "vstenv.vendors.arturia", "vstenv.vendors.minimal", "vstenv.installers"]
+
+[tool.setuptools.package-data]
+vstenv = ["recipes.json"]

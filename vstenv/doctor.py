@@ -145,6 +145,14 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
                        (f"{d['version']} on {d['vulkan']}" + ("" if d["complete"] else
                         "; the 32-bit DLLs are missing, so 32-bit programs that draw through Direct3D cannot start (re-run setup)"))
                        if d["installed"] else f"Vulkan is available ({d['vulkan']}) but DXVK is not installed", fix="vstenv dxvk install"))
+    try:
+        from . import recipes
+        lines = recipes.in_effect(p)
+        c.append(Check("Recipes in effect", True,
+                       "; ".join(lines) if lines else "none: every program and plugin runs with what the app detected",
+                       fix="vstenv recipe list"))
+    except Exception as e:
+        c.append(Check("Recipes in effect", False, f"could not read them: {str(e)[:80]}", fix="vstenv recipe list"))
     ystat = yabridge.status(p)
     foreign_dirs = prefixes.foreign_yabridge_dirs(p, ystat)
     c.append(Check("yabridge lists only this prefix", not foreign_dirs,
