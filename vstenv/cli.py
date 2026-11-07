@@ -289,8 +289,12 @@ def cmd_uninstall(a):
 
 def cmd_menu(a):
     p = _prefix(); r = ConsoleReporter()
-    if a.action == "remove": menu.remove_all(r)
-    else: menu.sync(p, r)
+    if a.action == "remove":
+        from . import filemanager
+        menu.remove_all(r); filemanager.remove(r)
+    else:
+        from . import filemanager
+        menu.sync(p, r); filemanager.apply(r)
 
 def cmd_doctor(a):
     p = _prefix() if wine.installed_build() else None
@@ -430,7 +434,7 @@ def main(argv=None):
     s.set_defaults(f=cmd_unmanaged)
     s = sp.add_parser("run", help="start an installed program (name or part of it)"); s.add_argument("name"); s.add_argument("--wait", action="store_true"); s.set_defaults(f=cmd_run)
     s = sp.add_parser("uninstall", help="run an installed program's own uninstaller"); s.add_argument("name"); s.add_argument("--no-sync", action="store_true"); s.set_defaults(f=cmd_uninstall)
-    s = sp.add_parser("menu", help="desktop menu entries for the prefix's programs"); s.add_argument("action", nargs="?", default="update", choices=["update", "remove"]); s.set_defaults(f=cmd_menu)
+    s = sp.add_parser("menu", help="desktop menu entries for the prefix's programs, and the file manager's \"Install with VST Environment\""); s.add_argument("action", nargs="?", default="update", choices=["update", "remove"]); s.set_defaults(f=cmd_menu)
     sp.add_parser("doctor", help="check every fix and prerequisite").set_defaults(f=cmd_doctor)
     sp.add_parser("status", help="yabridge status").set_defaults(f=cmd_status)
     s = sp.add_parser("mono", help=".NET runtime (Wine Mono) for programs that need it: install | status")

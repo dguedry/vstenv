@@ -32,6 +32,84 @@ terminal, `flatpak run io.github.dguedry.vstenv`). Updates come with
 `flatpak update`. See [Install](#install) for the
 single-file bundle, what the first run does, and why this is not on Flathub.
 
+## Getting started
+
+**1. Start it.** Open **VST Environment** from your app menu (under Audio), or
+run `flatpak run io.github.dguedry.vstenv` in a terminal.
+
+**2. Let the first run finish.** The first start sets up the environment by
+itself: it downloads a tested Wine build and creates a Windows "prefix" (a
+private `C:` drive in `~/.local/share/vstenv/prefix`). It also adds fonts, the
+Windows runtimes, the app's Wine fixes and yabridge, the bridge that lets Linux
+DAWs load Windows plugins. Progress shows on screen, and it takes a few minutes
+once. Nothing outside your home folder is changed, and you don't need to
+install Wine yourself.
+
+**3. Install your plugins.** On the **Install** tab, either:
+
+- open a vendor's store app (Native Access, IK Product Manager, Steinberg
+  Download Assistant, Arturia Software Center...). Each row links to the
+  vendor's download page. Pick the downloaded installer, then sign in and
+  install products there as you would on Windows; or
+- use **Install Windows software…** for anything you downloaded yourself: a
+  `.exe` or `.msi` installer, or a `.zip` of plugin files
+  (see [Installing something you downloaded](#installing-something-you-downloaded)).
+
+You can also right-click the download in your file manager and choose
+**Install with VST Environment** (see below).
+
+**4. Use them in your DAW.** Every Windows plugin is bridged automatically into
+`~/.vst3/yabridge`, `~/.clap/yabridge` and `~/.vst/yabridge`. Most Linux DAWs
+(REAPER, Bitwig, Ardour, Carla...) scan `~/.vst3` and `~/.clap` already. If
+yours doesn't, add those folders in its plugin settings, then rescan. A plugin
+installed while the DAW is open shows up after a rescan.
+
+The **Programs** tab starts standalone Windows apps (Kontakt standalone, a
+vendor's store app), and **Health** checks everything above and names the fix
+when something is wrong.
+
+### Right-click to install
+
+Setup adds **Install with VST Environment** to your file manager's right-click
+menu, for installers, zips and `.vst3` or `.clap` files:
+
+| File manager (desktop) | Where it appears |
+|---|---|
+| Dolphin (KDE Plasma) | right-click menu |
+| Nemo (Cinnamon) | right-click menu |
+| Nautilus / Files (GNOME) | right-click → Scripts |
+| Thunar, Caja, others | right-click → Open With → VST Environment |
+
+The app opens and installs the file as if you had picked it on the Install tab.
+`vstenv menu remove` takes the entries away again.
+
+### Linux distributions
+
+vstenv is a Flatpak, so it runs on any distribution with Flatpak. It brings its
+own Wine and doesn't depend on the distribution's packages. Tested so far:
+
+- Linux Mint 22.3 and Ubuntu 24.04, end to end.
+- Fedora 43, setup and Health checks.
+- Fedora 44 and Ubuntu Studio 24.04, from users' reports.
+
+Arch and openSUSE should work the same way but haven't been tried. Your
+distribution's own Wine, if installed, is left alone.
+
+### Desktop environments
+
+The app has no dependency on a particular desktop. Windows plugin windows go
+through X11, or XWayland on a Wayland session. Fixes the app applies are aimed
+at known desktop problems:
+
+- **Cinnamon:** Wine windows jumping to the front.
+- **GNOME:** windows that get stuck and never appear.
+
+It is developed on Cinnamon and has been reported working on GNOME and on niri
+(Wayland). KDE Plasma should work but hasn't been tested yet, so reports are
+welcome. If something misbehaves on your desktop, the Troubleshoot dialog
+(the gear button beside a program or plugin) has settings to try and a button to share what
+worked.
+
 ## Screenshots
 
 | Plugins: what each vendor's manager installed, what needed help | Programs: run, uninstall, troubleshoot |
