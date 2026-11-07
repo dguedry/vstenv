@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.132" date="2026-11-07">
+      <description>
+        <p>Right-click "Install with VST Environment" in Dolphin, Nemo and Nautilus; a Getting started guide</p>
+      </description>
+    </release>
     <release version="0.1.131" date="2026-11-07">
       <description>
         <p>Install plugins that come without an installer: a .zip of .vst3/.clap/.dll files</p>
