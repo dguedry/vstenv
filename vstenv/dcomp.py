@@ -210,5 +210,5 @@ def all_plugin_host_env(p: Prefix) -> list[tuple[str, str]]:
     on, off = recipes.plugin_hide_wine(p)
     out = [(name, yabridge.HIDE_WINE_VERSION) for name in on]
     for v in vendors.all():
-        out += [e for e in v.plugin_host_env(p) if e not in out and not any(o in e[0] for o in off)]
+        out += [e for e in v.plugin_host_env(p) if e not in out and not (e[1] == yabridge.HIDE_WINE_VERSION and any(o in e[0] for o in off))]
     return out

@@ -152,6 +152,21 @@ class PluginWineTest(unittest.TestCase):
         cp = subprocess.run([str(self.launcher), "VST3", "/x/VST3/TH-U.vst3"], env=env, capture_output=True, text=True)
         self.assertIn("hide=unset", cp.stdout)
 
+    def test_a_plugins_variable_replaces_what_a_broader_rule_set(self):
+        """Jamstix lives under /Steinberg/, whose rule gives it Wine's Direct3D; its
+        own WINEDLLOVERRIDES has to win, in its host only."""
+        self.activate()
+        data = self.home / ".local/share/vstenv"
+        with mock.patch.object(yabridge, "PLUGIN_OVERRIDES_FILE", data / "plugin-dll-overrides"), \
+             mock.patch.object(yabridge, "PLUGIN_ENV_FILE", data / "plugin-host-env"):
+            yabridge.write_plugin_overrides([("/Steinberg/", "d3d11,dxgi=b")])
+            yabridge.write_plugin_env([("/jamstix4.", "WINEDLLOVERRIDES=rtscom=d;d3d11,dxgi=d")])
+        env = {"HOME": str(self.home), "PATH": f"{self.hostbin}:/usr/bin:/bin", "WINEPREFIX": str(self.prefix.path)}
+        cp = subprocess.run([str(self.launcher), "VST2", "/x/Steinberg/VstPlugins/jamstix4.dll"], env=env, capture_output=True, text=True)
+        self.assertIn("dll=rtscom=d;d3d11,dxgi=d ", cp.stdout)
+        cp = subprocess.run([str(self.launcher), "VST2", "/x/Steinberg/VstPlugins/Ozone 9.dll"], env=env, capture_output=True, text=True)
+        self.assertIn("dll=d3d11,dxgi=b ", cp.stdout)
+
     def test_plugin_overrides_apply_to_matching_plugins_only(self):
         self.activate()
         with mock.patch.object(yabridge, "PLUGIN_OVERRIDES_FILE", self.home / ".local/share/vstenv/plugin-dll-overrides"):

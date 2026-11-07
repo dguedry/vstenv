@@ -135,6 +135,13 @@ the program does and what the app does about it.
   to replace a plugin a DAW has loaded ("Cannot start installation. Files are
   in use."), so it is started through the app rather than a desktop shortcut,
   and Health lists the plugins currently held open.
+- **Jamstix 4's plugin editor (Rayzoon).** The editor is drawn by a FireMonkey core
+  that the plugin starts. It needs a DPI-aware host, or it opens a warning in a form
+  nobody can see and waits there, and the plugin stays on "Jamstix is loading...".
+  It needs Wine's stub `rtscom` out of the way, or FireMonkey stops on an error and the
+  plugin reports "Cannot communicate with core GUI ID=2". And it needs its GDI+ canvas,
+  since nothing draws on the Direct3D path. The app gives Jamstix's host these three
+  settings and no other plugin's.
 - **JUCE 8.0.13 plugins that look for Wine (Minimal Audio's Squash, Morph EQ...).**
   JUCE 8.0.13 and later ask for Wine's `wine_get_version` export and change how
   they draw when they find it. Under that path Minimal Audio's plugins show an
@@ -291,7 +298,7 @@ through yabridge, including [StageRig](https://github.com/dguedry/stagerig).
 | Spitfire Audio (no module: plain Windows installer) | Spitfire Audio app 3.4 | Reaches and holds its Sign In page and browses normally: the patched dxgi/wined3d/win32u give it real DXGI composition swapchains (ported from giang17/wine) that present straight into its window, where Wine's hidden-window emulation deadlocked. Draws through the same patched dcomp.dll + Wine Direct3D as any JUCE 8 program |
 | Audio Modeling | Software Center 1.x (WebView2) | Signs in, downloads products, TRY videos play; its own install attempts fail under Wine (mis-quoted installer arguments), so the app rescues each download and finishes it unattended, announced by a desktop notification (nine SWAM products installed and bridged this way) |
 | Minimal Audio | Minimal Hub 1.1.11 (Tauri + WebView2) | Installed as a program from its download; signs in and shows the account's library, drawn through software rendering (solid black without it); installs Squash 1.4 through its PowerShell-driven install script (carried out by the app's PowerShell replacement), bridged as VST3 and VST2. Squash 1.4 in Reaper shows its interface and its Get Started and Log In screens (it was an empty gray card before); signing in and using it not yet verified |
-| Rayzoon (no module: plain Windows program) | Jamstix 4 Manager 1.3.0, run from the Install tab | Opens and draws correctly through its GDI+ canvas (a 32-bit FireMonkey program: it needed the 32-bit DXVK DLLs to start and the FireMonkey override to draw); downloads and installs Jamstix 4 and audioM8 as 64-bit VST2, bridged when the Manager closes. **The plugin's editor does not open yet:** in Reaper it stops at "Jamstix is loading..." or "Cannot communicate with core GUI ID=2" (reproduced, not fixed) |
+| Rayzoon (no module: plain Windows program) | Jamstix 4 Manager 1.3.0, run from the Install tab | Opens and draws correctly through its GDI+ canvas (a 32-bit FireMonkey program: it needed the 32-bit DXVK DLLs to start and the FireMonkey override to draw); downloads and installs Jamstix 4 and audioM8 as 64-bit VST2, bridged when the Manager closes. The plugin's editor opens embedded in Reaper and takes clicks, in both of Jamstix's modes; playing a song and hearing audio not yet verified |
 | Orchestral Tools (no module: plain Windows installer) | SINE Player (JUCE + WebView2) | Installs and bridges; sign-in works against Orchestral Tools' servers, typed blind — the fields take input but do not display it (see "WebView2 apps"); the Store browses and the tips video plays; a web tab's page sticks over the native views until a restart |
 | Gig Performer (no module: plain Windows installer) | Gig Performer 5 (5.3.3) installer, run from the Install tab | Installs and runs as a standalone host under Wine, OpenGL interface and all. Its window is maximized by the window manager on sight, which left Wine's idea of its position stale and the pointer landing off its targets; the app now resyncs the window as it appears, so clicks land where the pointer is |
 

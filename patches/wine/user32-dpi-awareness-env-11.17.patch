@@ -1,0 +1,20 @@
+--- a/dlls/user32/sysparams.c
++++ b/dlls/user32/sysparams.c
+@@ -165,6 +165,17 @@
+ 
+     system_dpi = NtUserGetSystemDpiForProcess( NULL );
+ 
++    /* One process's awareness, without a registry value that would reach every
++     * process of that name: every plugin runs in a yabridge-host.exe, and Jamstix 4
++     * refuses to embed its editor in a host it finds unaware.  0, 1 or 2, as the
++     * dpiAwareness execution option below. */
++    if (GetEnvironmentVariableW( L"WINE_DPI_AWARENESS", buffer, ARRAY_SIZE(buffer) )
++            && buffer[0] >= '0' && buffer[0] <= '2' && !buffer[1])
++    {
++        SetProcessDpiAwarenessContext( (DPI_AWARENESS_CONTEXT)~(ULONG_PTR)(buffer[0] - '0') );
++        return;
++    }
++
+     if (!LdrQueryImageFileExecutionOptions( &NtCurrentTeb()->Peb->ProcessParameters->ImagePathName,
+                                             L"dpiAwareness", REG_DWORD, &option, sizeof(option), NULL ))
+     {

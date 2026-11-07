@@ -38,6 +38,7 @@ FIXES = {"dcomp.dll": "DirectComposition (Steinberg's VSTGUI: HALion Sonic 7, Cu
          "wined3d.dll": "keep-back-buffers swapchains and the composition GL present path (composition swapchains)",
          "win32u.dll": "window and OpenGL plumbing for composition swapchains",
          "ntdll.dll": "a plugin host can hide Wine from JUCE 8.0.13 plugins (Minimal Audio's sign-in panel and interface stayed empty)",
+         "user32.dll": "a plugin host can be made DPI-aware on its own (Jamstix 4 will not embed its editor in an unaware host)",
          "advapi32.dll": "credential attributes (Steinberg's License Engine keeps its sign-in)",
          "ole32.dll": "drag-drop teardown survives a stale target (WebView2 apps crashed at startup)",
          "hidparse.sys": "HID controls with hundreds of usages reach Windows programs (Komplete Kontrol S-series MK1 keyboards)",

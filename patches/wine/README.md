@@ -201,6 +201,16 @@ the object rather than crashing when it is already gone. Verified 2026-09-30:
 the Software Center runs past the point it crashed; HALion Sonic (OLE-heavy)
 unaffected. A candidate for upstreaming.
 
+## user32-dpi-awareness-env-<version>.patch
+
+`WINE_DPI_AWARENESS=0|1|2` sets one process's DPI awareness, with the same values
+as Wine's `dpiAwareness` execution option. That option goes by executable name,
+and every bridged plugin runs in a `yabridge-host.exe`, so it would change them
+all. Jamstix 4 checks its host's awareness and will not embed its editor in an
+unaware one (it opens "Your DAW plugin interface is not High-DPI aware" in a form
+that is still hidden, and waits for OK). The variable is set for that plugin's
+host only (`plugin-host-env`). Rebuilds the 64-bit `user32` only.
+
 ## ntdll-hide-wine-version-<version>.patch
 
 JUCE 8.0.13 and later call `GetProcAddress(ntdll, "wine_get_version")` and take a
