@@ -51,6 +51,8 @@ class AfterChangeSkipTest(unittest.TestCase):
                  mock.patch.object(setup.webview2, "needed", return_value=False), \
                  mock.patch.object(setup.webview2, "apply_presentation_flags"), \
                  mock.patch.object(setup.yabridge, "write_plugin_overrides"), \
+                 mock.patch.object(setup.dcomp, "all_plugin_host_env", return_value=[]), \
+                 mock.patch.object(setup.yabridge, "write_plugin_env"), \
                  mock.patch.object(setup.yabridge, "sync", return_value={"ok": True}) as ysync, \
                  mock.patch.object(setup.menu, "sync"):
                 self.assertEqual(setup.after_change(p), {"ok": True})     # first pass runs
