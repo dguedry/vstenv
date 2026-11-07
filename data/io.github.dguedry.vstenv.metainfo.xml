@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.131" date="2026-11-07">
+      <description>
+        <p>Install plugins that come without an installer: a .zip of .vst3/.clap/.dll files</p>
+      </description>
+    </release>
     <release version="0.1.130" date="2026-11-07">
       <description>
         <p>Minimal Audio's readouts stay readable: honour Direct2D's copy blend mode</p>
