@@ -5,7 +5,7 @@ from pathlib import Path
 import gi
 gi.require_version("Gtk", "4.0"); gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk, Gio, Gdk
-from . import __version__, APP_ID, APP_NAME, paths, wine, yabridge, doctor, programs, setup, vendors, menu, runtime, dcomp, unmanaged, recipes, webview2
+from . import __version__, APP_ID, APP_NAME, paths, wine, yabridge, doctor, programs, setup, vendors, menu, runtime, dcomp, unmanaged, recipes, webview2, plugfiles
 from .progress import Reporter, OK, FAIL, SKIP, RUN
 from .filtering import Filter
 
@@ -800,10 +800,11 @@ class Window(Adw.ApplicationWindow):
         page = Adw.PreferencesPage(); self.open_rows = {}; self.get_rows = {}
         g = Adw.PreferencesGroup(title="Install")
         g.add(_menu_row("Install Windows software…",
-                        "Pick any installer (.exe or .msi; unzip a downloaded .zip first). A vendor's manager or product is recognized and installed with its fixes; anything else runs as a plain installer. Plugins are bridged either way.",
+                        "Pick any installer (.exe or .msi), or plugins that come without one (a .zip, .vst3, .clap or VST2 .dll). A vendor's manager or product is recognized and installed with its fixes; anything else runs as a plain installer. Plugins are bridged either way.",
                         "document-open-symbolic",
-                        lambda: self.pick_file("Choose an installer (.exe or .msi)", self.install_any, downloads=True),
-                        [("Add a plugin folder", self.pick_folder),
+                        lambda: self.pick_file("Choose an installer or plugin (.exe, .msi, .zip, .vst3, .clap, .dll)", self.install_any, downloads=True),
+                        [("Install plugins from a folder…", self.pick_plugin_folder),
+                         ("Add a plugin folder", self.pick_folder),
                          ("Bridge plugins now", self.sync),
                          ("Rescue a stuck install", self.rescue_installs),
                          ("Finish interrupted installs", self.finish_installs),
@@ -851,8 +852,8 @@ class Window(Adw.ApplicationWindow):
         "run setup first" at the moment someone just asked for an install."""
         if not path.exists():
             self.toast(f"{path.name} is gone"); return
-        if path.suffix.lower() not in (".exe", ".msi"):
-            self.toast(f"{path.name} is not a Windows installer"); return
+        if path.suffix.lower() not in (".exe", ".msi") and not plugfiles.handles(path):
+            self.toast(f"{path.name} is not a Windows installer or plugin"); return
         self.stack.set_visible_child_name("install")
 
         def go():
@@ -873,6 +874,8 @@ class Window(Adw.ApplicationWindow):
 
         Takes a path as str or Path; the flows below want a Path."""
         path = Path(path)
+        if plugfiles.handles(path):
+            self.install_plugin_files(path); return
         kind, v = vendors.classify_installer(path)
         if kind == "manager":
             self.toast(f"Recognized the {v.manager_name} installer — installing it with {v.name}'s fixes")
@@ -882,6 +885,46 @@ class Window(Adw.ApplicationWindow):
             self.install_product(v, path)
         else:
             self.install_program(path)
+    def install_plugin_files(self, path: Path):
+        """Plugins that come without an installer: a .zip (or .7z, .rar), a
+        .vst3/.clap/.dll, or a folder. Copied into the standard plugin folders
+        and bridged; an archive holding an installer instead runs that."""
+        def work(r):
+            res = plugfiles.install(self.prefix, path, r)
+            if res.installed: setup.after_change(self.prefix, r)
+            return res
+        def done(res, err):
+            if err or res is None: return
+            left = "; left out " + ", ".join(f"{n} ({why})" for n, why in res.skipped) if res.skipped else ""
+            if res.installed:
+                names = ", ".join(sorted({t.name.rsplit(".", 1)[0] for _f, t in res.installed}))
+                fmts = "/".join(sorted({f for f, _t in res.installed}))
+                self.toast(f"Installed and bridged {names} ({fmts}){left}", 10)
+            elif len(res.installers) == 1:
+                self.toast(f"{path.name} holds an installer — running {res.installers[0].name}")
+                self.install_any(res.installers[0])
+            elif res.installers:
+                self.toast(f"{path.name} holds several installers — pick the one to run")
+                d = Gtk.FileDialog(title="Choose the installer to run", initial_folder=Gio.File.new_for_path(str(res.installers[0].parent)))
+                def on(dlg, r_):
+                    try: f = dlg.open_finish(r_)
+                    except GLib.Error: return
+                    self.install_any(Path(f.get_path()))
+                d.open(self, None, on)
+            else:
+                self.toast(f"No 64-bit Windows plugin or installer in {path.name}{left}", 10)
+        self.run_bg(f"Installing plugins from {path.name}", work, done)
+    def pick_plugin_folder(self):
+        d = Gtk.FileDialog(title="Choose a plugin folder (a .vst3 bundle or an unpacked download)")
+        dl = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DOWNLOAD)
+        if dl: d.set_initial_folder(Gio.File.new_for_path(dl))
+        def on(dlg, res):
+            try: f = dlg.select_folder_finish(res)
+            except GLib.Error: return
+            path = Path(f.get_path())
+            if plugfiles.handles(path): self.install_plugin_files(path)
+            else: self.toast(f"No Windows plugin in {path.name}")
+        d.select_folder(self, None, on)
     def open_manager(self, v):
         if not self.is_ready(): self.toast("Run setup first"); return
         if not v.manager_installed(self.prefix): self.toast(f"{v.manager_name} is not installed yet — get it from {v.name} and pick the installer here"); return

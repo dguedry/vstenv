@@ -123,3 +123,49 @@ def _imports(exe: Path) -> list[str]:
         if noff is None: break
         end = d.find(b"\0", noff); out.append(d[noff:end].decode("latin1").lower()); off += 20
     return out
+
+MACHINES = {0x14c: "x86", 0x8664: "x64", 0xaa64: "arm64"}
+
+def machine(f: Path) -> str | None:
+    """'x86', 'x64', 'arm64' (or a hex code) for a PE file, None for anything else."""
+    try:
+        with open(f, "rb") as h: head = h.read(4096)
+        if head[:2] != b"MZ" or len(head) < 0x40: return None
+        pe = struct.unpack_from("<I", head, 0x3c)[0]
+        if pe + 6 > len(head):
+            with open(f, "rb") as h: h.seek(pe); head = b"\0" * pe + h.read(6)
+        if head[pe:pe + 4] != b"PE\0\0": return None
+        m = struct.unpack_from("<H", head, pe + 4)[0]
+        return MACHINES.get(m, hex(m))
+    except (OSError, struct.error): return None
+
+def exports(f: Path) -> list[str]:
+    """Names a PE file exports; [] for anything that is not a PE or has none."""
+    try: return _exports(f)
+    except (struct.error, IndexError, ValueError, OSError): return []
+
+def _exports(f: Path) -> list[str]:
+    d = Path(f).read_bytes()
+    if d[:2] != b"MZ" or len(d) < 0x40: return []
+    pe = struct.unpack_from("<I", d, 0x3c)[0]
+    if d[pe:pe + 4] != b"PE\0\0": return []
+    nsec = struct.unpack_from("<H", d, pe + 6)[0]; opt_size = struct.unpack_from("<H", d, pe + 20)[0]
+    opt = pe + 24; magic = struct.unpack_from("<H", d, opt)[0]
+    dirs = opt + (112 if magic == 0x20B else 96)
+    exp_rva = struct.unpack_from("<I", d, dirs)[0]          # entry 0: export table
+    if not exp_rva: return []
+    secs = []
+    for i in range(nsec):
+        s_ = opt + opt_size + 40 * i
+        vsize, vaddr, rsize, raw = struct.unpack_from("<IIII", d, s_ + 8); secs.append((vaddr, max(vsize, rsize), raw))
+    off = _offset(secs, exp_rva)
+    if off is None: return []
+    n_names, names_rva = struct.unpack_from("<I", d, off + 24)[0], struct.unpack_from("<I", d, off + 32)[0]
+    noff = _offset(secs, names_rva)
+    if noff is None: return []
+    out = []
+    for i in range(min(n_names, 4096)):
+        o = _offset(secs, struct.unpack_from("<I", d, noff + 4 * i)[0])
+        if o is None: continue
+        out.append(d[o:d.find(b"\0", o)].decode("latin1"))
+    return out

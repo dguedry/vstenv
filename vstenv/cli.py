@@ -110,8 +110,31 @@ def cmd_products(a):
             if x.licensed is not None: flags.append("licensed" if x.licensed else "no license")
             print(f"  {x.name.ljust(w)}  {x.version:8}  {', '.join(flags)}")
 
+def _install_plugin_files(p, src, r) -> Path | None:
+    """Plugins without an installer (an archive, a .vst3/.clap/.dll, a folder):
+    copy them in. Returns an installer found in an archive instead, else None."""
+    from . import plugfiles
+    res = plugfiles.install(p, src, r)
+    for n, why in res.skipped: print(f"  left out {n}: {why}")
+    if res.installed:
+        for fmt, t in res.installed: print(f"  {fmt}: {t}")
+        return None
+    if len(res.installers) == 1:
+        print(f"  {src.name} holds no plugins but an installer: running {res.installers[0].name}")
+        return res.installers[0]
+    if res.installers:
+        sys.exit(f"{src.name} holds several installers; run the one you want:\n" + "\n".join(f"  {APP_NAME} install '{x}'" for x in res.installers))
+    sys.exit(f"no 64-bit Windows plugin (.vst3, .clap or VST2 .dll) or installer found in {src.name}")
+
 def cmd_install(a):
     p = _prefix(); r = ConsoleReporter(); src = Path(a.installer)
+    if not a.generic:
+        from . import plugfiles
+        if plugfiles.handles(src):
+            src = _install_plugin_files(p, src, r)
+            if src is None:
+                if not a.no_sync: setup.after_change(p, r)
+                return
     kind, v = ("program", None) if a.generic else vendors.classify_installer(src)
     if kind == "manager":
         print(f"  recognized: the {v.manager_name} installer")
@@ -383,7 +406,7 @@ def main(argv=None):
     s.add_argument("vendor"); s.add_argument("action", choices=["install", "launch", "repair", "status", "apply-pending-update"]); s.add_argument("file", nargs="?")
     s.add_argument("--wait", action="store_true", help="launch: wait for it to exit, then finish installs and bridge"); s.add_argument("args", nargs="*"); s.set_defaults(f=cmd_manager)
     s = sp.add_parser("products", help="list what the vendors' managers installed"); s.add_argument("--vendor"); s.set_defaults(f=cmd_products)
-    s = sp.add_parser("install", help="install any downloaded Windows installer: a vendor's manager or product is recognized and installed with its fixes, anything else runs as a plain installer")
+    s = sp.add_parser("install", help="install any downloaded Windows installer, or plugins without one (a .zip, .vst3, .clap or VST2 .dll): a vendor's manager or product is recognized and installed with its fixes, anything else runs as a plain installer")
     s.add_argument("installer"); s.add_argument("--generic", action="store_true", help="run it interactively even if a vendor module recognises it")
     s.add_argument("--remedy", nargs="+", metavar="KEY=VALUE", help="run it with a remedy: silent=on, winver=win8, rendering=wine|gdi, disable_dll=netprofm, as_program=on")
     s.add_argument("--keep-trace", action="store_true"); s.add_argument("--no-sync", action="store_true"); s.set_defaults(f=cmd_install)

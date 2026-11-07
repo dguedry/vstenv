@@ -362,20 +362,32 @@ Assistant) installs its own products for you; you rarely touch installers by
 hand. But you often download things directly: a plugin installer, or a sound or
 content pack (an IK SampleTank library, say). For those:
 
-1. **If it is a `.zip`, unzip it first.** Content packs ship as a zip holding an
-   installer (for example `Install SampleTank 4 Sound Content.exe`) next to a
-   content folder; the installer only works when it sits beside that folder, so
-   extract the whole zip and keep it together. A plain plugin download is often
-   already a `.exe` or `.msi` and needs no unzipping.
-2. **In the app, use "Install from a Windows installer"** and pick that `.exe`
-   or `.msi`. It is on both the **Programs** tab and the **Install** tab (the
-   same action, listed in both places); either one works. The installer's own
-   window opens, you click through it, and when it finishes the app sets up
-   whatever it installed and bridges any plugins to your DAW automatically.
-3. **From the command line** the equivalent is `vstenv install <path-to-the.exe>`.
+1. **In the app, use "Install Windows software…"** on the **Install** tab (also
+   on the **Programs** tab) and pick what you downloaded: a `.exe` or `.msi`
+   installer, or a `.zip` as it came. The installer's own window opens, you click
+   through it, and when it finishes the app sets up whatever it installed and
+   bridges any plugins to your DAW automatically.
+2. **From the command line** the equivalent is `vstenv install <the-file>`.
 
-The installer is always the `.exe` or `.msi`, never the `.zip` itself. If you
-picked a zip by mistake, unzip it and pick the installer inside.
+**Plugins without an installer.** Some developers ship a `.zip` holding the
+plugin files themselves (`Plugin.vst3`, `Plugin.clap`, `Plugin.dll`). Pick the
+zip (or a `.7z`, `.rar` or `.tar.*`, a loose `.vst3`, `.clap` or VST2 `.dll`, or
+with "Install plugins from a folder…" an unpacked download or a `.vst3` bundle).
+The app copies each 64-bit Windows plugin where Windows hosts keep them: VST3 to
+`C:\Program Files\Common Files\VST3`, CLAP to `C:\Program Files\Common Files\CLAP`,
+VST2 to `C:\Program Files\VstPlugins` (in a folder of its own when files it
+loads sit beside it), and bridges them. Installing a newer zip replaces the old
+copy. What the download carries for other systems is left out and named: macOS
+bundles and `.component`s, AAX, and 32-bit builds, which the bundled yabridge
+cannot bridge (it has no 32-bit host). A standalone `.exe` in the zip is not
+installed.
+
+**A zip holding an installer** (a sound or content pack, for example, with
+`Install SampleTank 4 Sound Content.exe` next to its content folder) is unpacked
+whole into `~/.cache/vstenv/downloads/unpacked/` and its installer is run from
+there, beside its content. When the zip has several installers, you pick one.
+That unpacked copy stays until you delete it, and a content pack can be large,
+so delete it once the install is done.
 
 **If an installer asks where to put the plugin**, choose
 `C:\Program Files\VstPlugins` (a VST2 folder the app already scans; older IK
@@ -454,9 +466,9 @@ the installer finishes; nothing needs moving by hand.
   minute), not only after it closes.
 - **Install** — per vendor: open the manager, get it from the vendor, install or
   update it from a downloaded installer, and (NI, IK) install a product from its
-  own installer when the manager cannot. Plus "Install from a Windows installer"
-  for any downloaded `.exe`/`.msi` (a plugin, a sound or content pack; unzip a
-  `.zip` first, see above), extra plugin folders, and finishing interrupted
+  own installer when the manager cannot. Plus "Install Windows software…" for
+  any downloaded `.exe`/`.msi`/`.zip` (a plugin, a sound or content pack, or plugin
+  files without an installer; see above), extra plugin folders, and finishing interrupted
   installs. When an installer
   leaves an Electron manager crash-looping under Wine (iZotope's Product Portal),
   the app stops it, so it cannot thrash the prefix and freeze loaded plugins.
@@ -612,7 +624,7 @@ deadlocking on Wine's hidden-window emulation.
 
 ```
 vstenv setup [--installer FILE]     vstenv vendors            vstenv manager <vendor> install|launch|repair|status
-vstenv products [--vendor V]        vstenv install FILE       vstenv sync [DIR...]
+vstenv products [--vendor V]        vstenv install FILE|DIR   vstenv sync [DIR...]
 vstenv programs | run NAME | uninstall NAME | menu [update|remove]
 vstenv doctor | report | rescue-install | finish-installs | dxvk | wine-fixes | mono | webview2 | prefixes | url-handlers
 vstenv manager <vendor> apply-pending-update   install an update the manager downloaded for itself, with this app's fixes
