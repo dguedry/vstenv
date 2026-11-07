@@ -177,6 +177,12 @@ class Vendor:
         that host's command line)."""
         return []
 
+    def plugin_host_env(self, p: "Prefix") -> list[tuple[str, str]]:
+        """(plugin path substring, NAME=VALUE) pairs for bridged plugins, applied by
+        the yabridge host the same way as plugin_dll_overrides, with the same limit
+        for plugins in a yabridge group."""
+        return []
+
     # -- health and reports -------------------------------------------------------------------
     def checks(self, p: "Prefix") -> list[Check]: return []
     def status(self, p: "Prefix") -> dict: return {}

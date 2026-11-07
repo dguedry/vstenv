@@ -201,6 +201,21 @@ the object rather than crashing when it is already gone. Verified 2026-09-30:
 the Software Center runs past the point it crashed; HALion Sonic (OLE-heavy)
 unaffected. A candidate for upstreaming.
 
+## ntdll-hide-wine-version-<version>.patch
+
+JUCE 8.0.13 and later call `GetProcAddress(ntdll, "wine_get_version")` and take a
+fallback when it succeeds. Under it Minimal Audio's Squash (JUCE 8.0.13) paints
+the card of its activation panel and nothing else: no text, no buttons, no way to
+sign in, and the main interface stays out of sight behind it. With
+`WINE_HIDE_WINE_VERSION=1` in a process's environment, `LdrGetProcedureAddress`
+reports that one export as missing, and the plugin draws everything. The variable
+is set per plugin host (`plugin-host-env`, read by the yabridge launcher), never
+globally: PACE/iLok needs to find the export ("Error 2000, iLok background
+component not running"). The idea and that warning come from
+[giang17/wine](https://github.com/giang17/wine), whose `HideWineVersion` registry
+switch this reduces to the environment variable. Only the 64-bit `ntdll` is
+rebuilt, so 32-bit plugins are not covered.
+
 ## winex11-cursor-from-other-process-<version>.patch
 
 The pointer vanished over every WebView2 window (Minimal Audio's Hub, a Tauri

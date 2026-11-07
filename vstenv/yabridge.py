@@ -386,6 +386,22 @@ if [ -n "$HOME" ] && [ -r "$_vstenv_ovr" ]; then
 fi
 '''
 
+# The same match for environment variables: one plugin's host can need a variable
+# no other plugin should get (WINE_HIDE_WINE_VERSION, which PACE/iLok plugins must
+# not have). One `<plugin path substring>|NAME=VALUE` per line.
+PLUGIN_ENV_FILE = paths.DATA / "plugin-host-env"
+HIDE_WINE_VERSION = "WINE_HIDE_WINE_VERSION=1"
+LAUNCHER_ENV_MARK = "# vstenv: variables some plugins need in their host (plugin-host-env: <path substring>|NAME=VALUE)"
+_OUR_ENV = f'''{LAUNCHER_ENV_MARK}
+_vstenv_env="${{XDG_DATA_HOME:-$HOME/.local/share}}/vstenv/plugin-host-env"
+if [ -n "$HOME" ] && [ -r "$_vstenv_env" ]; then
+    while IFS='|' read -r _vstenv_pat _vstenv_val; do
+        case "$_vstenv_pat" in ''|'#'*) continue;; esac
+        case "$*" in *"$_vstenv_pat"*) export "$_vstenv_val";; esac
+    done < "$_vstenv_env"
+fi
+'''
+
 # Wine prints a "fixme" for every unimplemented detail it meets, and a plugin
 # GUI meets the same ones sixty times a second: the DAW's output and the host
 # log drown in them. Unless the DAW set WINEDEBUG itself, the host runs with the
@@ -404,10 +420,18 @@ def write_plugin_overrides(entries: list[tuple[str, str]]) -> Path:
     PLUGIN_OVERRIDES_FILE.write_text("\n".join(lines) + "\n")
     return PLUGIN_OVERRIDES_FILE
 
+def write_plugin_env(entries: list[tuple[str, str]]) -> Path:
+    """Write the per-plugin variables file the launcher reads (one `pattern|NAME=VALUE` per line)."""
+    PLUGIN_ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["# written by vstenv: <plugin path substring>|NAME=VALUE for its yabridge host"]
+    lines += [f"{pat}|{val}" for pat, val in entries if "|" not in pat and pat]
+    PLUGIN_ENV_FILE.write_text("\n".join(lines) + "\n")
+    return PLUGIN_ENV_FILE
+
 def host_launchers() -> list[Path]:
     return [YAB_DIR / n for n in HOST_LAUNCHERS if (YAB_DIR / n).exists()]
 
-_BLOCKS = ((LAUNCHER_LOG_MARK, _OUR_LOG[:-len(_UPSTREAM_EXEC)]), (LAUNCHER_OVERRIDES_MARK, _OUR_OVERRIDES), (LAUNCHER_QUIET_MARK, _OUR_QUIET))
+_BLOCKS = ((LAUNCHER_LOG_MARK, _OUR_LOG[:-len(_UPSTREAM_EXEC)]), (LAUNCHER_OVERRIDES_MARK, _OUR_OVERRIDES), (LAUNCHER_ENV_MARK, _OUR_ENV), (LAUNCHER_QUIET_MARK, _OUR_QUIET))
 
 def _refresh_blocks(txt: str) -> str:
     """Replace a block an older app version wrote with the current text. A block
@@ -433,6 +457,8 @@ def patch_host_launcher(script: Path) -> str:
         txt = txt.replace(_UPSTREAM_EXEC, _OUR_LOG, 1)
     if LAUNCHER_OVERRIDES_MARK not in txt and txt.count(_UPSTREAM_EXEC) == 1:
         txt = txt.replace(_UPSTREAM_EXEC, _OUR_OVERRIDES + _UPSTREAM_EXEC, 1)
+    if LAUNCHER_ENV_MARK not in txt and txt.count(_UPSTREAM_EXEC) == 1:
+        txt = txt.replace(_UPSTREAM_EXEC, _OUR_ENV + _UPSTREAM_EXEC, 1)
     if LAUNCHER_QUIET_MARK not in txt and txt.count(_UPSTREAM_EXEC) == 1:
         txt = txt.replace(_UPSTREAM_EXEC, _OUR_QUIET + _UPSTREAM_EXEC, 1)
     txt = _refresh_blocks(txt)

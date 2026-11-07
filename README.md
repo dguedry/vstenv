@@ -135,6 +135,15 @@ the program does and what the app does about it.
   to replace a plugin a DAW has loaded ("Cannot start installation. Files are
   in use."), so it is started through the app rather than a desktop shortcut,
   and Health lists the plugins currently held open.
+- **JUCE 8.0.13 plugins that look for Wine (Minimal Audio's Squash, Morph EQ...).**
+  JUCE 8.0.13 and later ask for Wine's `wine_get_version` export and change how
+  they draw when they find it. Under that path Minimal Audio's plugins show an
+  empty gray card with no way to sign in. A patched `ntdll` hides that one export
+  from a process that sets `WINE_HIDE_WINE_VERSION=1`, and the app sets it only for
+  the hosts of Minimal Audio's plugins. It cannot be set for every plugin: PACE/iLok
+  fails to start without that export. For another plugin with the same symptom, try
+  *Hide Wine from the plugin* in its Troubleshoot dialog. Plugins in a yabridge group
+  and 32-bit plugins do not get it.
 - **Minimal Audio (Minimal Hub).** Its Windows download is not an installer:
   `Minimal Hub.exe` is the program itself, a Tauri app whose whole window is a
   WebView2 control. The app recognises the file and installs it as a program
@@ -281,7 +290,7 @@ through yabridge, including [StageRig](https://github.com/dguedry/stagerig).
 | iZotope | Product Portal 1.4, Ozone 9 Advanced 9.13 installer | Every Ozone module bridged as VST3 and VST2, working out of the box. Installs cleanly: the app waits out the helper its installer hands off to, and ends the Electron Product Portal the installer leaves behind — under stock Wine that keeps crash-looping and starves loaded plugins until the Wine session is unusable |
 | Spitfire Audio (no module: plain Windows installer) | Spitfire Audio app 3.4 | Reaches and holds its Sign In page and browses normally: the patched dxgi/wined3d/win32u give it real DXGI composition swapchains (ported from giang17/wine) that present straight into its window, where Wine's hidden-window emulation deadlocked. Draws through the same patched dcomp.dll + Wine Direct3D as any JUCE 8 program |
 | Audio Modeling | Software Center 1.x (WebView2) | Signs in, downloads products, TRY videos play; its own install attempts fail under Wine (mis-quoted installer arguments), so the app rescues each download and finishes it unattended, announced by a desktop notification (nine SWAM products installed and bridged this way) |
-| Minimal Audio | Minimal Hub 1.1.11 (Tauri + WebView2) | Installed as a program from its download; signs in and shows the account's library, drawn through software rendering (solid black without it); installs Squash 1.4 through its PowerShell-driven install script (carried out by the app's PowerShell replacement), bridged as VST3 and VST2 and loading in a plugin host |
+| Minimal Audio | Minimal Hub 1.1.11 (Tauri + WebView2) | Installed as a program from its download; signs in and shows the account's library, drawn through software rendering (solid black without it); installs Squash 1.4 through its PowerShell-driven install script (carried out by the app's PowerShell replacement), bridged as VST3 and VST2. Squash 1.4 in Reaper shows its interface and its Get Started and Log In screens (it was an empty gray card before); signing in and using it not yet verified |
 | Rayzoon (no module: plain Windows program) | Jamstix 4 Manager 1.3.0, run from the Install tab | Opens and draws correctly through its GDI+ canvas (a 32-bit FireMonkey program: it needed the 32-bit DXVK DLLs to start and the FireMonkey override to draw); downloads and installs Jamstix 4 and audioM8 as 64-bit VST2, bridged when the Manager closes. **The plugin's editor does not open yet:** in Reaper it stops at "Jamstix is loading..." or "Cannot communicate with core GUI ID=2" (reproduced, not fixed) |
 | Orchestral Tools (no module: plain Windows installer) | SINE Player (JUCE + WebView2) | Installs and bridges; sign-in works against Orchestral Tools' servers, typed blind — the fields take input but do not display it (see "WebView2 apps"); the Store browses and the tips video plays; a web tab's page sticks over the native views until a restart |
 | Gig Performer (no module: plain Windows installer) | Gig Performer 5 (5.3.3) installer, run from the Install tab | Installs and runs as a standalone host under Wine, OpenGL interface and all. Its window is maximized by the window manager on sight, which left Wine's idea of its position stale and the pointer landing off its targets; the app now resyncs the window as it appears, so clicks land where the pointer is |
@@ -597,7 +606,7 @@ vstenv doctor | report | rescue-install | finish-installs | dxvk | wine-fixes | 
 vstenv manager <vendor> apply-pending-update   install an update the manager downloaded for itself, with this app's fixes
 vstenv wedge [status|clear]        no Wine GUI can open a window: show it, or restart (and boot) the Wine session
 vstenv webview2 software-gl [on|off]   software rendering for WebView2 apps (the ☰ menu checkbox); no value shows it
-vstenv recipe list | show program|plugin NAME | set program|plugin NAME rendering=wine [wm_away=on] [browser_software_gl=on]
+vstenv recipe list | show program|plugin NAME | set program|plugin NAME rendering=wine [wm_away=on] [browser_software_gl=on] [hide_wine=on]
 vstenv recipe reset program|plugin NAME | share program|plugin NAME [--symptom "..."] [--failed] | update
 ```
 

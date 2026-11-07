@@ -143,6 +143,19 @@ class ApplyTest(unittest.TestCase):
                 self.assertIn(("Scanned.vst3", "d3d11=b"), allo)
                 self.assertEqual([e for e in allo if e[0] == "Squash.vst3"], [("Squash.vst3", "d3d11,dxgi=d")])
 
+    def test_hide_wine_is_per_plugin_and_can_be_turned_off(self):
+        from vstenv import dcomp, yabridge
+        class Vendor:
+            def plugin_host_env(self, p): return [("/x/Squash.vst3", yabridge.HIDE_WINE_VERSION), ("/x/Formant.vst3", yabridge.HIDE_WINE_VERSION)]
+        with tempfile.TemporaryDirectory() as tmp:
+            p = FakePrefix(tmp)
+            f = _table(tmp, {"plugins": {"Tabled.vst3": {"hide_wine": "on"}}})
+            with mock.patch.object(recipes, "FETCHED", f), mock.patch("vstenv.vendors.all", return_value=[Vendor()]):
+                recipes.set_choice(p, "plugins", "Formant.vst3", hide_wine="off")
+                recipes.set_choice(p, "plugins", "Mine.vst3", hide_wine="on")
+                self.assertEqual(recipes.plugin_hide_wine(p), (["Mine.vst3", "Tabled.vst3"], ["Formant.vst3"]))
+                self.assertEqual([e[0] for e in dcomp.all_plugin_host_env(p)], ["Mine.vst3", "Tabled.vst3", "/x/Squash.vst3"])
+
     def test_in_effect_lists_who_set_what(self):
         with tempfile.TemporaryDirectory() as tmp:
             p = FakePrefix(tmp)

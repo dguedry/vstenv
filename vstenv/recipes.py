@@ -46,7 +46,7 @@ TRISTATE = ("auto", "on", "off")
 # "installs" are remedies for running an installer file (remedies.py), keyed
 # by the file's name; a key may hold * for the version part of a name.
 KNOBS = {"programs": {"rendering": RENDERING, "wm_away": TRISTATE, "browser_software_gl": TRISTATE},
-         "plugins": {"rendering": RENDERING},
+         "plugins": {"rendering": RENDERING, "hide_wine": TRISTATE},
          "installs": dict(remedies.KNOBS)}
 KINDS = tuple(KNOBS)
 
@@ -61,6 +61,7 @@ KNOB_TEXT = {
     "rendering": "Which Direct3D the program gets",
     "wm_away": "Keep the window manager away (menus that flash and close as soon as they open)",
     "browser_software_gl": "Software rendering for its embedded browser window (a window that stays blank or black)",
+    "hide_wine": "Hide Wine from the plugin (JUCE 8.0.13 and later: an empty panel, missing artwork; never for iLok plugins)",
 }
 UNNECESSARY = "Most programs need none of this. Only try a setting when you have the problem it describes."
 
@@ -264,6 +265,17 @@ def plugin_overrides(p: Prefix) -> list[tuple[str, str]]:
         rend = mine.get(name, {}).get("rendering") or theirs.get(name, {}).get("rendering")
         if rend and rend != "auto": out.append((name, _PLUGIN_RENDERING[rend]))
     return out
+
+
+def plugin_hide_wine(p: Prefix) -> tuple[list[str], list[str]]:
+    """Plugin names with hide_wine on, and with it off, from choices over the table."""
+    mine, theirs = choices(p)["plugins"], table()["plugins"]
+    on, off = [], []
+    for name in sorted(set(mine) | set(theirs)):
+        v = mine.get(name, {}).get("hide_wine") or theirs.get(name, {}).get("hide_wine")
+        if v == "on": on.append(name)
+        elif v == "off": off.append(name)
+    return on, off
 
 
 def in_effect(p: Prefix) -> list[str]:

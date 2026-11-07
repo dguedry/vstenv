@@ -51,7 +51,7 @@ def _exe(path: Path, text: str):
     path.write_text(text); path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 def _fake_wine(path: Path, name: str):
-    _exe(path, f'#!/bin/sh\necho "{name} prefix=$WINEPREFIX fsync=${{WINEFSYNC-unset}} dll=${{WINEDLLOVERRIDES-unset}} debug=${{WINEDEBUG-unset}} args=$*"\n')
+    _exe(path, f'#!/bin/sh\necho "{name} prefix=$WINEPREFIX fsync=${{WINEFSYNC-unset}} dll=${{WINEDLLOVERRIDES-unset}} debug=${{WINEDEBUG-unset}} hide=${{WINE_HIDE_WINE_VERSION-unset}} args=$*"\n')
 
 class PluginWineTest(unittest.TestCase):
     def setUp(self):
@@ -140,6 +140,17 @@ class PluginWineTest(unittest.TestCase):
         text = log.read_text()
         self.assertIn("Unhandled page fault", text); self.assertIn("== ", text, "each host start is headed with its time and arguments")
         self.assertIn("--version", text)
+
+    def test_plugin_env_reaches_only_the_matching_plugins_host(self):
+        """Hiding Wine is for one plugin's host: a PACE/iLok plugin must still find it."""
+        self.activate()
+        with mock.patch.object(yabridge, "PLUGIN_ENV_FILE", self.home / ".local/share/vstenv/plugin-host-env"):
+            yabridge.write_plugin_env([("/x/VST3/Squash.vst3", yabridge.HIDE_WINE_VERSION)])
+        env = {"HOME": str(self.home), "PATH": f"{self.hostbin}:/usr/bin:/bin", "WINEPREFIX": str(self.prefix.path)}
+        cp = subprocess.run([str(self.launcher), "VST3", "/x/VST3/Squash.vst3/Contents/x86_64-win/Squash.vst3"], env=env, capture_output=True, text=True)
+        self.assertIn("hide=1", cp.stdout)
+        cp = subprocess.run([str(self.launcher), "VST3", "/x/VST3/TH-U.vst3"], env=env, capture_output=True, text=True)
+        self.assertIn("hide=unset", cp.stdout)
 
     def test_plugin_overrides_apply_to_matching_plugins_only(self):
         self.activate()

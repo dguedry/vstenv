@@ -202,3 +202,13 @@ def all_plugin_overrides(p: Prefix) -> list[tuple[str, str]]:
     chosen = {name for name, _ in out}
     out += [e for v in vendors.all() for e in v.plugin_dll_overrides(p) if e[0] not in chosen and e not in out]
     return out + [e for e in plugin_overrides(p) if e[0] not in chosen and e not in out]
+
+def all_plugin_host_env(p: Prefix) -> list[tuple[str, str]]:
+    """Per-plugin host variables: a person's or a recipe's "hide Wine" first, then
+    what the vendor modules declare, minus plugins someone turned it off for."""
+    from . import vendors, recipes, yabridge
+    on, off = recipes.plugin_hide_wine(p)
+    out = [(name, yabridge.HIDE_WINE_VERSION) for name in on]
+    for v in vendors.all():
+        out += [e for e in v.plugin_host_env(p) if e not in out and not any(o in e[0] for o in off)]
+    return out

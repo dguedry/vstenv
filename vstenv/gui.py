@@ -106,6 +106,9 @@ _RENDERING_LABELS = {"auto": "Auto (detected)", "dxvk": "DXVK", "wine": "Wine's 
 _TRI_LABELS = {"auto": "Auto (detected)", "on": "On", "off": "Off"}
 _WM_TEXT = {"auto": "Off unless a vendor module asks for it (Komplete Kontrol's menus need it).",
             "on": unmanaged.EXPLAIN.split("\n\n", 1)[-1], "off": "The window manager handles its windows, as for any program."}
+_HIDE_WINE_TEXT = {"auto": "What the app detected: on for Minimal Audio's plugins, off for the rest.",
+                   "on": "Try it for a JUCE 8.0.13 or later plugin whose panels or artwork stay empty. Never for iLok-protected plugins: they stop working.",
+                   "off": "The plugin can see it runs under Wine."}
 _GL_TEXT = {"auto": "Hardware rendering with the full-frame presentation flags, unless the prefix-wide switch in the menu is on.",
             "on": "The embedded browser draws in software. Try it when its window stays blank or black.",
             "off": "Hardware rendering, whatever the prefix-wide switch says."}
@@ -129,6 +132,8 @@ class TroubleshootDialog(Adw.Dialog):
                                                                      if kind == "programs" else " Changes apply the next time your DAW loads the plugin."))
         self.rows = {}
         self.rows["rendering"] = self._combo(g, "Direct3D", _RENDERING_LABELS, recipes.RENDERING_TEXT, eff["rendering"])
+        if kind == "plugins":
+            self.rows["hide_wine"] = self._combo(g, "Hide Wine from the plugin", _TRI_LABELS, _HIDE_WINE_TEXT, eff["hide_wine"])
         if kind == "programs":
             self.rows["wm_away"] = self._combo(g, unmanaged.LABEL, _TRI_LABELS, _WM_TEXT, eff["wm_away"])
             if is_browser:

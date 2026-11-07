@@ -28,7 +28,7 @@ through `vstenv run`) and again when it closes, as for any manager.
 """
 from __future__ import annotations
 
-import re, shutil
+import json, re, shutil
 from pathlib import Path
 
 from .. import Vendor, Product, Note, Check
@@ -37,6 +37,11 @@ from ...wine import Prefix
 MANAGER = "Minimal Hub"
 HUB_EXE = "Minimal Hub.exe"
 HUB_DIR = Path("Program Files/Minimal Audio/Minimal Hub")
+# Every Minimal Audio plugin talks to this host. It is how a plugin is told from
+# any other JUCE plugin in the shared plugin folders; the file names are product
+# names, and the Hub offers more of them than a list here would keep up with.
+PLUGIN_MARKER = b"api.minimal.audio"
+PLUGIN_CACHE = "minimal-plugins.json"           # path -> [size, mtime, is ours]
 # Where the Hub puts each product's own folder (its support site's documented path).
 PRODUCTS_DIR = Path("Program Files/Minimal")
 # A Tauri program carries its IPC bridge's name; an installer that merely wraps
@@ -53,6 +58,33 @@ def is_hub_app(f: Path) -> bool:
         return False
 
 
+def plugins(p: Prefix) -> list[str]:
+    """Bridged Minimal Audio plugins, as the paths yabridge passes its host. Only
+    files importing dcomp.dll are read (that answer is cached already), and each
+    answer is kept by size and mtime: a first scan reads files of tens of MB."""
+    from ... import dcomp, paths, yabridge
+    cache_file = paths.DATA / PLUGIN_CACHE
+    try: cache = json.loads(cache_file.read_text())
+    except (OSError, ValueError): cache = {}
+    known = dcomp._load(); out = []
+    for d in yabridge.plugin_dirs(p):
+        for f in sorted(d.rglob("*")):
+            if not f.is_file() or f.suffix.lower() not in (".vst3", ".clap", ".dll") or "Program Files (x86)" in str(f): continue
+            if not dcomp.imports_dcomp(f, known): continue
+            st = f.stat(); ent = cache.get(str(f))
+            if ent and ent[:2] == [st.st_size, int(st.st_mtime)]: ours = ent[2]
+            else:
+                ours = PLUGIN_MARKER in f.read_bytes()
+                cache[str(f)] = [st.st_size, int(st.st_mtime), ours]
+            if not ours: continue
+            bundle = next((a for a in (f, *f.parents) if a.suffix.lower() == ".vst3" and a.is_dir()), f)
+            if str(bundle) not in out: out.append(str(bundle))
+    dcomp._save(known)
+    try: cache_file.parent.mkdir(parents=True, exist_ok=True); cache_file.write_text(json.dumps(cache))
+    except OSError: pass
+    return out
+
+
 class MinimalAudio(Vendor):
     id = "minimal"
     name = "Minimal Audio"
@@ -61,6 +93,14 @@ class MinimalAudio(Vendor):
     menu_entry = True          # nothing happens at launch; its fixes are registry settings
     download_page = "https://www.minimal.audio/"
     installer_hint = "the Minimal Hub download for Windows (Minimal Hub.exe)"
+
+    def plugin_host_env(self, p):
+        """JUCE 8.0.13 (Squash, Morph EQ...) falls back when it finds Wine, and the
+        fallback leaves the sign-in panel and the whole interface empty: a gray card
+        with no way to sign in. Hide Wine from these plugins' hosts. Only theirs:
+        PACE/iLok plugins elsewhere in the same folders need to find it."""
+        from ... import yabridge
+        return [(bundle, yabridge.HIDE_WINE_VERSION) for bundle in plugins(p)]
 
     def _hub_exe(self, p: Prefix) -> Path:
         return p.drive_c / HUB_DIR / HUB_EXE

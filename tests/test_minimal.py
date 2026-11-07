@@ -123,6 +123,27 @@ class InventoryTest(unittest.TestCase):
             self.assertEqual(len(spawned), 2)
             self.assertTrue(all(a[0].endswith("\\" + HUB_EXE) for a in spawned), spawned)
 
+    def test_only_its_own_plugins_hide_wine_from_their_host(self):
+        """Squash under Wine paints an empty sign-in card unless JUCE's Wine check
+        fails; other plugins in the same folders (iLok ones) need that check to pass."""
+        from vstenv import dcomp, paths, yabridge
+        with tempfile.TemporaryDirectory() as tmp:
+            p = _prefix(tmp); d = p.drive_c / "VST3"
+            bundle = d / "Squash.vst3/Contents/x86_64-win"; bundle.mkdir(parents=True)
+            (bundle / "Squash.vst3").write_bytes(b"x https://api.minimal.audio y")
+            (d / "Squash.dll").write_bytes(b"x https://api.minimal.audio y")
+            (d / "Other.vst3").write_bytes(b"another JUCE plugin")
+            (d / "Unrelated.dll").write_bytes(b"api.minimal.audio, but no dcomp")
+            with mock.patch.object(yabridge, "plugin_dirs", return_value=[d]), mock.patch.object(paths, "DATA", Path(tmp)), \
+                 mock.patch.object(dcomp, "_load", return_value={}), mock.patch.object(dcomp, "_save"), \
+                 mock.patch.object(dcomp, "imports_dcomp", side_effect=lambda f, c=None: f.name != "Unrelated.dll"):
+                env = self.v.plugin_host_env(p)
+                self.assertEqual(sorted(e[0] for e in env), sorted([str(d / "Squash.dll"), str(d / "Squash.vst3")]))
+                self.assertTrue(all(e[1] == yabridge.HIDE_WINE_VERSION for e in env))
+                # the answer is cached: a second pass does not read the files again
+                with mock.patch.object(Path, "read_bytes", side_effect=AssertionError("read again")):
+                    self.assertEqual(len(self.v.plugin_host_env(p)), 2)
+
     def test_products_come_from_the_minimal_folder(self):
         with tempfile.TemporaryDirectory() as tmp:
             p = _prefix(tmp)
