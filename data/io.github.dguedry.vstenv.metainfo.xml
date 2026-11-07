@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.130" date="2026-11-07">
+      <description>
+        <p>Minimal Audio's readouts stay readable: honour Direct2D's copy blend mode</p>
+      </description>
+    </release>
     <release version="0.1.129" date="2026-11-07">
       <description>
         <p>Jamstix 4's plugin editor opens: a DPI-aware host, no stylus stub, GDI+ drawing</p>
