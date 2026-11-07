@@ -151,6 +151,11 @@ the program does and what the app does about it.
   fails to start without that export. For another plugin with the same symptom, try
   *Hide Wine from the plugin* in its Troubleshoot dialog. Plugins in a yabridge group
   and 32-bit plugins do not get it.
+- **Readouts that smear when they change (Squash, Morph EQ).** JUCE 8 clears a
+  cached image by filling it transparent in Direct2D's copy blend mode, which stock
+  Wine ignores, so each repaint landed on the last. A patched `d2d1` honours copy
+  mode. It applies to every program, but only changes a draw when the program asked
+  for copy mode.
 - **Minimal Audio (Minimal Hub).** Its Windows download is not an installer:
   `Minimal Hub.exe` is the program itself, a Tauri app whose whole window is a
   WebView2 control. The app recognises the file and installs it as a program

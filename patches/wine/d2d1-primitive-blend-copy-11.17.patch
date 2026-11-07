@@ -1,0 +1,16 @@
+--- a/dlls/d2d1/device.c
++++ b/dlls/d2d1/device.c
+@@ -174,7 +174,12 @@
+     ID3D11DeviceContext1_OMSetRenderTargets(context, 1, &render_target->target.bitmap->rtv, NULL);
+     if (brush)
+     {
+-        ID3D11DeviceContext1_OMSetBlendState(context, render_target->bs, NULL, D3D11_DEFAULT_SAMPLE_MASK);
++        /* D2D1_PRIMITIVE_BLEND_COPY replaces the destination. JUCE 8 clears a cached
++         * image this way, with a transparent fill: blending that changes nothing,
++         * so the next paint lands on the old one (doubled text, darkening shadows). */
++        ID3D11DeviceContext1_OMSetBlendState(context,
++                render_target->drawing_state.primitiveBlend == D2D1_PRIMITIVE_BLEND_COPY ? NULL : render_target->bs,
++                NULL, D3D11_DEFAULT_SAMPLE_MASK);
+         d2d_brush_bind_resources(brush, render_target, 0);
+     }
+     else

@@ -211,6 +211,19 @@ unaware one (it opens "Your DAW plugin interface is not High-DPI aware" in a for
 that is still hidden, and waits for OK). The variable is set for that plugin's
 host only (`plugin-host-env`). Rebuilds the 64-bit `user32` only.
 
+## d2d1-primitive-blend-copy-<version>.patch
+
+`SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_COPY)` was stored and then ignored: every
+draw blended. JUCE 8 clears a cached component image with a transparent fill in
+copy mode, and blending transparent paint changes nothing, so each repaint landed
+on the previous one. Minimal Audio's Squash and Morph EQ showed it: a value turned
+into a white smear as soon as it changed, and shadows darkened into black patches.
+With the patch, a brush draw in copy mode runs without the blend state and replaces
+the destination. The same line is in
+[giang17/wine](https://github.com/giang17/wine) (`d2d1-dcomp-*`), inside a much larger
+d2d1 rework that this does not take. Only the 64-bit `d2d1` is rebuilt. It applies to
+every program, but only changes a draw when the program asked for copy mode.
+
 ## ntdll-hide-wine-version-<version>.patch
 
 JUCE 8.0.13 and later call `GetProcAddress(ntdll, "wine_get_version")` and take a

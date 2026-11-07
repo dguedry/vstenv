@@ -25,7 +25,7 @@ PATCHES=("$HERE"/patches/wine/*-"$VERSION".patch)
 [ -f "${PATCHES[0]}" ] || { echo "no patches for Wine $VERSION under $HERE/patches/wine" >&2; exit 1; }
 # PE modules to rebuild, by file name. Wine keeps a DLL in dlls/<name> and a
 # driver in dlls/<name>.sys, so the source folder is the name minus a .dll suffix.
-MODULES=(dcomp.dll advapi32.dll dxgi.dll ole32.dll wined3d.dll win32u.dll ntdll.dll user32.dll hidparse.sys)
+MODULES=(d2d1.dll dcomp.dll advapi32.dll dxgi.dll ole32.dll wined3d.dll win32u.dll ntdll.dll user32.dll hidparse.sys)
 # Unix-side libraries to rebuild (lib/wine/x86_64-unix). winex11.so is the X11
 # driver: a cursor set from another process (WebView2's browser) must show as
 # an arrow rather than nothing. It is built in a second, X-enabled configure
