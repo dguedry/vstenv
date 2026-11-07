@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.128" date="2026-11-07">
+      <description>
+        <p>Minimal Audio plugins draw: hide Wine from their hosts, not an empty gray card</p>
+      </description>
+    </release>
     <release version="0.1.127" date="2026-11-06">
       <description>
         <p>README, release notes: the app is in the menu as VST Environment; flatpak run is the terminal way</p>
