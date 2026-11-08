@@ -152,7 +152,12 @@ class Vendor:
         return watch, False, []
     def rescue_installs(self, p: "Prefix", r: "Reporter | None" = None) -> list[dict]: return []
     def staged_installs(self, p: "Prefix") -> list: return []
-    def finish_installs(self, p: "Prefix", r: "Reporter | None" = None) -> list[dict]: return []
+    def finish_installs(self, p: "Prefix", r: "Reporter | None" = None, since: float | None = None) -> list[dict]:
+        """Complete installs the manager downloaded but did not run. `since` (a
+        time.time()) limits it to downloads made after then: the pass that runs
+        when the manager closes must not install something left from an earlier
+        session that the user may have abandoned."""
+        return []
     def after_install(self, p: "Prefix", r: "Reporter | None" = None):
         """After anything was installed or removed (e.g. register libraries)."""
     def product_notes(self, p: "Prefix") -> list[Note]:

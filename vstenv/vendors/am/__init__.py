@@ -199,7 +199,7 @@ class AudioModeling(Vendor):
                             "error it shows is expected; vstenv finished the install from "
                             "the downloaded installer. Press Refresh in the Center to see it.")
 
-    def finish_installs(self, p: Prefix, r=None) -> list[dict]:
+    def finish_installs(self, p: Prefix, r=None, since=None) -> list[dict]:
         """Run each staged installer in InstallBuilder's unattended mode, the
         arguments split properly (see the module docstring)."""
         from ...progress import null_reporter

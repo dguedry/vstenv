@@ -674,6 +674,13 @@ DLLs go in: Wine's DLL override is per name, not per bitness, so with only the
 64-bit set a 32-bit program that imports Direct3D (Rayzoon's Jamstix 4
 Manager) could not start at all.
 
+The app installs only what the Product Manager downloaded: pick products there
+one by one, and the rest of your account's products stay out. When the Product
+Manager closes, the app runs any installer it downloaded in that session but
+could not launch under Wine. A download left from an earlier session (a product
+started and then dropped) is not installed then. *Finish interrupted installs*
+on the Install tab runs those on request.
+
 ### Steinberg module
 
 The Download Assistant (JavaFX) gets its text back with the built-in Direct3D

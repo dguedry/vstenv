@@ -107,7 +107,7 @@ class NativeInstruments(Vendor):
     def _busy(self, p, name): return False
     def rescue_installs(self, p, r=None): return installaware.rescue(p, r, prod.find_download, self._busy)
     def staged_installs(self, p): return installaware.staged_installs(p, prod.find_download)
-    def finish_installs(self, p, r=None): return installaware.finish_staged(p, r, prod.find_download, self._busy)
+    def finish_installs(self, p, r=None, since=None): return installaware.finish_staged(p, r, prod.find_download, self._busy)
     def after_install(self, p, r=None): prod.register_all_libraries(p, r)
 
     # -- health -------------------------------------------------------------------------------------

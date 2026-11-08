@@ -966,7 +966,7 @@ class Window(Adw.ApplicationWindow):
                 time.sleep(15)
             proc.wait(); self.activity("manager", None)
             if time.time() - t0 < 15: self.toast(f"{v.manager_name} is already open"); return
-            ui(lambda: self.run_bg(f"Finishing up after {v.manager_name}", lambda r: (v.finish_installs(self.prefix, r), setup.after_change(self.prefix, r))))
+            ui(lambda: self.run_bg(f"Finishing up after {v.manager_name}", lambda r: (v.finish_installs(self.prefix, r, since=t0), setup.after_change(self.prefix, r))))
         threading.Thread(target=watch, daemon=True).start()
     def pick_file(self, title, cb, downloads=False):
         d = Gtk.FileDialog(title=title)

@@ -164,6 +164,12 @@ class IKMultimedia(Vendor):
         payload = [x.stat().st_mtime for x in sub.iterdir() if x.suffix.lower() in (".zip", ".exe")]
         return not payload or m.stat().st_mtime >= max(payload)
 
+    @staticmethod
+    def _newest(sub: Path) -> float:
+        # ctime too: an unpacked .exe can carry the archive's old mtime, but its
+        # ctime is when it reached the disk.
+        return max((max(x.stat().st_mtime, x.stat().st_ctime) for x in sub.iterdir() if x.suffix.lower() in (".zip", ".exe")), default=0.0)
+
     def staged_installs(self, p: Prefix) -> list:
         """Downloaded IK product installers that are present but whose product is
         not installed yet: [(product name, folder)]. The installer .exe is
@@ -180,14 +186,18 @@ class IKMultimedia(Vendor):
                 out.append((sub.name, sub))
         return out
 
-    def finish_installs(self, p: Prefix, r=None) -> list[dict]:
+    def finish_installs(self, p: Prefix, r=None, since=None) -> list[dict]:
         """Run each downloaded IK installer the Product Manager could not launch,
         extracting it correctly from its zip first (the Product Manager can leave a
-        truncated exe that fails its own integrity check)."""
+        truncated exe that fails its own integrity check). With `since`, only the
+        ones downloaded after then: a download from an earlier session (a product
+        the user started and dropped) is not installed behind their back."""
         from ... import programs
         from ...progress import null_reporter
         rr = null_reporter(r); done = []
         for name, sub in self.staged_installs(p):
+            if since is not None and self._newest(sub) < since:
+                rr.log(f"IK download {name} is from an earlier session; left for “Finish interrupted installs”"); continue
             rr.step(f"Finishing IK download: {name}")
             exe = self._installer_from(sub, rr)
             if exe is None:

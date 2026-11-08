@@ -1,5 +1,5 @@
 """Command-line front end. Every subcommand is a thin call into the package."""
-import argparse, sys
+import argparse, sys, time
 from pathlib import Path
 from . import __version__, APP_NAME, paths, wine, yabridge, doctor, prefixes, programs, setup, vendors, menu, unmanaged, recipes
 from .progress import ConsoleReporter
@@ -44,13 +44,13 @@ def cmd_manager(a):
         p = _prefix(create=True); v.install_manager(p, Path(a.file), r); _fail_if(r)
         setup.after_change(p, r); print(f"\n{v.manager_name} installed. Start it with: {APP_NAME} manager {v.id} launch")
     elif a.action == "launch":
-        p = _prefix(); proc = v.launch_manager(p, r, args=a.args)
+        p = _prefix(); t0 = time.time(); proc = v.launch_manager(p, r, args=a.args)
         from . import launchwait
         proc.vstenv_window_watch = launchwait.watch_and_resync(p, v.manager_exe_names())
         print(f"{v.manager_name} started (pid {proc.pid})")
         if a.wait:
             proc.wait(); print(f"{v.manager_name} exited; finishing installs and bridging")
-            v.finish_installs(p, r); setup.after_change(p, r)
+            v.finish_installs(p, r, since=t0); setup.after_change(p, r)
         else: _join_window_watch(proc)       # stay until the window is up, for the resync
     elif a.action == "apply-pending-update":
         # A manager whose self-updater this app disables can still be holding an

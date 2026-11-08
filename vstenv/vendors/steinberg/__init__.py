@@ -259,7 +259,7 @@ class Steinberg(Vendor):
     def accepts_product_installer(self, f): return pkg.is_package(f)
     def install_product(self, p, installer, r=None, **kw): return pkg.install(p, Path(installer), r)
     def staged_installs(self, p): return pkg.staged(p)
-    def finish_installs(self, p, r=None): return pkg.finish_staged(p, r)
+    def finish_installs(self, p, r=None, since=None): return pkg.finish_staged(p, r)
     def rescue_installs(self, p, r=None): return pkg.finish_staged(p, r)
 
     # -- health ------------------------------------------------------------------------------------
