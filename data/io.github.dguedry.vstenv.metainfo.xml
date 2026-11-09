@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.134" date="2026-11-09">
+      <description>
+        <p>Uninstall Native Instruments products without an uninstaller, and remove the whole environment</p>
+      </description>
+    </release>
     <release version="0.1.133" date="2026-11-08">
       <description>
         <p>IK: closing the Product Manager installs only that session's downloads</p>
