@@ -4,7 +4,7 @@ Native Access is an Electron app whose NSIS installer does not run under Wine;
 the app files are extracted from it instead, then patched (stack reserve, the
 asar bundle) and accompanied by the NTK Daemon service. Its product installers
 are InstallAware setups (see installers.installaware). Sign-in returns from the
-browser through native-access:// links. See the README for every fix.
+browser through native-access:// links. See docs/how-it-works.md for every fix.
 """
 from __future__ import annotations
 

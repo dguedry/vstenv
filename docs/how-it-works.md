@@ -1,0 +1,549 @@
+# How vstenv works
+
+The technical background behind [VST Environment](../README.md): what each
+vendor's software does under Wine, what the app does about it, and how the
+pieces fit together. You don't need any of this to use the app.
+
+- [What needs help, and why](#what-needs-help-and-why)
+- [Tested in detail](#tested-in-detail)
+- [The app in detail](#the-app-in-detail)
+- [Installing downloaded files in detail](#installing-downloaded-files-in-detail)
+- [How it works](#how-it-works)
+- [Why it is not on Flathub](#why-it-is-not-on-flathub)
+
+See also [the command line](command-line.md), [development](development.md)
+and [the Wine patches](../patches/wine/README.md).
+
+## What needs help, and why
+
+Wine runs most Windows programs as they are. A few of these vendors' programs
+need extra handling under Wine, some of it patched Wine DLLs where the program
+relies on parts of Windows that Wine has not finished. Each item below is what
+the program does and what the app does about it.
+
+- **Native Instruments (Native Access).** The storefront is an Electron app.
+  Under Wine its installer does not run, its GPU process is unstable, its Chromium
+  sandbox cannot start child processes, its self-updater reverts the changes
+  below, and its helper daemon binds fixed localhost ports. The app extracts the
+  files from the installer itself, raises the executable's stack reserve, patches
+  the bundle so it does not self-update, launches it with `--disable-gpu
+  --no-sandbox`, installs the NTK daemon from NI's own files, and registers the
+  `native-access://` browser sign-in handler.
+- **Kontakt, Absynth and other NI products.** Their InstallAware installers
+  unpack the payload and then stop making progress, some idle, some spinning on
+  a Wine stub. The app ends the stuck installer and copies the already-unpacked
+  files into place, works out where they go from the payload itself when the
+  installer never got far enough to say, and writes the registry and
+  installed-products records Native Access and Kontakt look for. It does this
+  while Native Access is still open.
+- **IK Multimedia (IK Product Manager).** Also Electron. Its os-info module
+  parses the output of `ver` and fails on Wine's format, and it needs GPU
+  acceleration disabled; the app makes two edits to its bundle and launches it
+  with `--disable-gpu`. Sign-in uses your IK username, not your email. When it
+  downloads a product it launches the installer with a command line Wine's shell
+  rejects, and each failed attempt opens a browser tab; the app runs the
+  downloaded installer through its own installer path instead. Its UI is loaded
+  live from ikmultimedia.com and calls out to the system browser for its own
+  in-app links (the logo, My Products, the user area), so ordinary clicking opens
+  a stream of tabs; the app patches the bundle to keep IK's own links in the
+  window, and other links still open in the browser. Its own zip extraction can
+  also stop partway under Wine, leaving a truncated installer that fails its
+  integrity check ("the setup files are corrupted"); the app re-extracts the
+  installer from the downloaded zip and checks its size before running it.
+- **Steinberg.** The installer chain is Java/JavaFX and .NET: the Download
+  Assistant runs a .NET Install Assistant whose PowerShell steps are signed for a
+  Windows trust check that fails under Wine, so it declines to install
+  Steinberg's own packages; the app installs Wine Mono and unpacks and runs the
+  packages itself. The Activation Manager stores its sign-in token with a
+  credential attribute Wine used to discard, so sign-in was lost on each restart;
+  a patched advapi32.dll keeps it. HALion, Cubase and Dorico of the current
+  generation draw with Direct2D and DirectWrite onto a DirectComposition surface.
+  Wine has Direct2D and DirectWrite; DirectComposition is only partly implemented
+  and the GUI does not fall back without it. The app ships a patched dcomp.dll,
+  gives these programs Wine's own Direct3D, and installs a Segoe UI font family
+  so their dialogs have text.
+- **A program that runs but never shows a window (GNOME).** Not a Wine or
+  vstenv problem: mutter can get a window stuck in `unmanaging` — its
+  "Application is not responding" dialog throws on a window that has no surface
+  yet — and from then on it answers every Wine map request with
+  `WM_STATE=Iconic`, so Wine minimises the window off-screen. It lasts for the
+  rest of the session and affects every Wine window, so the next program looks
+  broken too. Nothing in the prefix can fix it; logging out and back in does.
+  Health reports it (`journalctl --user -b | grep -c meta_window_can_ping` is
+  the direct check), and an install started while the shell is wedged says so
+  rather than appearing to hang.
+- **A WebView2 window that never paints at all.** Distinct from the
+  half-drawn flicker the presentation flags fix: the window downloads its page
+  and then stays blank, white turning black, taking no input. Reported on
+  Fedora 44 with the niri compositor (Wayland/XWayland) on an AMD RX 9070 XT,
+  where software GL rendered it correctly. Switch on **Software rendering for
+  WebView2 apps** in the app's ☰ menu (or `vstenv webview2 software-gl on`)
+  and start the app again: every WebView2 host gets
+  `--use-gl=swiftshader --enable-unsafe-swiftshader --disable-gpu`, with no
+  setup run needed. Off by default because it costs GPU rendering and these
+  apps paint fine on hardware elsewhere; the app says so when it starts one of
+  them, and Health shows the setting. `VSTENV_WEBVIEW2_SOFTWARE_GL=1`
+  overrides it for a single run.
+- **Roland (Roland Cloud Manager).** A Qt 6 application delivered by a Qt
+  Installer Framework setup, and both halves need help. The setup answers every
+  command with "Unknown exception caught." because Qt asks WinRT for network
+  information that Wine stubs, so the app disables `netprofm` and drives the
+  install from the command line, which is what the setup's own interface cannot
+  do here. The installed Manager then dies at window creation unless Qt is told
+  to use the windows platform theme — and Wine does not pass `QT_*` into the
+  Windows environment at all, so the app sets `WINEQT_QPA_PLATFORMTHEME`, which
+  arrives as `QT_QPA_PLATFORMTHEME`.
+- **iZotope (Product Portal).** Its own installer launches the Portal and
+  leaves it running; the Portal's Electron main crashes under Wine and a
+  supervisor relaunches it every few seconds, and that churn starves the Wine
+  session until unrelated plugins deadlock. The app ends that loop when the
+  install finishes. The Portal's window is Chromium's, so it keeps DXVK rather
+  than the DirectComposition patches.
+- **Arturia (Arturia Software Center).** Runs as it is. Its installer refuses
+  to replace a plugin a DAW has loaded ("Cannot start installation. Files are
+  in use."), so it is started through the app rather than a desktop shortcut,
+  and Health lists the plugins currently held open.
+- **Jamstix 4's plugin editor (Rayzoon).** The editor is drawn by a FireMonkey core
+  that the plugin starts. It needs a DPI-aware host, or it opens a warning in a form
+  nobody can see and waits there, and the plugin stays on "Jamstix is loading...".
+  It needs Wine's stub `rtscom` out of the way, or FireMonkey stops on an error and the
+  plugin reports "Cannot communicate with core GUI ID=2". And it needs its GDI+ canvas,
+  since nothing draws on the Direct3D path. The app gives Jamstix's host these three
+  settings and no other plugin's.
+- **JUCE 8.0.13 plugins that look for Wine (Minimal Audio's Squash, Morph EQ...).**
+  JUCE 8.0.13 and later ask for Wine's `wine_get_version` export and change how
+  they draw when they find it. Under that path Minimal Audio's plugins show an
+  empty gray card with no way to sign in. A patched `ntdll` hides that one export
+  from a process that sets `WINE_HIDE_WINE_VERSION=1`, and the app sets it only for
+  the hosts of Minimal Audio's plugins. It cannot be set for every plugin: PACE/iLok
+  fails to start without that export. For another plugin with the same symptom, try
+  *Hide Wine from the plugin* in its Troubleshoot dialog. Plugins in a yabridge group
+  and 32-bit plugins do not get it.
+- **Readouts that smear when they change (Squash, Morph EQ).** JUCE 8 clears a
+  cached image by filling it transparent in Direct2D's copy blend mode, which stock
+  Wine ignores, so each repaint landed on the last. A patched `d2d1` honours copy
+  mode. It applies to every program, but only changes a draw when the program asked
+  for copy mode.
+- **Minimal Audio (Minimal Hub).** Its Windows download is not an installer:
+  `Minimal Hub.exe` is the program itself, a Tauri app whose whole window is a
+  WebView2 control. The app recognises the file and installs it as a program
+  (copied into Program Files, with a desktop menu entry as well as the app's
+  manager row — it needs nothing at launch, unlike the other managers)
+  instead of running it as a setup. Its window comes up solid black under
+  Wine, even with the presentation flags every WebView2 host gets, on
+  hardware where Audio Modeling's Center renders fine, so the app switches
+  this one program to software rendering through the same policy key; the
+  sign-in page then draws normally. The Hub installs its products through
+  PowerShell: it writes a script of `Start-Process` lines (each product's
+  Inno Setup installer, run silently) and asks PowerShell to run it elevated.
+  Wine's PowerShell is a placeholder that reports success for everything, so
+  the Hub believed every install had happened and deleted the download. The
+  app's PowerShell replacement (see Softube below) now carries `Start-Process`
+  out, on the command line and in a script, so the Hub's installs land.
+- **Softube (Softube Central).** Wine's own `powershell.exe` is a placeholder
+  that runs nothing and reports success for every command. Softube's installers
+  ask PowerShell whether Softube Central is running, take that success as
+  "yes", and stop at "Softube Central cannot be closed". Its Installer Helper
+  uses PowerShell scripts to stop, replace and restart its background service,
+  which the placeholder skipped, leaving "Installer Daemon is outdated". The app
+  replaces Wine's placeholder with its own: questions about running programs
+  get real answers, service scripts like Softube's are carried out, and
+  anything else still gets the old success. Every call is logged to
+  `%LOCALAPPDATA%\vstenv-powershell.log`. Central installs plugins through its
+  daemon while it stays open; the app bridges them as they appear.
+- **FireMonkey programs (Rayzoon's Jamstix 4 Manager).** Delphi's FireMonkey
+  draws the whole window itself, through Direct3D 11 when it can create a
+  device and its GDI+ software canvas otherwise. Under Wine with DXVK the
+  Direct3D path comes up and controls vanish as the pointer moves over them,
+  dialogs stay black. The app recognises a FireMonkey program by its unit
+  names and disables `d3d11` and `dxgi` for that one exe before it starts (as
+  an installer or an installed program), so FMX takes the GDI+ canvas, which
+  draws every screen correctly.
+- **JUCE 8 programs.** JUCE 8 defaults to the same Direct2D/DirectComposition
+  path on Windows with no fallback, so programs built on it (for example the
+  Spitfire Audio app) need the same handling. Its vblank thread also does not
+  exit cleanly when the vertical-blank wait is unimplemented, which hangs the
+  program at startup under stock Wine. The app detects any program or bridged
+  plugin that uses DirectComposition and applies the patched DLLs and Wine's own
+  Direct3D; a patched dxgi.dll makes the vblank wait return.
+
+Many plugins need none of this. FabFilter's Total Bundle, Soundtoys 5.5 (with
+its iLok licensing), and Valhalla DSP install as plain Windows programs and draw
+through GDI or OpenGL, so they run untouched. Xfer's Serum 2 and iZotope's Ozone
+install cleanly and draw through Direct2D, so they use the same Wine graphics
+handling as the programs above. The Plugins tab labels every product that needed
+work and states what it was.
+
+### WebView2 apps (embedded Edge)
+
+Some vendors build their app's window on Microsoft's WebView2 control (an
+embedded Edge/Chromium): Orchestral Tools' SINE Player, Audio Modeling's
+Software Center, Minimal Audio's Hub. The app makes four arrangements for
+them, and with all four Audio Modeling's Software Center works fully, it
+renders flicker-free and its login takes typing (the Hub needs a fifth,
+software rendering, set for it alone — see "Minimal Audio" above):
+
+- **The WebView2 runtime is installed on demand** when an app that needs it is
+  detected; without one these apps crash at startup rather than failing politely
+  (`vstenv webview2` installs it by hand; Health flags it).
+- **A patched ole32.dll** survives the stale drag-drop target WebView2's
+  embedded browser leaves behind at window teardown, which crashed these apps
+  seconds after launch even with the runtime present.
+- **DXVK's dummy composition swapchain is enabled** (`DXVK_CONFIG`, set for
+  every launch unless you set your own): DXVK otherwise refuses the composition
+  swapchain WebView2 renders through, leaving a blank white window. With it the
+  embedded browser paints and takes input.
+- **Full-frame presentation flags** (`--disable-direct-composition
+  --ui-disable-partial-swap`) are set per app for every WebView2 host, through
+  WebView2's policy registry key — the documented
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` variable is ignored under Wine, where
+  every process counts as elevated. Chromium otherwise repaints only each
+  frame's damaged region and trusts the swapchain to keep the rest, which does
+  not hold here: half-drawn regions alternate and embedded video churns (the
+  Center's catalog once flashed constantly; SINE's tips video was an empty
+  flickering box).
+- **A patched X11 driver (`winex11.so`) keeps the pointer visible.** The
+  embedded browser is a separate process that sets the cursor for the host's
+  window; Wine cannot resolve a cursor handle from another process, and its
+  driver then left the window on the empty cursor it had set when the pointer
+  entered, so the mouse vanished over the whole window (Wine bug 58922). The
+  patched driver shows the theme's arrow instead — a link's hand or a text
+  field's I-beam is not known on this side, so everything is an arrow, but the
+  pointer is there.
+
+Two Software Center quirks get their own fixes. Its product installs fail under
+Wine: the Center passes the installer's `--mode unattended` as one mis-quoted
+argument, so BitRock falls back to its GUI mode, which cannot start here (an
+unknown-mode error, screen flicker, the pointer disappearing), and the Center
+then deletes the download. While the Center runs, the app snapshots every
+installer it downloads and finishes the install itself the moment the Center's
+attempt fails — so expect the Center to report a failed install, a desktop
+notification that the install went through anyway, and the product installed on
+the next Refresh (leftovers: "Finish interrupted installs" or
+`vstenv finish-installs`). Its once constantly-flashing window is covered by
+the presentation flags above: with them it is pixel-stable and the TRY videos
+play. Two first-run notes for the installed instruments: if one says
+unlicensed, click **Authorize All** in the Center (its own flow would have
+authorized after installing, but that flow is what fails under Wine); and a
+silent SWAM instrument is usually by design — they need an expression signal
+(CC11) to make sound, so raise the Expression slider in the plugin or map a
+controller to it.
+
+One known quirk: **SINE Player's login takes your typing but does not display
+it.** The login card is native JUCE (not the embedded browser, as it long
+looked): the fields receive every keystroke and the whole flow works — typing a
+bad address and pressing Activate answers "Email is missing @ or domain", and
+made-up credentials come back from Orchestral Tools' servers as "User not found
+or invalid credentials". Only the glyphs inside the editable fields never draw
+(a Wine Direct2D editable-text gap; everything else, including the red
+responses, renders). So you can sign in blind: click the upper field, type your
+email, click the lower field, type your password, click Activate — the red text
+under the button tells you if a typo slipped in. Once signed in, the bridged
+SINE Player plugin plays in a Linux DAW as usual. (Authorizing once on a
+Windows machine or VM also still works, if you prefer not to type blind.)
+
+Two SINE rough edges remain after signing in. Close the "getting started"
+video with its own ✕ before switching tabs — while it is open, tab clicks are
+processed with a long delay. And a web tab (Store, My Licenses) leaves its
+page stuck over the native views when you switch away: Wine does not hide the
+embedded browser's window when SINE asks it to, so after visiting the Store,
+restart SINE to get the Library view back. The Store itself browses fine.
+
+
+## Tested in detail
+
+Verified end to end on this setup: Ubuntu 24.04, Linux Mint 22.3 (Cinnamon) and
+Fedora 43 hosts, the pinned Wine 11.17 build, plugins loaded in a Linux DAW
+through yabridge, including [StageRig](https://github.com/dguedry/stagerig).
+
+| Vendor | Manager | Verified |
+|---|---|---|
+| Native Instruments | Native Access 3.26 | Sign-in through the browser callback, product installs, library registration; Kontakt 8 standalone and VST3, with its libraries in a DAW |
+| IK Multimedia | IK Product Manager 1.1.15 | Sign-in, product installs; IK plugin GUIs draw through DXVK |
+| Steinberg | Download Assistant 1.40, Activation Manager 1.9, Library Manager 3.2 | Sign-in that survives restarts, downloads, installs through the Install Assistant, VST Sound library registration; HALion Sonic 7 standalone and VST3 in a DAW, playing and loading libraries, quitting cleanly |
+| Arturia | Arturia Software Center 2.12 | Analog Lab V VST3 and VST2 bridged and playing; the Software Center's own record of what it installed is listed as products |
+| Roland | Roland Cloud Manager 3.1.25 | Installs headless (its Qt Installer Framework setup cannot show its own interface under Wine) and the Manager opens and renders its sign-in page; signing in and installing Roland Cloud titles is not yet verified |
+| FabFilter (no module: plain Windows installer) | Total Bundle installer, run from the Install tab | All 14 plugins bridged as VST3 and VST2, working out of the box; nothing needed patching |
+| Soundtoys (no module: plain Windows installer) | Soundtoys 5.5 bundle installer, iLok License Manager | Every effect bridged as VST3 and VST2, working out of the box; iLok licensing (PACE License Support 5.10) activates and runs unchanged |
+| Softube (no module: plain Windows installer) | Softube Central 3.0.0 installer, updated in place to 3.1.0; Installer Helper daemon 2.6.50 | Installs and updates itself; the Installer Helper service is installed and replaced on update; Heartbeat installed from Central, bridged as VST3 and VST2 and playing in StageRig |
+| Valhalla DSP (no module: plain Windows installer) | ValhallaFreqEcho 1.2 installer | Bridged as VST3 and VST2, flawless out of the box |
+| Xfer Records (no module: plain Windows installer) | Serum 2 (2.1.5) installer | Bridged as VST3 and playing out of the box |
+| iZotope | Product Portal 1.4, Ozone 9 Advanced 9.13 installer | Every Ozone module bridged as VST3 and VST2, working out of the box. Installs cleanly: the app waits out the helper its installer hands off to, and ends the Electron Product Portal the installer leaves behind — under stock Wine that keeps crash-looping and starves loaded plugins until the Wine session is unusable |
+| Spitfire Audio (no module: plain Windows installer) | Spitfire Audio app 3.4 | Reaches and holds its Sign In page and browses normally: the patched dxgi/wined3d/win32u give it real DXGI composition swapchains (ported from giang17/wine) that present straight into its window, where Wine's hidden-window emulation deadlocked. Draws through the same patched dcomp.dll + Wine Direct3D as any JUCE 8 program |
+| Audio Modeling | Software Center 1.x (WebView2) | Signs in, downloads products, TRY videos play; its own install attempts fail under Wine (mis-quoted installer arguments), so the app rescues each download and finishes it unattended, announced by a desktop notification (nine SWAM products installed and bridged this way) |
+| Minimal Audio | Minimal Hub 1.1.11 (Tauri + WebView2) | Installed as a program from its download; signs in and shows the account's library, drawn through software rendering (solid black without it); installs Squash 1.4 through its PowerShell-driven install script (carried out by the app's PowerShell replacement), bridged as VST3 and VST2. Squash 1.4 in Reaper shows its interface and its Get Started and Log In screens (it was an empty gray card before); signing in and using it not yet verified |
+| Rayzoon (no module: plain Windows program) | Jamstix 4 Manager 1.3.0, run from the Install tab | Opens and draws correctly through its GDI+ canvas (a 32-bit FireMonkey program: it needed the 32-bit DXVK DLLs to start and the FireMonkey override to draw); downloads and installs Jamstix 4 and audioM8 as 64-bit VST2, bridged when the Manager closes. The plugin's editor opens embedded in Reaper and takes clicks, in both of Jamstix's modes; playing a song and hearing audio not yet verified |
+| Orchestral Tools (no module: plain Windows installer) | SINE Player (JUCE + WebView2) | Installs and bridges; sign-in works against Orchestral Tools' servers, typed blind — the fields take input but do not display it (see "WebView2 apps"); the Store browses and the tips video plays; a web tab's page sticks over the native views until a restart |
+| Gig Performer (no module: plain Windows installer) | Gig Performer 5 (5.3.3) installer, run from the Install tab | Installs and runs as a standalone host under Wine, OpenGL interface and all. Its window is maximized by the window manager on sight, which left Wine's idea of its position stale and the pointer landing off its targets; the app now resyncs the window as it appears, so clicks land where the pointer is |
+
+Health lists every check behind these; when one fails it names the fix.
+
+## The app in detail
+
+- **Troubleshoot, per program and per plugin** — most of the fixes above are
+  the same few settings turned one way or another, keyed by the program's
+  exe name in Wine's registry: which Direct3D it gets (DXVK; Wine's own; none,
+  so a framework that can falls back to plain Windows drawing), whether the
+  window manager is kept away from its windows, and, for a program whose
+  window is an embedded browser, whether that browser draws in software. The
+  app detects what each program needs; when detection is wrong for something
+  new, the *Troubleshoot* button on a program's row (and on a bridged
+  plugin's) lets you try the other settings, with one line each on when to
+  try it, and keep the one that works. Your choice sticks across setup runs;
+  *Reset to detected* hands it back. Plugins have no exe of their own (they
+  run inside yabridge's host), so their one setting, Direct3D, travels as a
+  DLL override the host applies when it loads that plugin — reload the
+  plugin in the DAW to see it. Health lists every setting in effect.
+- **Recipes** — a setting that fixed something for you can fix it for the
+  next person. *Share this recipe…* in the Troubleshoot dialog opens a
+  prefilled issue on this project's GitHub in your browser, with the
+  settings, your one-line description of the symptom and the facts a
+  maintainer needs (vstenv, Wine and DXVK versions, GPU, session type);
+  nothing is sent until you press Submit there. Merged recipes live in
+  [`vstenv/recipes.json`](../vstenv/recipes.json); the app ships a copy and
+  fetches a newer one from the repository at setup, so a recipe reaches
+  everyone without a release. A recipe can only set values from the fixed
+  menu above — no commands, no paths — so the worst a bad one can do is make
+  one program draw wrong until it is reset. The built-in detection stays the
+  default; a recipe narrows it for one named program or plugin. No recipe is
+  needed for the vendor fixes in "What needs help": those are not settings.
+- **A failed install ends in things to try, not a toast.** The installer's
+  output is kept (`logs/install-<file>.log`) and every attempt is journaled
+  (`logs/installs.jsonl`). When one fails, the app says what the exit code and
+  the output mean where it recognises them (a missing DLL by name, a Tauri
+  program that is not a setup, a Qt setup's "Unknown exception caught", …)
+  and lists the remedies — each a single change to how the *installer* is
+  run, with one line on when it helps: run it unattended with the arguments
+  its technology documents (Inno Setup, NSIS, InstallBuilder, MSI, Qt
+  Installer Framework are known), tell it an older Windows, give it Wine's
+  Direct3D or none, disable Wine's network-list service, or install the file
+  as the program it is. The fitting ones come first. A remedy that works is
+  kept for that file and offered for sharing exactly like a recipe; once
+  merged, the app applies it by itself the next time anyone installs that
+  file (`vstenv/recipes.json`, "installs", with `*` for a version in the
+  name). *Share this failure…* files the rest — exit code, the app's reading,
+  the output with your user name removed, the machine's facts — as an
+  `install-failure` issue. From a terminal: `vstenv install FILE --remedy
+  silent=on`, and the failure message lists the same remedies.
+- **Plugins** — what each vendor's manager installed, and what is bridged for DAWs.
+  Anything that only works because the app patched something carries a pill
+  (*patched*, *limited*, *cannot run*) and expands to one sentence saying what
+  the vendor did and what the app does about it; "What needs help, and why"
+  above gathers them.
+- **Opening an installer from the file manager** — the app lists itself as an
+  option for `.exe` and `.msi`, so "Open With → VST Environment" installs a
+  downloaded installer into the prefix with its vendor's fixes, rather than
+  running it under whatever Wine the desktop would otherwise use. It is only an
+  option: the app never claims the association, so whatever already opens those
+  files on your machine keeps doing so, and you set the default yourself if you
+  want one. The Install tab's file picker does the same thing.
+- **Programs** — every Windows program in the prefix, run with the environment's
+  own Wine (vendor launch fixes and per-program quirks applied); each also gets a
+  desktop menu entry with its own icon (`vstenv menu`), except the vendor
+  managers and installers (Native Access, the IK Product Manager, the Steinberg
+  Download and Install Assistants, the iZotope Product Portal, the Arturia
+  Software Center), which have no shortcut because they must be launched from the
+  app so their fixes apply. While a program runs, from the app or its menu
+  entry, plugins it installs are bridged as they appear (within about half a
+  minute), not only after it closes.
+- **Install** — per vendor: open the manager, get it from the vendor, install or
+  update it from a downloaded installer, and (NI, IK) install a product from its
+  own installer when the manager cannot. Plus "Install Windows software…" for
+  any downloaded `.exe`/`.msi`/`.zip` (a plugin, a sound or content pack, or plugin
+  files without an installer; see [Installing your plugins](../README.md#installing-your-plugins)), extra plugin folders, and finishing interrupted
+  installs. When an installer
+  leaves an Electron manager crash-looping under Wine (iZotope's Product Portal),
+  the app stops it, so it cannot thrash the prefix and freeze loaded plugins.
+- **Health** — every check with a fix, sign-in handler registration, and a
+  scrubbed diagnostic report to attach to a bug.
+- **The ☰ menu** — *Re-run setup / repair* (the whole setup again, safe to
+  repeat; it is how fixes from an update reach an existing prefix), *Update the
+  app menu* (desktop entries for the programs), *Software rendering for WebView2
+  apps* (a checkbox: on stacks where a WebView2 window never paints, see
+  "What needs help",
+  it switches those apps to software GL on the spot, no setup run needed; off
+  by default because it costs GPU rendering), and *About*.
+
+Bridged plugins land in `~/.vst/yabridge`, `~/.vst3/yabridge` and
+`~/.clap/yabridge`; point your DAW there if it does not scan them already. They
+are ordinary bundles: nothing about how a DAW is started matters.
+
+Each plugin is bridged once per format it ships: a plugin that has both a VST2
+and a VST3 build appears as both, and a VST2-only plugin (some older ones, IK's
+Sonik Synth) is bridged only as VST2. A host that scans only VST3 (StageRig
+does; it hosts VST3, LV2 and LADSPA, not VST2) will not list a VST2-only plugin,
+that is the host's format support, not a bridging failure. If a host shows a
+plugin twice after an update, rescan its plugin folder so it drops stale entries.
+
+For playing them live, check out the sister project
+[StageRig](https://github.com/dguedry/stagerig): a live-performance plugin host for Linux that loads the
+Windows VST3s vstenv bridges alongside native VST3, LV2 and LADSPA, a program
+per sound changed from the keyboard, with each plugin in its own process.
+
+## Installing downloaded files in detail
+
+**Plugins without an installer.** Some developers ship a `.zip` holding the
+plugin files themselves (`Plugin.vst3`, `Plugin.clap`, `Plugin.dll`). Pick the
+zip (or a `.7z`, `.rar` or `.tar.*`, a loose `.vst3`, `.clap` or VST2 `.dll`, or
+with "Install plugins from a folder…" an unpacked download or a `.vst3` bundle).
+The app copies each 64-bit Windows plugin where Windows hosts keep them: VST3 to
+`C:\Program Files\Common Files\VST3`, CLAP to `C:\Program Files\Common Files\CLAP`,
+VST2 to `C:\Program Files\VstPlugins` (in a folder of its own when files it
+loads sit beside it), and bridges them. Installing a newer zip replaces the old
+copy. What the download carries for other systems is left out and named: macOS
+bundles and `.component`s, AAX, and 32-bit builds, which the bundled yabridge
+cannot bridge (it has no 32-bit host). A standalone `.exe` in the zip is not
+installed.
+
+**A zip holding an installer** (a sound or content pack, for example, with
+`Install SampleTank 4 Sound Content.exe` next to its content folder) is unpacked
+whole into `~/.cache/vstenv/downloads/unpacked/` and its installer is run from
+there, beside its content. When the zip has several installers, you pick one.
+That unpacked copy stays until you delete it, and a content pack can be large,
+so delete it once the install is done.
+
+**If an installer asks where to put the plugin**, choose
+`C:\Program Files\VstPlugins` (a VST2 folder the app already scans; older IK
+installers ask this). Setup pre-fills that as the default VST2 path, so most
+installers propose it. VST3 plugins install to `C:\Program Files\Common
+Files\VST3` on their own. Either way the app bridges the plugin to your DAW once
+the installer finishes; nothing needs moving by hand.
+
+## How it works
+
+**One Wine for everything.** The prefix, the vendor managers, their installers
+and the DAW-side plugin hosts all run the same pinned portable Wine build. Mixing
+Wines is what breaks prefixes ("prefix updated by a newer Wine", installers
+failing at once with mixed DLLs).
+
+**DAWs run plugins with that Wine, with nothing on PATH.** yabridge starts its
+Windows-side plugin host through `yabridge-host.exe`, a small launcher script
+that runs `$WINELOADER` or else the `wine` on PATH, after setting `WINEPREFIX` to
+the prefix it found the plugin in. vstenv installs that script and teaches it one
+thing more: a prefix that records its wine in `<prefix>/wineloader` is run with
+that wine. Setup writes the record. Every other prefix (`~/.wine`, Proton, a
+Bottles bottle) has no record and behaves exactly as upstream; an explicit
+`WINELOADER` still wins; uninstall the app and the launcher falls back to `wine`.
+So nothing is placed in `~/.local/bin`, no session variable is set, and a Wine
+you already have is never touched.
+
+**Wine runs on the host, even from the Flatpak.** wineserver addresses its
+clients by pid, and a DAW loads plugins on the host, so the prefix's wineserver
+and every Wine process the app starts share the host's pid namespace
+(`flatpak-spawn --host`, portal permission `org.freedesktop.Flatpak`). The
+sandbox also needs to see every host path Wine reaches through the prefix
+(Documents, sample libraries on other disks): Health reports what it cannot.
+
+**Other Wines on the machine keep working.** Debian's and Ubuntu's Wine keep
+their sockets in `/run/user/<uid>/wine` and refuse to start if that folder is
+readable by others. Flatpaks before 0.1.99 created it that way (mode 0755) on
+every launch, which broke plugins bridged with the distro Wine ("crashes on
+scan"; the only message, `must not be accessible by other users`, goes to the
+DAW's terminal). The app no longer touches that folder, and setup, Health and
+app start make a leftover one private again (0700, as Wine itself creates it).
+
+**Windows behave under your window manager.** Wine activates (raises) its
+top-level windows when they receive focus, so with several Wine windows in one
+session (a plugin editor in a DAW, a standalone manager) a click can pull a Wine
+window to the front. There is no Wine setting for this; the window manager
+decides. On Cinnamon, whose default `focus-new-windows = smart` focuses and
+raises an activating window without being asked, setup switches it to `strict`
+(only when it is still at the default), which stops the jump. Setup also sets
+Wine's `UseTakeFocus = N`, which fixes the separate problem of a Wine window
+losing keyboard input after Alt-Tab.
+
+A related case needs a per-program setting. Some programs do not use Win32
+menus for their dropdowns: they open a fullscreen transparent popup and draw
+the menu inside it. Wine hands a fullscreen popup to the window manager, which
+activates it as it would any fullscreen dialog; the program's main window
+deactivates, and the program closes its own menu — the menu flashes and
+vanishes. Komplete Kontrol 2.9.6 does this with every dropdown, including the
+File menu. Setup gives such programs Wine's `Managed = N`
+(`vstenv/unmanaged.py`), so the window manager never sees the menu layers.
+Those programs then draw Wine's own title bar instead of the desktop's.
+
+Any program can be switched by hand, because only the ones a vendor module
+names are set up automatically: each row on the Programs tab has a switch for
+it, and the CLI has `vstenv unmanaged "<program>" on|off` (with no `on`/`off`
+it prints the current setting). Restart the program after changing it. Both
+say the same thing first: most programs do not need this, and it is worth
+trying only for the symptom it describes — a program's own menus flashing and
+closing as soon as they open. Turned on where it is not needed, it costs the
+desktop's window controls for nothing.
+
+**Vendor modules.** `vstenv/vendors/__init__.py` defines the interface; the
+core calls it and never names a vendor. A module says what its manager is and
+how to install, fix and launch it; which products are installed; which plugin
+directories, quirks, launch arguments, URL schemes and log files it has; how its
+product installers are driven and rescued; and which health checks matter.
+Installer *engines* (`vstenv/installers/`, InstallAware today) are shared by
+whichever vendors use them. Built-in modules live under `vstenv/vendors/`; a
+third-party package declares an entry point in the `vstenv.vendors` group whose
+object is a `Vendor` instance.
+
+### Native Instruments module
+
+Native Access's NSIS installer does not run under Wine, so the app files are
+extracted from it; the exe's stack reserve is raised to 64 MB; the NTK Daemon
+helper service is installed from NA's own resources; NA's asar bundle is patched
+so an installed Kontakt Player satisfies library dependencies (NA ≤ 3.25) and so
+NA never self-updates (updates come from an installer you download); the
+download location is pointed inside the prefix when the configured one is unset
+or read-only; libraries the daemon forgot to register get their HKLM keys; the
+`native-access://` sign-in callback is registered with the desktop. NI's
+InstallAware product setups are run silently under an MSI trace and, when they
+fail or stall (payload unpacked, then zero CPU forever), finished by hand from
+the staged payload — including installs Native Access started and left half
+done, which the app notices while NA is running.
+
+### IK Multimedia module
+
+The IK Product Manager installs as an ordinary Windows program. Two edits to its
+Electron bundle make it work (accept Wine's `ver` output in its os-info module;
+disable GPU acceleration in the app itself, since a plugin may start it), and it
+launches with `--disable-gpu`. IK's JUCE plugin GUIs draw through Direct3D and
+need DXVK to repaint; the app installs DXVK when the machine has a real Vulkan
+driver and says so in Health when it does not. Both the 64-bit and the 32-bit
+DLLs go in: Wine's DLL override is per name, not per bitness, so with only the
+64-bit set a 32-bit program that imports Direct3D (Rayzoon's Jamstix 4
+Manager) could not start at all.
+
+The app installs only what the Product Manager downloaded: pick products there
+one by one, and the rest of your account's products stay out. When the Product
+Manager closes, the app runs any installer it downloaded in that session but
+could not launch under Wine. A download left from an earlier session (a product
+started and then dropped) is not installed then. *Finish interrupted installs*
+on the Install tab runs those on request.
+
+### Steinberg module
+
+The Download Assistant (JavaFX) gets its text back with the built-in Direct3D
+for that program and `-Dprism.lcdtext=false`, and its `net-steinberg-sda://`
+and `net-steinberg-activation-manager://` sign-in callbacks are registered with
+the desktop. Its Install Assistant is .NET, so Wine Mono is installed on demand;
+when the Install Assistant refuses a package (its signed PowerShell step cannot
+be trusted under Wine), the app unpacks the package and runs its MSIs itself.
+The Activation Manager keeps its sign-in only because the app's patched
+advapi32.dll stores credential attributes, which Wine drops. HALion Sonic 7 and
+that generation of Cubase and Dorico draw through DirectComposition, which Wine
+does not implement: the app ships a patched dcomp.dll (wine-staging's work plus
+what Steinberg's graphics library still needs) and installs it into its Wine
+(`vstenv wine-fixes`), gives Steinberg programs and their bridged plugins Wine's
+own Direct3D, and installs a "Segoe UI" font family (Microsoft's open-source
+Selawik, renamed) so their dialogs have text. The patches are under
+`patches/wine/` and are built by CI for the pinned Wine. The same treatment
+is applied to any program or bridged plugin whose import table names
+DirectComposition (JUCE 8 GUIs such as Spitfire Audio's). Patched dxgi.dll,
+wined3d.dll and win32u.dll add real DXGI composition swapchains (ported from
+the giang17/wine fork) so apps that render through them — the Spitfire Audio
+app, and WebView2/Chromium hosts — present into their window instead of
+deadlocking on Wine's hidden-window emulation.
+
+
+## Why it is not on Flathub
+
+Not on Flathub: vstenv shares one Wine session with the DAWs on your machine,
+which needs `--talk-name=org.freedesktop.Flatpak` — a permission Flathub treats
+as leaving the sandbox altogether. That permission is exactly what lets a
+plugin loaded by your DAW and this app reach the same `wineserver`; without it
+the vendor managers crash and plugins hang.

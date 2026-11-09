@@ -21,7 +21,7 @@ finish-args:
   # build from the app's data directory. wineserver addresses its clients by pid;
   # each `flatpak run` is its own pid namespace and DAWs load NI plugins on the
   # host, so the wineserver and every Wine client must share the host namespace
-  # or Electron managers crash and plugins hang (see README, "One prefix, many DAWs").
+  # or Electron managers crash and plugins hang (see docs/how-it-works.md, "How it works").
   - --talk-name=org.freedesktop.Flatpak
   - --allow=multiarch               # 32-bit programs: vendors' InstallAware setup exes are 32-bit; Wine's WoW64 needs the modify_ldt syscall Flatpak otherwise filters
   # yabridge: bridged plugins and its own files must be where host DAWs look

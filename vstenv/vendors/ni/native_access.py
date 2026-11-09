@@ -1,6 +1,6 @@
 """Native Access under Wine: install it from the installer the user downloads,
 and every fix it needs. Each public function is idempotent and reports through
-a Reporter. See the README for the diagnosis behind each fix.
+a Reporter. See docs/how-it-works.md for the diagnosis behind each fix.
 """
 import hashlib, json, os, re, shutil, struct, subprocess, tempfile, time
 from pathlib import Path

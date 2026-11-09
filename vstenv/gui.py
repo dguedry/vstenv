@@ -544,7 +544,7 @@ class Window(Adw.ApplicationWindow):
         self.programs_group = Adw.PreferencesGroup(title="Installed programs", description="Everything with an installer record or a Start Menu shortcut in the prefix, plus the vendors' managers. Each also appears in your desktop's application menu. Drivers and other background components are grouped at the end.")
         page.add(self.programs_group)
         g = Adw.PreferencesGroup(title="Install")
-        g.add(_menu_row("Install Windows software…", "Pick any installer (.exe or .msi; unzip a downloaded .zip first). A vendor's manager or product is recognized and installed with its fixes; anything else runs as a plain installer. Same as the Install tab's installer.", "document-open-symbolic",
+        g.add(_menu_row("Install Windows software…", "Pick any installer (.exe or .msi), or plugins that come without one (a .zip, .vst3, .clap or VST2 .dll). A vendor's manager or product is recognized and installed with its fixes; anything else runs as a plain installer. Same as the Install tab's installer.", "document-open-symbolic",
                         lambda: self.pick_file("Choose an installer (.exe or .msi)", self.install_any, downloads=True),
                         [("Refresh the list and the app menu", lambda: self.run_bg("Updating the app menu", lambda r: menu.sync(self.prefix, r)))]))
         self._rows_limits = _row("What runs here", "Click for the limits of this environment.", "dialog-information-symbolic", lambda: self.toast(programs.LIMITS, 12))

@@ -9,7 +9,7 @@ opens its window.
 
 Honesty note: this fixes the *crash*, not everything. WebView2 content still
 renders poorly or blank under Wine and its text fields do not take keyboard
-input (see the README "Known limitation: WebView2 logins"). So this is a
+input (see docs/how-it-works.md, "WebView2 apps"). So this is a
 best-effort improvement, launch instead of crash, not full support. It is
 installed on demand (a ~150 MB download), only when a WebView2 app is in the
 prefix, not for everyone.
