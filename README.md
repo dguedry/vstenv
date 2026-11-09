@@ -101,6 +101,76 @@ The app opens and installs the file as if you had picked it on the Install tab.
   so Native Access finds the old installs and offers Repair. yabridge itself
   stays installed (`--downloads` also clears `~/.cache/vstenv`).
 
+### Where the app keeps its files
+
+| Folder | What is in it | Size |
+|---|---|---|
+| `~/.local/share/vstenv/prefix` | The Windows prefix: the `C:` drive with every program, plugin, library and sign-in | Large: tens of GB with sample libraries |
+| `~/.local/share/vstenv/wine` | The app's own Wine build | About 1 GB |
+| `~/.local/share/vstenv` (the rest) | Logs, settings, small tools | Small |
+| `~/.cache/vstenv` | Downloaded files: Wine, runtimes, unpacked zips | A few GB, safe to delete |
+| `~/.local/share/yabridge`, `~/.config/yabridgectl` | yabridge and its list of plugin folders | Small |
+| `~/.vst3/yabridge`, `~/.clap/yabridge`, `~/.vst/yabridge` | The bridged plugins your DAW loads (small stubs, not the plugins) | Small |
+| `~/.local/share/applications`, `~/.local/bin` | Menu entries and the vendors' sign-in link handlers | Small |
+
+Inside the prefix, the big folders are usually:
+
+- `drive_c/Program Files`: programs and plugins.
+- `drive_c/ProgramData`: some vendors' shared data.
+- `drive_c/users/Public/Documents`: where Native Access puts libraries by default.
+
+**Libraries on another drive.** The simplest way needs no links: set the library
+or content location in the vendor's own manager (Native Access, IK Product
+Manager, Steinberg Library Manager, the Spitfire app) to a folder on the other
+drive. Wine shows the whole Linux filesystem as drive `Z:`, so
+`/mnt/samples/NI` is `Z:\mnt\samples\NI`.
+
+**Moving folders with a symbolic link.** To move a folder that already exists,
+including the whole prefix, move it and leave a link at the old path:
+
+1. Close your DAW and the app, then stop the prefix's Wine:
+
+   ```sh
+   WINEPREFIX=~/.local/share/vstenv/prefix ~/.local/share/vstenv/wine/*/bin/wineserver -k
+   ```
+
+2. Move the folder and link it back, for example the whole prefix:
+
+   ```sh
+   mv ~/.local/share/vstenv/prefix /mnt/big/vstenv-prefix
+   ln -s /mnt/big/vstenv-prefix ~/.local/share/vstenv/prefix
+   ```
+
+   Or only one library:
+
+   ```sh
+   mv "$HOME/.local/share/vstenv/prefix/drive_c/users/Public/Documents/Alicias Keys Library" /mnt/samples/
+   ln -s "/mnt/samples/Alicias Keys Library" "$HOME/.local/share/vstenv/prefix/drive_c/users/Public/Documents/"
+   ```
+
+3. Open the app and check **Health**.
+
+Things to know:
+
+- **Filesystem for the prefix:** put the prefix on a Linux filesystem (ext4,
+  btrfs, xfs). Wine keeps symbolic links and permissions inside it that exFAT and
+  NTFS drives cannot hold. Libraries alone (plain sample files) are fine on any
+  filesystem Linux mounts read-write.
+- **Where the link can point:** keep link targets under `/home`, `/mnt`,
+  `/media`, `/run/media`, `/srv` or `/opt`. The app runs as a Flatpak, which
+  cannot see `/usr`, `/tmp` and other system folders. Health's check "sandbox
+  sees every path the prefix links to" names any target it cannot reach.
+- **Mount at boot:** the drive must be mounted before you start the app or a DAW.
+  For an external or second drive, add it to `/etc/fstab` or let your desktop
+  mount it at login.
+- **Link only the prefix or folders inside it:** don't link
+  `~/.vst3/yabridge` and the other bridge folders elsewhere. DAWs look for them
+  at those exact paths, and they are small.
+- **Tested so far:** neither a linked library nor a linked *whole* prefix has
+  been tested here yet, so please report how it goes.
+- **Removing the environment:** "Remove the environment" deletes the link, not
+  the folder it points to. Delete a moved prefix by hand if you want it gone.
+
 ### Linux distributions
 
 vstenv is a Flatpak, so it runs on any distribution with Flatpak. It brings its
