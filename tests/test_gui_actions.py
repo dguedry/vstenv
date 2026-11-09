@@ -109,7 +109,7 @@ class GuiActionsTest(unittest.TestCase):
 
     def test_both_pages_offer_troubleshoot(self):
         self.assertIn("self.troubleshoot_program(prog, hosts)", self._body("_draw_programs", 4000))
-        self.assertIn("self.troubleshoot_plugin(name)", self._body("_draw_plugins", 4000))
+        self.assertIn("self.troubleshoot_plugin(name)", self._body("_draw_plugins", 5000))
 
     def test_a_failed_install_ends_in_remedies_not_a_toast(self):
         body = self._body("install_program", 2500)

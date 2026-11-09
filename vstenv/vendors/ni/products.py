@@ -132,6 +132,72 @@ def register_all_libraries(p: Prefix, reporter=None) -> list[str]:
             if register_library(p, pr.name, reporter): done.append(pr.name)
     return done
 
+# --- removal ------------------------------------------------------------------------------
+# What Native Access considers installed: the daemon's installed_products record,
+# the HKLM key, and the files. NA has no way to remove a product it did not install
+# itself, and after a prefix was rebuilt it finds leftovers and offers "Repair". This
+# takes all three away, so NA offers a plain Install again.
+PLUGIN_DIRS = ("Program Files/Common Files/VST3", "Program Files/Common Files/CLAP",
+               "Program Files/Native Instruments/VSTPlugins 64 bit", "Program Files/VstPlugins")
+_ROOTS = {"", "program files", "programfiles", "commonfiles", "nativeinstruments", "users", "public", "documents",
+          "content", "libraries", "kontakt", "samples"}
+
+def _norm(s: str) -> str: return re.sub(r"[^a-z0-9]", "", s.lower())
+
+def _owned_dir(d: Path, name: str) -> bool:
+    """A folder that is this product's own: named after it, and not a shared root.
+    A library NA put under a user-chosen content folder is removed; that folder is not."""
+    n, k = _norm(d.name), _norm(name)
+    if not k or n in _ROOTS or d == Path.home() or len(d.parts) < 3: return False
+    return k in n or (len(n) >= 6 and n in k)
+
+def removal_plan(p: Prefix, name: str) -> dict:
+    """{'dirs', 'files', 'regkey', 'record'} this product's removal would take away."""
+    rec = installed_products_dir(p) / f"{name}.json"
+    try: j = json.loads(rec.read_text(errors="replace")) if rec.exists() else {}
+    except ValueError: j = {}
+    pr = hints(p).get(name); regkey = pr.regkey if pr else name
+    vals = hive_keys(p).get(regkey, {})
+    dirs: list[Path] = []
+    for w in (j.get("InstallDir"), j.get("ContentDir"), vals.get("InstallDir"), vals.get("ContentDir")):
+        if not w: continue
+        d = p.to_host(w.rstrip("\\"))
+        if d.is_dir() and _owned_dir(d, name) and d not in dirs: dirs.append(d)
+    files: list[Path] = []
+    if (pr.type if pr else ("App" if j.get("InstallDir") else "")) in ("App", ""):
+        k = name.lower()
+        for rel in PLUGIN_DIRS:
+            pd = p.drive_c / rel
+            if not pd.is_dir(): continue
+            for f in pd.iterdir():
+                stem = f.name.rsplit(".", 1)[0].lower()
+                if f.suffix.lower() in (".vst3", ".clap", ".dll") and (stem == k or stem.startswith(k + " ")):
+                    files.append(f)
+    return {"dirs": dirs, "files": files, "regkey": regkey if vals else "", "record": rec if rec.exists() else None}
+
+def remove(p: Prefix, name: str, reporter=None) -> dict:
+    """Delete an installed NI product: its folders, plugin files, registry key and
+    Native Access record. Licences (ras3) stay: they belong to the account."""
+    import shutil
+    r = null_reporter(reporter); plan = removal_plan(p, name)
+    r.step(f"Removing {name}")
+    for d in plan["dirs"]:
+        shutil.rmtree(d, ignore_errors=True); r.log(f"deleted {d}")
+    for f in plan["files"]:
+        try:
+            if f.is_dir() and not f.is_symlink(): shutil.rmtree(f)
+            else: f.unlink()
+            r.log(f"deleted {f}")
+        except OSError as e: r.log(f"could not delete {f}: {e}")
+    if plan["regkey"]:
+        p.run([p.REG64, "delete", f"{NI_KEY}\\{plan['regkey']}", "/f"], timeout=60); r.log(f"registry key {plan['regkey']} removed")
+    if plan["record"]: plan["record"].unlink(missing_ok=True)
+    _hive_cache["stamp"] = None
+    left = [str(d) for d in plan["dirs"] if d.exists()]
+    (r.fail if left else r.ok)(("still there: " + ", ".join(left)) if left else
+                               f"{len(plan['dirs'])} folder(s), {len(plan['files'])} plugin file(s); restart Native Access to see it")
+    return plan
+
 # --- programs -----------------------------------------------------------------------------
 def ni_programs(p: Prefix) -> list:
     """NI applications from HKLM Software/Native Instruments/<Name>/InstallDir: those

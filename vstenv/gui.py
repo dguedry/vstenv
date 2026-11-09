@@ -275,7 +275,7 @@ class Window(Adw.ApplicationWindow):
         header = Adw.HeaderBar(); switcher = Adw.ViewSwitcherTitle(stack=self.stack, title=TITLE); header.set_title_widget(switcher)
         from . import webview2
         m = Gio.Menu(); m.append("Re-run setup / repair", "app.setup"); m.append("Update the app menu", "app.menu")
-        m.append(webview2.SOFTWARE_GL_LABEL, "app.softgl"); m.append("About", "app.about")
+        m.append(webview2.SOFTWARE_GL_LABEL, "app.softgl"); m.append("Remove the environment…", "app.teardown"); m.append("About", "app.about")
         header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=m))
         # Activity indicator: visible on every page while a task runs or a vendor
         # manager is open, so nothing the app does looks like a hang. Click → Progress.
@@ -467,6 +467,10 @@ class Window(Adw.ApplicationWindow):
                 flags = [("registered" if x.registered else "not registered", x.registered)]
                 if x.licensed is not None: flags.append(("licensed" if x.licensed else "no license", x.licensed))
                 sfx = [Gtk.Label(label=txt, valign=Gtk.Align.CENTER, css_classes=["caption", "dim-label" if ok else "warning"]) for txt, ok in flags]
+                v = next((y for y in vendors.all() if y.id == vid), None)
+                if v is not None and vendors.can_remove(v):
+                    b = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER, tooltip_text="Uninstall", css_classes=["flat"])
+                    b.connect("clicked", lambda *_, v=v, n=x.name: self.remove_product(v, n, progs)); sfx.append(b)
                 note = vendors.note_for(x.name, notes.get(vid, []))
                 if note is not None and note.level == "works": note = None      # a pill only where there is something to say
                 rows.append(_noted_row(GLib.markup_escape_text(x.name), GLib.markup_escape_text(f"{x.kind or '?'} {x.version}".strip()), note, sfx))
@@ -563,6 +567,9 @@ class Window(Adw.ApplicationWindow):
             if x.uninstall:
                 b = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER, tooltip_text="Uninstall", css_classes=["flat"])
                 b.connect("clicked", lambda *_, prog=x: self.uninstall_program(prog)); sfx.append(b)
+            elif (xv := vendors.for_program(x)) is not None and vendors.can_remove(xv):
+                b = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER, tooltip_text="Uninstall", css_classes=["flat"])
+                b.connect("clicked", lambda *_, v=xv, n=x.name: self.remove_product(v, n, [])); sfx.append(b)
             if unmanaged.supported(x):
                 b = Gtk.Button(icon_name="preferences-system-symbolic", valign=Gtk.Align.CENTER,     # crossed wrench and screwdriver
                                tooltip_text=f"Troubleshoot… — {recipes.UNNECESSARY}", css_classes=["flat"])
@@ -729,6 +736,47 @@ class Window(Adw.ApplicationWindow):
         d.connect("response", lambda _d, resp: self._do_uninstall(prog) if resp == "uninstall" else None)
         d.present(self)
 
+    def remove_environment(self):
+        """Delete the prefix and everything setup made, then close: the next start
+        sets up fresh (teardown.py)."""
+        from . import teardown
+        d = Adw.AlertDialog(heading="Remove the environment?",
+                            body=f"This deletes the Windows prefix with every program, plugin, library and sign-in in it, the app's Wine, "
+                                 f"its bridged plugins in your DAWs' folders, and its menu and file manager entries ({paths.DATA}).\n\n"
+                                 "Licences stay on your vendor accounts, and yabridge stays installed. The app closes afterwards; "
+                                 "open it again to set up fresh. Close your DAW first.")
+        d.add_response("cancel", "Cancel"); d.add_response("remove", "Remove everything")
+        d.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE); d.set_default_response("cancel"); d.set_close_response("cancel")
+        def done(_res, err):
+            if err: return
+            a = Adw.AlertDialog(heading="The environment was removed", body="Open the app again to set up fresh.")
+            a.add_response("close", "Close the app"); a.connect("response", lambda *_: self.get_application().quit()); a.present(self)
+        d.connect("response", lambda _d, resp: self.run_bg("Removing the environment",
+                                                          lambda r: teardown.remove_environment(self.prefix, r), done) if resp == "remove" else None)
+        d.present(self)
+    def remove_product(self, v, name, progs):
+        """Uninstall a product its vendor's manager installed: through its own
+        uninstaller when it registered one, then whatever the vendor module knows
+        is left (files, registry, the manager's record), so the manager offers a
+        plain Install again rather than Repair."""
+        plan = v.removal_plan(self.prefix, name)
+        prog = next((x for x in progs if x.uninstall and name.lower() in x.name.lower()), None)
+        if plan is None and prog is None: self.toast(f"Nothing of {name} left to remove"); return
+        where = [str(d) for d in (plan or {}).get("dirs", [])] + [str(f) for f in (plan or {}).get("files", [])]
+        lines = "\n".join("• " + w.split("/drive_c/", 1)[-1] for w in where[:8]) + ("\n• …" if len(where) > 8 else "")
+        body = ((f"Runs {prog.name}'s own uninstaller, then deletes what is left:\n" if prog else "Deletes:\n") + (lines or "• its registry entries")
+                + f"\n\nIts licence stays on your {v.name} account; {v.manager_name or 'the manager'} can install it again.")
+        d = Adw.AlertDialog(heading=f"Uninstall {name}?", body=body)
+        d.add_response("cancel", "Cancel"); d.add_response("remove", "Uninstall")
+        d.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE); d.set_default_response("cancel"); d.set_close_response("cancel")
+        def work(r):
+            if prog is not None: programs.uninstall(self.prefix, prog, r)
+            if v.removal_plan(self.prefix, name) is not None: v.remove_product(self.prefix, name, r)
+            setup.after_change(self.prefix, r)
+        d.connect("response", lambda _d, resp: self.run_bg(f"Uninstalling {name}", work,
+                                                          lambda _res, err: None if err else self.toast(f"{name} removed — restart {v.manager_name or 'the manager'} to see it"))
+                  if resp == "remove" else None)
+        d.present(self)
     def _do_uninstall(self, prog):
         self.run_bg(f"Uninstalling {prog.name}", lambda r: (programs.uninstall(self.prefix, prog, r), setup.after_change(self.prefix, r)))
     def troubleshoot_program(self, prog, hosts=()):
@@ -1108,7 +1156,7 @@ class App(Adw.Application):
         sg = Gio.SimpleAction.new_stateful("softgl", None, GLib.Variant.new_boolean(
             webview2.software_gl(wine.Prefix(paths.PREFIX, b) if b else None)))
         sg.connect("change-state", lambda act, val: self.win.set_software_gl(act, val.get_boolean())); self.add_action(sg)
-        for name, cb in (("setup", lambda *_: self.win.run_setup()), ("about", self.about),
+        for name, cb in (("setup", lambda *_: self.win.run_setup()), ("about", self.about), ("teardown", lambda *_: self.win.remove_environment()),
                          ("menu", lambda *_: self.win.run_bg("Updating the app menu", lambda r: menu.sync(self.win.prefix, r)))):
             act = Gio.SimpleAction(name=name); act.connect("activate", cb); self.add_action(act)
         for i, page in enumerate(("plugins", "programs", "install", "health"), start=1):

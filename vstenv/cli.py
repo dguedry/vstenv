@@ -283,9 +283,36 @@ def _join_window_watch(proc, seconds=40.0):
     if w is not None: w.join(seconds)
 
 def cmd_uninstall(a):
+    """A program's own uninstaller; for a vendor product without one (an NI
+    application or library), the vendor module's removal. Both, in that order,
+    when a product has an uninstaller but leaves things its manager still sees."""
     p = _prefix(); r = ConsoleReporter()
-    programs.uninstall(p, programs.find(p, a.name), r)
+    try: prog = programs.find(p, a.name)
+    except LookupError: prog = None
+    plans = []
+    for v in vendors.all():
+        if not vendors.can_remove(v): continue
+        names = [x.name for x in v.products(p)] + ([prog.name] if prog else [])
+        hit = next((n for n in names if n.lower() == a.name.lower()), None) or (prog.name if prog else None)
+        if hit and (plan := v.removal_plan(p, hit)) is not None: plans.append((v, hit, plan))
+    if prog is None and not plans: sys.exit(f"nothing installed matches '{a.name}' (vstenv programs and vstenv products list them)")
+    if prog is not None and prog.uninstall: programs.uninstall(p, prog, r)
+    for v, n, _plan in plans:
+        if v.removal_plan(p, n) is not None: v.remove_product(p, n, r)
+    if prog is not None and not prog.uninstall and not plans:
+        sys.exit(f"{prog.name} did not register an uninstaller; delete its folder from the prefix by hand")
     if not a.no_sync: setup.after_change(p, r)
+
+def cmd_remove_environment(a):
+    from . import teardown
+    b = wine.installed_build()
+    p = wine.Prefix(paths.PREFIX, b) if b else None
+    if not a.yes:
+        print(f"This deletes {paths.DATA} (the Windows prefix with every program, plugin, library and sign-in in it,")
+        print("and the app's Wine), its bridged plugins in your DAWs' folders, its menu and file manager entries.")
+        if input("Type 'remove' to go ahead: ").strip() != "remove": sys.exit("nothing was changed")
+    teardown.remove_environment(p, ConsoleReporter(), downloads=a.downloads)
+    print(f"\nRemoved. Licences stay on your vendor accounts. Run {APP_NAME} setup (or open the app) to start fresh.")
 
 def cmd_menu(a):
     p = _prefix(); r = ConsoleReporter()
@@ -433,7 +460,9 @@ def main(argv=None):
     s.add_argument("state", nargs="?", choices=["on", "off"], help="omit to show the current setting")
     s.set_defaults(f=cmd_unmanaged)
     s = sp.add_parser("run", help="start an installed program (name or part of it)"); s.add_argument("name"); s.add_argument("--wait", action="store_true"); s.set_defaults(f=cmd_run)
-    s = sp.add_parser("uninstall", help="run an installed program's own uninstaller"); s.add_argument("name"); s.add_argument("--no-sync", action="store_true"); s.set_defaults(f=cmd_uninstall)
+    s = sp.add_parser("uninstall", help="uninstall a program (its own uninstaller) or a vendor product without one (an NI application or library)"); s.add_argument("name"); s.add_argument("--no-sync", action="store_true"); s.set_defaults(f=cmd_uninstall)
+    s = sp.add_parser("remove-environment", help="delete the prefix and everything setup made (bridged plugins, menu and file manager entries, URL handlers), so the next start sets up fresh")
+    s.add_argument("--downloads", action="store_true", help="also delete the cached downloads (~/.cache/vstenv)"); s.add_argument("--yes", action="store_true", help="do not ask"); s.set_defaults(f=cmd_remove_environment)
     s = sp.add_parser("menu", help="desktop menu entries for the prefix's programs, and the file manager's \"Install with VST Environment\""); s.add_argument("action", nargs="?", default="update", choices=["update", "remove"]); s.set_defaults(f=cmd_menu)
     sp.add_parser("doctor", help="check every fix and prerequisite").set_defaults(f=cmd_doctor)
     sp.add_parser("status", help="yabridge status").set_defaults(f=cmd_status)

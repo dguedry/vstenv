@@ -83,6 +83,24 @@ menu, for installers, zips and `.vst3` or `.clap` files:
 The app opens and installs the file as if you had picked it on the Install tab.
 `vstenv menu remove` takes the entries away again.
 
+### Uninstalling and starting over
+
+- **A program or plugin:** the trash button beside it on the **Programs** tab runs
+  its own uninstaller. **Native Instruments products** (Kontakt or Kontakt
+  Player, Absynth, the libraries) have a trash button on the **Plugins** tab. They
+  often have no uninstaller of their own, so the app deletes the product's
+  folders, plugin files, registry key and Native Access record itself. Native
+  Access then offers a plain **Install** again instead of **Repair**. Licences
+  stay on your account. From a terminal: `vstenv uninstall "Kontakt 8"`.
+- **Everything:** ☰ → **Remove the environment…** (or `vstenv remove-environment`)
+  deletes the Windows prefix with all its programs, plugins, libraries and
+  sign-ins. It also deletes the app's Wine and settings, the bridged plugins in
+  your DAW's folders, and the menu and file manager entries. The next start sets
+  up fresh. Removing the Flatpak or deleting folders by hand does not do this:
+  `flatpak uninstall --delete-data` keeps the prefix in `~/.local/share/vstenv`,
+  so Native Access finds the old installs and offers Repair. yabridge itself
+  stays installed (`--downloads` also clears `~/.cache/vstenv`).
+
 ### Linux distributions
 
 vstenv is a Flatpak, so it runs on any distribution with Flatpak. It brings its
@@ -710,7 +728,7 @@ deadlocking on Wine's hidden-window emulation.
 ```
 vstenv setup [--installer FILE]     vstenv vendors            vstenv manager <vendor> install|launch|repair|status
 vstenv products [--vendor V]        vstenv install FILE|DIR   vstenv sync [DIR...]
-vstenv programs | run NAME | uninstall NAME | menu [update|remove]
+vstenv programs | run NAME | uninstall NAME | menu [update|remove] | remove-environment [--downloads]
 vstenv doctor | report | rescue-install | finish-installs | dxvk | wine-fixes | mono | webview2 | prefixes | url-handlers
 vstenv manager <vendor> apply-pending-update   install an update the manager downloaded for itself, with this app's fixes
 vstenv wedge [status|clear]        no Wine GUI can open a window: show it, or restart (and boot) the Wine session

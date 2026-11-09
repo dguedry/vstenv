@@ -109,6 +109,10 @@ class NativeInstruments(Vendor):
     def staged_installs(self, p): return installaware.staged_installs(p, prod.find_download)
     def finish_installs(self, p, r=None, since=None): return installaware.finish_staged(p, r, prod.find_download, self._busy)
     def after_install(self, p, r=None): prod.register_all_libraries(p, r)
+    def removal_plan(self, p, name):
+        plan = prod.removal_plan(p, name)
+        return plan if (plan["dirs"] or plan["files"] or plan["regkey"] or plan["record"]) else None
+    def remove_product(self, p, name, r=None): return prod.remove(p, name, r)
 
     # -- health -------------------------------------------------------------------------------------
     def checks(self, p) -> list[Check]:

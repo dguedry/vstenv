@@ -151,6 +151,12 @@ class Vendor:
         """While the manager runs: (watch, stalled, pids) for an install it drives that stopped making progress."""
         return watch, False, []
     def rescue_installs(self, p: "Prefix", r: "Reporter | None" = None) -> list[dict]: return []
+    def removal_plan(self, p: "Prefix", name: str) -> dict | None:
+        """What removing a product without an uninstaller would delete, for the
+        confirmation ({'dirs', 'files', ...}); None when this vendor cannot."""
+        return None
+    def remove_product(self, p: "Prefix", name: str, r: "Reporter | None" = None) -> dict:
+        raise NotImplementedError
     def staged_installs(self, p: "Prefix") -> list: return []
     def finish_installs(self, p: "Prefix", r: "Reporter | None" = None, since: float | None = None) -> list[dict]:
         """Complete installs the manager downloaded but did not run. `since` (a
@@ -267,6 +273,10 @@ def for_program(prog: "Program") -> Vendor | None:
         if prog.publisher and v.publisher.search(prog.publisher): return v
         if prog.name.lower().startswith(v.name.lower() + " "): return v
     return None
+
+def can_remove(v: Vendor) -> bool:
+    """The vendor module knows how to remove its products without an uninstaller."""
+    return type(v).removal_plan is not Vendor.removal_plan
 
 def with_manager() -> list[Vendor]:
     return [v for v in all() if v.manager_name]
