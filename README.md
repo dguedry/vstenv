@@ -3,7 +3,8 @@
 **Use your Windows plugins and instruments in Linux music software.**
 
 VST Environment (vstenv) installs Windows plugins and makes them show up in your
-Linux DAW (REAPER, Bitwig, Ardour and others) like any other plugin. It can
+Linux DAW or plugin host (REAPER, Bitwig, Ardour,
+[StageRig](https://github.com/dguedry/stagerig) and others) like any other plugin. It can
 install them from a vendor's own app, like Native Access, or from a plain
 installer you downloaded. It sets up and repairs the Windows compatibility layer
 (Wine) for you, along with the many fixes plugins need under it, so you never
@@ -134,7 +135,8 @@ in these folders:
 - `~/.clap/yabridge` (CLAP)
 - `~/.vst/yabridge` (VST2)
 
-Most Linux DAWs (REAPER, Bitwig, Ardour, Carla) already look in `~/.vst3` and
+Most Linux DAWs and hosts (REAPER, Bitwig, Ardour, Carla,
+[StageRig](https://github.com/dguedry/stagerig)) already look in `~/.vst3` and
 `~/.clap`. If yours doesn't list your plugins, add those folders in its plugin
 settings and rescan. After installing something new while your DAW is open,
 rescan its plugins.
