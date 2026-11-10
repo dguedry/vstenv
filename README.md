@@ -14,8 +14,11 @@ It works with Native Instruments (Native Access, Kontakt and its libraries), IK
 Multimedia, Steinberg, Arturia, iZotope, Softube, Audio Modeling, FabFilter,
 Soundtoys, Valhalla, Xfer Serum 2 and more. See [What works](#what-works).
 
-Not affiliated with or endorsed by Native Instruments GmbH, IK Multimedia
-Production srl or Steinberg Media Technologies GmbH.
+VST Environment is an independent, unofficial project. It isn't associated
+with, endorsed by or supported by any of the companies whose software it
+installs; it just helps their customers use the products they've bought on
+Linux. If something doesn't work here, please [tell us](https://github.com/dguedry/vstenv/issues),
+not the vendor's support. Product names and trademarks belong to their owners.
 
 | Your plugins and what was installed | Windows programs: run, uninstall, troubleshoot |
 |---|---|
