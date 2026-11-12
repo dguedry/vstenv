@@ -11,7 +11,7 @@ installer you downloaded. It sets up and repairs the Windows compatibility layer
 have to deal with it yourself.
 
 It works with Native Instruments (Native Access, Kontakt and its libraries), IK
-Multimedia, Steinberg, Arturia, iZotope, Softube, Audio Modeling, FabFilter,
+Multimedia, Steinberg, KORG, Arturia, iZotope, Softube, Audio Modeling, FabFilter,
 Soundtoys, Valhalla, Xfer Serum 2 and more. See [What works](#what-works).
 
 VST Environment is an independent, unofficial project. It isn't associated
@@ -200,6 +200,7 @@ Known problems and what to do:
 | FabFilter, Soundtoys (with iLok), Valhalla, Xfer Serum 2 | Work as they are |
 | Gig Performer 5 | Works, as a standalone program |
 | Minimal Audio: Minimal Hub, Squash | Works |
+| KORG: KORG Software Pass, TRITON | Works. Sign in, install, and play in StageRig |
 | Orchestral Tools: SINE Player | Works. Sign-in fields don't show your typing (see above) |
 | Spitfire Audio app | Partly: it opens and browses; signing in and installing libraries not yet confirmed |
 | Rayzoon: Jamstix 4 | Partly: the editor opens in a DAW; playback not yet confirmed |
