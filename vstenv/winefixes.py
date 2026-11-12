@@ -38,6 +38,7 @@ FIXES = {"dcomp.dll": "DirectComposition (Steinberg's VSTGUI: HALion Sonic 7, Cu
          "wined3d.dll": "keep-back-buffers swapchains and the composition GL present path (composition swapchains)",
          "win32u.dll": "window and OpenGL plumbing for composition swapchains",
          "d2d1.dll": "Direct2D's copy blend mode (JUCE 8 plugins clear cached images with it; Minimal Audio's readouts smeared when they changed)",
+         "sensapi.dll": "\"is the network up?\" answers the way Windows does (KORG Software Pass said \"No Internet Connection\")",
          "ntdll.dll": "a plugin host can hide Wine from JUCE 8.0.13 plugins (Minimal Audio's sign-in panel and interface stayed empty)",
          "user32.dll": "a plugin host can be made DPI-aware on its own (Jamstix 4 will not embed its editor in an unaware host)",
          "advapi32.dll": "credential attributes (Steinberg's License Engine keeps its sign-in)",

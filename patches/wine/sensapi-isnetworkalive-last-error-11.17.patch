@@ -1,0 +1,22 @@
+--- a/dlls/sensapi/sensapi.c
++++ b/dlls/sensapi/sensapi.c
+@@ -27,6 +27,7 @@
+ #define COBJMACROS
+ 
+ #include "windef.h"
++#include "winbase.h"
+ #include "sensevts.h"
+ #include "sensapi.h"
+ 
+@@ -48,7 +49,11 @@
+ BOOL WINAPI IsNetworkAlive(LPDWORD lpdwFlags)
+ {
+     TRACE("yes, using LAN type network.\n");
+     if (lpdwFlags)
+        *lpdwFlags = NETWORK_ALIVE_LAN;
++    /* Windows clears the last error when the network is up, and callers follow
++     * Microsoft's advice to check it: KORG Software Pass counts itself online only
++     * when GetLastError() is 0, and otherwise shows "No Internet Connection". */
++    SetLastError(ERROR_SUCCESS);
+     return TRUE;
+ }

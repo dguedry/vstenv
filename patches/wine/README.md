@@ -224,6 +224,16 @@ the destination. The same line is in
 d2d1 rework that this does not take. Only the 64-bit `d2d1` is rebuilt. It applies to
 every program, but only changes a draw when the program asked for copy mode.
 
+## sensapi-isnetworkalive-last-error-<version>.patch
+
+KORG Software Pass opened on "No Internet Connection" with the network working.
+It calls `IsNetworkAlive` and then `GetLastError`, and counts itself online only
+when the call returns TRUE *and* the last error is 0, as Microsoft's documentation
+tells callers to check. Windows clears the last error on success; Wine's
+`IsNetworkAlive` returned TRUE and left whatever error an earlier call had set, so
+the app always saw itself offline and never made a request. The patch sets
+`ERROR_SUCCESS` before returning. Only the 64-bit `sensapi` is rebuilt.
+
 ## ntdll-hide-wine-version-<version>.patch
 
 JUCE 8.0.13 and later call `GetProcAddress(ntdll, "wine_get_version")` and take a
