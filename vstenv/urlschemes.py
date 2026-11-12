@@ -109,9 +109,78 @@ def unregister(s: UrlScheme, reporter=None) -> bool:
     r.ok("removed" if removed else "nothing to remove")
     return removed
 
+class _Program:
+    """Stands in for the vendor of a scheme a program registered itself."""
+    name = "registered by an installed program"
+
+# Schemes Wine itself registers (winebrowser, its own helpers) are never handed back.
+_WINE_SCHEMES = {"http", "https", "ftp", "mailto", "file", "news", "nntp", "snews", "telnet", "ldap",
+                 "ms-settings", "ms-windows-store", "res", "about", "javascript"}
+
+def _split_command(cmd: str) -> list[str]:
+    """A Windows command line split the way the shell does: quotes group,
+    backslashes stay literal (they are path separators here)."""
+    out, cur, quoted, started = [], [], False, False
+    for ch in cmd:
+        if ch == '"': quoted = not quoted; started = True
+        elif ch in " \t" and not quoted:
+            if started: out.append("".join(cur)); cur, started = [], False
+        else: cur.append(ch); started = True
+    if started: out.append("".join(cur))
+    return out
+
+def _commands(text: str) -> dict[str, str]:
+    """{scheme: command} from a hive's '[Software\\Classes\\<scheme>\\shell\\open\\command]'
+    default values. hive_sections() drops default (@) values, so this reads them itself."""
+    import re
+    out, key = {}, None
+    for line in text.splitlines():
+        if line.startswith("["):
+            m = re.match(r'^\[Software\\\\Classes\\\\([^\\\]]+)\\\\shell\\\\open\\\\command\]', line, re.I)
+            key = m.group(1) if m else None
+        elif key and line.startswith('@="'):
+            v = line[3:line.rindex('"')] if line.rstrip().endswith('"') else line[3:]
+            out[key.lower()] = v.replace('\\\\', '\\').replace('\\"', '"')
+    return out
+
+def program_schemes(p: Prefix, taken: set[str] = frozenset()) -> list[UrlScheme]:
+    """URL schemes a program installed in the prefix registered for itself
+    ("URL Protocol" under HKLM or HKCU Software\\Classes): a browser sign-in that
+    ends at kchub://oauth2... (KORG Software Pass) reaches the program the same
+    way a vendor module's declared scheme does. Only commands that run an exe
+    inside drive_c, outside Windows' own folder, and pass the URL as the last
+    argument; a scheme a vendor module declares is left to it."""
+    from .programs import hive_sections
+    found: dict[str, UrlScheme] = {}
+    for hive, prefix in (("system.reg", "Software\\Classes\\"), ("user.reg", "Software\\Classes\\")):
+        path = p.path / hive
+        sections = hive_sections(path)
+        protocols = {k[len(prefix):].lower() for k, v in sections.items()
+                     if k.lower().startswith(prefix.lower()) and "\\" not in k[len(prefix):] and "URL Protocol" in v}
+        if not protocols: continue
+        try: commands = _commands(path.read_text(encoding="utf-8", errors="replace"))
+        except OSError: continue
+        for scheme in sorted(protocols):
+            if scheme in taken or scheme in _WINE_SCHEMES or scheme in found: continue
+            if not all(c.isalnum() or c in "+.-" for c in scheme): continue
+            argv = _split_command(commands.get(scheme, ""))
+            if len(argv) < 2 or argv[-1] != "%1" or "%1" in argv[:-1]: continue
+            exe = argv[0]
+            if not exe.lower().startswith("c:\\") or exe.lower().startswith("c:\\windows\\"): continue
+            host_exe = p.to_host(exe)
+            if not host_exe.is_file(): continue
+            extra = argv[1:-1]
+            found[scheme] = UrlScheme(scheme, f"{host_exe.stem} link handler",
+                                      lambda p, e=host_exe, x=tuple(extra): [str(p.build.wine), str(e), *x])
+    return list(found.values())
+
 def all_schemes(p: Prefix) -> list[tuple]:
     from . import vendors
-    return [(v, s) for v in vendors.all() for s in v.url_schemes(p)]
+    declared = [(v, s) for v in vendors.all() for s in v.url_schemes(p)]
+    taken = {s.scheme.lower() for _v, s in declared}
+    try: discovered = [(_Program, s) for s in program_schemes(p, taken)]
+    except Exception: discovered = []
+    return declared + discovered
 
 def register_all(p: Prefix, reporter=None) -> bool:
     ok = True

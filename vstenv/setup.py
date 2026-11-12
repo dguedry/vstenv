@@ -147,6 +147,9 @@ def after_change(p: Prefix, reporter=None, force=False) -> dict:
     _guarded(r, "Plugin DLL overrides", lambda: yabridge.write_plugin_overrides(dcomp.all_plugin_overrides(p)))
     _guarded(r, "Plugin host variables", lambda: yabridge.write_plugin_env(dcomp.all_plugin_host_env(p)))
     res = yabridge.sync(p, r)
+    # A program that registered its own link scheme (a browser sign-in returning to
+    # kchub://, KORG Software Pass) needs it handed over from the desktop.
+    _guarded(r, "URL handlers", lambda: urlschemes.register_all(p, r))
     _guarded(r, "Desktop menu entries", lambda: menu.sync(p, r))
     try:   # the pass itself changes things (bridges, menu): fingerprint the result
         CHANGE_SIG.parent.mkdir(parents=True, exist_ok=True)
