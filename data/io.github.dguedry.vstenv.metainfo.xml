@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.136" date="2026-11-12">
+      <description>
+        <p>KORG Software Pass: IsNetworkAlive clears the last error, as on Windows</p>
+      </description>
+    </release>
     <release version="0.1.135" date="2026-11-09">
       <description>
         <p>A README for musicians; the technical material moves to docs/</p>
