@@ -44,6 +44,8 @@ FIXES = {"dcomp.dll": "DirectComposition (Steinberg's VSTGUI: HALion Sonic 7, Cu
          "advapi32.dll": "credential attributes (Steinberg's License Engine keeps its sign-in)",
          "ole32.dll": "drag-drop teardown survives a stale target (WebView2 apps crashed at startup)",
          "hidparse.sys": "HID controls with hundreds of usages reach Windows programs (Komplete Kontrol S-series MK1 keyboards)",
+         "iphlpapi.dll": "listing the network adapters is cheap (KORG's TRITON lists them thousands of times as it starts: a minute, now seconds)",
+         "x86_64-unix/nsiproxy.so": "the adapter list holds only interfaces that exist (it grew with every container or VPN interface since Wine started)",
          "powershell.exe": "answers \"is this program running?\" honestly (electron-builder installers: Softube Central)",
          "i386-windows/powershell.exe": "the same, for 32-bit installers",
          "x86_64-unix/winex11.so": "a cursor set from another process shows as an arrow, not nothing (WebView2 windows: Minimal Hub)"}

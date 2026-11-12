@@ -61,6 +61,54 @@ upstream (checked master the same day); small and general, a good upstream
 candidate. Only the 64-bit `hidparse.sys` is needed: winebus and hidclass run
 in the 64-bit winedevice.
 
+## iphlpapi-adapter-listing-<version>.patch
+
+KORG's TRITON (1.4.7) took most of a minute to load, every time, and hosts
+gave up on it: a scan that allows a plugin 30 seconds never listed it, and a
+host that allows a window 15 seconds to open took it for hung. Its copy
+protection reads the network adapters' addresses about 2800 times as the
+plugin starts, each time loading `netapi32.dll`, calling `Netbios` and
+`GetAdaptersAddresses` (twice), and freeing the library again. On Windows
+that is nothing. In Wine each round cost 20 ms, for three reasons, all
+general:
+
+- **The interface table only grew** (`nsiproxy.sys`, `ndis.c`).
+  `update_if_table` added interfaces it had not seen and never removed one, so
+  every interface that had existed since the prefix's Wine started was still an
+  adapter: a container's veth pair, a VPN, a USB adapter unplugged. On the
+  machine this was found on, 26 interfaces existed and Wine listed 168, four
+  days into a session with Docker running. Everything that lists adapters paid
+  for all of them. The patch drops the ones that are gone at each update (their
+  entries are kept aside, not freed: `convert_luid_to_unix_name` hands out a
+  pointer into one).
+- **A listing cost the square of the interface count** (same file).
+  `ifinfo_fill_dynamic` opened a socket and read all of `/proc/net/dev` for
+  each interface, to find its one line. A listing now opens one socket and
+  reads the file once.
+- **One driver request per adapter for a GUID it already had**
+  (`iphlpapi_main.c`). `adapters_addresses_alloc` called
+  `ConvertInterfaceLuidToGuid` for each adapter, a round trip to the driver,
+  for a value that is in the table it had just fetched.
+
+And one that is for programs like this one: `iphlpapi.dll` pins itself when
+loaded, so loading and freeing it thousands of times is a reference count, not
+three libraries (`iphlpapi`, `nsi`, `dnsapi`) mapped and unmapped each time.
+
+Measured 2026-11-11 on Wine 11.17 with TRITON 1.4.7, time to scan the plugin
+(load it, read its description, unload): 58 s in the live prefix (168 listed
+adapters); 26.8 s in a fresh prefix with 26; **11-14 s** with the patch,
+whatever the uptime. In a prefix of its own, in a network namespace: 44
+adapters listed after 40 of them were deleted, 12.0 ms a round, without the
+patch; 4 listed and 4.3 ms with it.
+
+`nsiproxy.so` is the driver's unix half and is loaded by the prefix's
+`winedevice`: it takes effect when the prefix's Wine next starts (every Wine
+program closed), `iphlpapi.dll` in the next program started. Restarting Wine
+alone also shrinks an unpatched table back to the interfaces that exist, until
+it grows again. Not upstream (checked 11.17's sources); the first three are
+general and good upstream candidates, the pin is not Windows' behaviour and
+would stay here.
+
 ## powershell.exe (tools/psshim, not a patch)
 
 Wine's `powershell.exe` is a stub: it runs nothing and exits 0 for any command,

@@ -1,0 +1,228 @@
+--- a/dlls/iphlpapi/iphlpapi_main.c
++++ b/dlls/iphlpapi/iphlpapi_main.c
+@@ -1284,7 +1284,9 @@
+         aa[i].Length = sizeof(*aa);
+         aa[i].IfIndex = stat[i].if_index;
+         if (i < *count - 1) aa[i].Next = aa + i + 1;
+-        ConvertInterfaceLuidToGuid( luids + i, &guid );
++        /* The table just read has each interface's GUID: asking the driver for it again,
++         * one request per adapter, was most of what listing the adapters cost. */
++        guid = stat[i].if_guid;
+         ConvertGuidToStringA( &guid, str_ptr, CHARS_IN_GUID );
+         aa[i].AdapterName = str_ptr;
+         str_ptr += (CHARS_IN_GUID + 1) & ~1;
+@@ -5387,3 +5389,22 @@
+     FIXME( "(%x): stub\n", id );
+     return ERROR_SUCCESS;
+ }
++
++/******************************************************************
++ *    DllMain (IPHLPAPI.@)
++ *
++ * Once loaded, stays loaded. A program that loads this library for each
++ * question it has and frees it again (a copy protection reading the adapters'
++ * addresses a few thousand times as its plugin starts) otherwise pays for
++ * loading it, nsi.dll and dnsapi.dll every time: most of what was left of
++ * the wait once the listing itself was cheap.
++ */
++BOOL WINAPI DllMain( HINSTANCE inst, DWORD reason, void *reserved )
++{
++    if (reason == DLL_PROCESS_ATTACH)
++    {
++        DisableThreadLibraryCalls( inst );
++        LdrAddRefDll( LDR_ADDREF_DLL_PIN, inst );
++    }
++    return TRUE;
++}
+--- a/dlls/nsiproxy.sys/ndis.c
++++ b/dlls/nsiproxy.sys/ndis.c
+@@ -103,6 +103,9 @@
+ };
+ 
+ static struct list if_list = LIST_INIT( if_list );
++/* Interfaces that have gone. Their entries are kept (a caller may still hold a
++ * name out of one), but they are no longer interfaces: nothing lists or finds them. */
++static struct list if_gone_list = LIST_INIT( if_gone_list );
+ static pthread_mutex_t if_list_lock = PTHREAD_MUTEX_INITIALIZER;
+ 
+ static struct if_entry *find_entry_from_index( UINT index )
+@@ -310,6 +313,7 @@
+ static unsigned int update_if_table( void )
+ {
+     struct if_nameindex *indices, *entry;
++    struct if_entry *cur, *next;
+     unsigned int append_count = 0;
+ 
+     indices = if_nameindex();
+@@ -319,6 +323,21 @@
+         return 0;
+     }
+ 
++    /* An interface that is no longer there is no longer an adapter. Without this the
++     * table only grew: every interface that had existed since the driver started stayed
++     * in it (a container's veth pair, a VPN, a USB adapter unplugged), and everything
++     * that lists the adapters paid for each of them, for as long as the prefix ran. */
++    LIST_FOR_EACH_ENTRY_SAFE( cur, next, &if_list, struct if_entry, entry )
++    {
++        for (entry = indices; entry->if_index; entry++)
++            if (entry->if_index == cur->if_index && !strcmp( entry->if_name, cur->if_unix_name )) break;
++        if (!entry->if_index)
++        {
++            list_remove( &cur->entry );
++            list_add_tail( &if_gone_list, &cur->entry );
++        }
++    }
++
+     for (entry = indices; entry->if_index; entry++)
+     {
+         if (!find_entry_from_index( entry->if_index ) && add_entry( entry->if_index, entry->if_name ))
+@@ -336,6 +355,59 @@
+     memset( (char *)str->String + str->Length, 0, sizeof(str->String) - str->Length );
+ }
+ 
++/* For a listing of every interface (under if_list_lock): one socket and one reading
++ * of /proc/net/dev for all of them. Each interface opened its own and read the whole
++ * file to find its one line, so a listing cost the square of the interface count. */
++static int listing_sock = -1;
++static char *listing_netdev;
++
++#ifdef __linux__
++static char *read_proc_net_dev( void )
++{
++    size_t size = 4096, len = 0, got;
++    char *buf = malloc( size ), *bigger;
++    FILE *fp;
++
++    if (!buf) return NULL;
++    if (!(fp = fopen( "/proc/net/dev", "r" )))
++    {
++        free( buf );
++        return NULL;
++    }
++    while ((got = fread( buf + len, 1, size - len - 1, fp )) > 0)
++    {
++        len += got;
++        if (len + 1 < size) continue;
++        if (!(bigger = realloc( buf, size * 2 ))) break;
++        buf = bigger;
++        size *= 2;
++    }
++    fclose( fp );
++    buf[len] = 0;
++    return buf;
++}
++
++static void netdev_line_to_dynamic( const char *ptr, struct nsi_ndis_ifinfo_dynamic *data )
++{
++    unsigned long long values[9];
++
++    if (sscanf( ptr, "%llu %llu %llu %llu %*u %*u %*u %llu %llu %llu %llu %llu",
++                values, values + 1, values + 2, values + 3, values + 4,
++                values + 5, values + 6, values + 7, values + 8 ) != 9) return;
++    data->in_octets      = values[0];
++    data->in_ucast_pkts  = values[1];
++    data->in_errors      = values[2];
++    data->in_discards    = values[3];
++    data->in_mcast_pkts  = values[4];
++    data->out_octets     = values[5];
++    data->out_ucast_pkts = values[6];
++    data->out_errors     = values[7];
++    data->out_discards   = values[8];
++    /* Some applications check for link speed >= 1000000 */
++    data->rcv_speed = data->xmit_speed = 1000000;
++}
++#endif
++
+ static void ifinfo_fill_dynamic( struct if_entry *entry, struct nsi_ndis_ifinfo_dynamic *data )
+ {
+     int fd, name_len = strlen( entry->if_unix_name );
+@@ -346,7 +418,7 @@
+     if (name_len >= sizeof(req.ifr_name)) return;
+     memcpy( req.ifr_name, entry->if_unix_name, name_len + 1 );
+ 
+-    fd = socket( PF_INET, SOCK_DGRAM, 0 );
++    fd = listing_sock != -1 ? listing_sock : socket( PF_INET, SOCK_DGRAM, 0 );
+     if (fd == -1) return;
+ 
+     if (!ioctl( fd, SIOCGIFFLAGS, &req ))
+@@ -383,42 +455,26 @@
+     if (!ioctl( fd, SIOCGIFMTU, &req )) data->mtu = req.ifr_mtu;
+     else data->mtu = 0;
+ 
+-    close( fd );
++    if (fd != listing_sock) close( fd );
+ 
+ #ifdef __linux__
+     {
+-        FILE *fp;
++        char *own = listing_netdev ? NULL : read_proc_net_dev();
++        const char *ptr = listing_netdev ? listing_netdev : own;
+ 
+-        if ((fp = fopen( "/proc/net/dev", "r" )))
++        while (ptr && *ptr)
+         {
+-            char buf[512], *ptr;
++            const char *eol = strchr( ptr, '\n' );
+ 
+-            while ((ptr = fgets( buf, sizeof(buf), fp )))
++            while (*ptr && *ptr != '\n' && isspace( *ptr )) ptr++;
++            if (!ascii_strncasecmp( ptr, entry->if_unix_name, name_len ) && ptr[name_len] == ':')
+             {
+-                while (*ptr && isspace( *ptr )) ptr++;
+-                if (!ascii_strncasecmp( ptr, entry->if_unix_name, name_len ) && ptr[name_len] == ':')
+-                {
+-                    unsigned long long values[9];
+-                    ptr += name_len + 1;
+-                    sscanf( ptr, "%llu %llu %llu %llu %*u %*u %*u %llu %llu %llu %llu %llu",
+-                            values, values + 1, values + 2, values + 3, values + 4,
+-                            values + 5, values + 6, values + 7, values + 8 );
+-                    data->in_octets      = values[0];
+-                    data->in_ucast_pkts  = values[1];
+-                    data->in_errors      = values[2];
+-                    data->in_discards    = values[3];
+-                    data->in_mcast_pkts  = values[4];
+-                    data->out_octets     = values[5];
+-                    data->out_ucast_pkts = values[6];
+-                    data->out_errors     = values[7];
+-                    data->out_discards   = values[8];
+-                    /* Some applications check for link speed >= 1000000 */
+-                    data->rcv_speed = data->xmit_speed = 1000000;
+-                    break;
+-                }
++                netdev_line_to_dynamic( ptr + name_len + 1, data );
++                break;
+             }
+-            fclose( fp );
++            ptr = eol ? eol + 1 : NULL;
+         }
++        free( own );
+     }
+ #elif defined(HAVE_SYS_SYSCTL_H) && defined(NET_RT_IFLIST)
+     {
+@@ -510,6 +566,14 @@
+ 
+     update_if_table();
+ 
++#ifdef __linux__
++    if (dynamic_data && *count)
++    {
++        listing_sock = socket( PF_INET, SOCK_DGRAM, 0 );
++        listing_netdev = read_proc_net_dev();
++    }
++#endif
++
+     LIST_FOR_EACH_ENTRY( entry, &if_list, struct if_entry, entry )
+     {
+         if (num < *count)
+@@ -523,6 +587,11 @@
+         num++;
+     }
+ 
++    if (listing_sock != -1) close( listing_sock );
++    listing_sock = -1;
++    free( listing_netdev );
++    listing_netdev = NULL;
++
+     pthread_mutex_unlock( &if_list_lock );
+ 
+     if (!want_data || num <= *count) *count = num;

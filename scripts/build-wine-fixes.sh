@@ -9,7 +9,9 @@
 # License Engine needs to keep its sign-in), dxgi.dll (a WaitForVBlank that
 # returns, for JUCE 8 GUIs) and ole32.dll (drag-drop teardown that survives a
 # stale target, for WebView2 apps), and hidparse.sys (HID descriptors with
-# hundreds of usages, for Komplete Kontrol S-series MK1 keyboards). This applies every
+# hundreds of usages, for Komplete Kontrol S-series MK1 keyboards), and iphlpapi.dll
+# with nsiproxy.so (listing the network adapters is cheap, and only lists the ones
+# that exist, for KORG's TRITON). This applies every
 # patches/wine/*-<version>.patch to the Wine sources (on top of the full
 # wine-staging set, since the pinned build is a staging build), builds just
 # those DLLs with the MinGW cross compiler, and produces
@@ -25,13 +27,18 @@ PATCHES=("$HERE"/patches/wine/*-"$VERSION".patch)
 [ -f "${PATCHES[0]}" ] || { echo "no patches for Wine $VERSION under $HERE/patches/wine" >&2; exit 1; }
 # PE modules to rebuild, by file name. Wine keeps a DLL in dlls/<name> and a
 # driver in dlls/<name>.sys, so the source folder is the name minus a .dll suffix.
-MODULES=(d2d1.dll sensapi.dll dcomp.dll advapi32.dll dxgi.dll ole32.dll wined3d.dll win32u.dll ntdll.dll user32.dll hidparse.sys)
+MODULES=(d2d1.dll sensapi.dll dcomp.dll advapi32.dll dxgi.dll ole32.dll wined3d.dll win32u.dll ntdll.dll user32.dll hidparse.sys iphlpapi.dll)
 # Unix-side libraries to rebuild (lib/wine/x86_64-unix). winex11.so is the X11
 # driver: a cursor set from another process (WebView2's browser) must show as
 # an arrow rather than nothing. It is built in a second, X-enabled configure
 # of the same patched tree, with the same optional X, OpenGL and Vulkan parts
 # as the pinned build, so the rebuilt driver loses no feature.
-UNIX_MODULES=(winex11.so)
+# nsiproxy.so is the network driver's unix half: its interface table must drop
+# interfaces that have gone, and read the statistics once per listing (KORG's
+# TRITON lists the adapters a few thousand times as it starts).
+UNIX_MODULES=(winex11.so nsiproxy.so)
+# Where each is built: a graphics driver in dlls/<name>.drv, a kernel driver's unix half in dlls/<name>.sys.
+unix_module_path() { case "$1" in nsiproxy.so) echo "dlls/nsiproxy.sys/$1";; *) echo "dlls/${1%.so}.drv/$1";; esac; }
 # WINE_FIXES_WORK=<dir> keeps the patched tree (unstripped DLL for symbols).
 if [ -n "${WINE_FIXES_WORK:-}" ]; then WORK="$WINE_FIXES_WORK"; mkdir -p "$WORK"; else WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT; fi
 cd "$WORK"
@@ -86,8 +93,8 @@ done
 mkdir -p "$PKG/x86_64-unix"
 for U in "${UNIX_MODULES[@]}"; do
     echo "== build $U"
-    make -j"$(nproc)" "dlls/${U%.so}.drv/$U" >/dev/null
-    strip --strip-unneeded -o "$PKG/x86_64-unix/$U" "$SRC/dlls/${U%.so}.drv/$U" 2>/dev/null || cp "$SRC/dlls/${U%.so}.drv/$U" "$PKG/x86_64-unix/$U"
+    make -j"$(nproc)" "$(unix_module_path "$U")" >/dev/null
+    strip --strip-unneeded -o "$PKG/x86_64-unix/$U" "$SRC/$(unix_module_path "$U")" 2>/dev/null || cp "$SRC/$(unix_module_path "$U")" "$PKG/x86_64-unix/$U"
 done
 # powershell.exe in place of Wine's stub (tools/psshim): it answers "is this program
 # running?" honestly and exits 0 for anything else, as the stub did. Built for both
