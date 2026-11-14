@@ -28,6 +28,7 @@ def prepare(p: Prefix, reporter=None):
     _guarded(r, "nilinux leftovers", lambda: yabridge.remove_nilinux_leftovers(r))
     _guarded(r, "Plugin DLL overrides", lambda: yabridge.write_plugin_overrides(dcomp.all_plugin_overrides(p)))
     _guarded(r, "Plugin host variables", lambda: yabridge.write_plugin_env(dcomp.all_plugin_host_env(p)))
+    _guarded(r, "yabridge plugin options", lambda: yabridge.write_config(recipes.plugin_yabridge_options(p)))
     _guarded(r, "DirectComposition programs", lambda: dcomp.apply_program_overrides(p, dcomp.program_exes(p), r))
     _guarded(r, "WebView2 presentation flags", lambda: webview2.apply_presentation_flags(p, r))
     for v in vendors.all():
@@ -146,6 +147,7 @@ def after_change(p: Prefix, reporter=None, force=False) -> dict:
     _guarded(r, "Recipes", lambda: recipes.apply_all(p, r))
     _guarded(r, "Plugin DLL overrides", lambda: yabridge.write_plugin_overrides(dcomp.all_plugin_overrides(p)))
     _guarded(r, "Plugin host variables", lambda: yabridge.write_plugin_env(dcomp.all_plugin_host_env(p)))
+    _guarded(r, "yabridge plugin options", lambda: yabridge.write_config(recipes.plugin_yabridge_options(p)))
     res = yabridge.sync(p, r)
     # A program that registered its own link scheme (a browser sign-in returning to
     # kchub://, KORG Software Pass) needs it handed over from the desktop.

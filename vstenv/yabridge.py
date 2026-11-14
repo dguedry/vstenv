@@ -428,6 +428,60 @@ def write_plugin_env(entries: list[tuple[str, str]]) -> Path:
     PLUGIN_ENV_FILE.write_text("\n".join(lines) + "\n")
     return PLUGIN_ENV_FILE
 
+# yabridge's own per-plugin options live in a yabridge.toml beside the bridged
+# plugins (it looks in the plugin's directory and its parents; a section name is
+# a glob over the path relative to the file, and the FIRST matching section
+# wins). vstenv writes only its own marked block, at the end, so a section the
+# person wrote for the same plugin still takes precedence.
+CONFIG_BEGIN = "# >>> vstenv: per-plugin options from Troubleshoot (rewritten on every pass; edit outside this block)"
+CONFIG_END = "# <<< vstenv"
+_CONFIG_ROOTS = {".dll": (".vst/yabridge", ".so"), ".vst3": (".vst3/yabridge", ".vst3"), ".clap": (".clap/yabridge", ".clap")}
+
+def _glob_literal(name: str) -> str:
+    """A section name that matches exactly this path (glob specials bracketed)."""
+    return "".join(f"[{c}]" if c in "*?[]" else c for c in name)
+
+def config_sections(names_options: dict[str, dict[str, bool]]) -> dict[Path, list[str]]:
+    """{yabridge.toml path: its block's lines} for `yabridgectl status` plugin
+    names (relative to their plugin dir) -> {option: value}."""
+    out: dict[Path, list[str]] = {}
+    for name, opts in sorted(names_options.items()):
+        sfx = Path(name).suffix.lower()
+        if sfx not in _CONFIG_ROOTS or not opts: continue
+        root, linux_sfx = _CONFIG_ROOTS[sfx]
+        rel = name[: -len(sfx)] + linux_sfx
+        key = _glob_literal(rel).replace("\\", "\\\\").replace('"', '\\"')
+        lines = out.setdefault(Path.home() / root / "yabridge.toml", [])
+        lines += [f'["{key}"]'] + [f"{k} = {'true' if v else 'false'}" for k, v in sorted(opts.items())] + [""]
+    return out
+
+def _replace_block(text: str, block: list[str]) -> str:
+    lines = text.splitlines()
+    if CONFIG_BEGIN in lines:
+        i = lines.index(CONFIG_BEGIN)
+        j = lines.index(CONFIG_END, i) + 1 if CONFIG_END in lines[i:] else len(lines)
+        lines = lines[:i] + lines[j:]
+    while lines and not lines[-1].strip(): lines.pop()
+    if block:
+        if lines: lines.append("")
+        lines += [CONFIG_BEGIN, *block, CONFIG_END]
+    return "\n".join(lines) + "\n" if lines else ""
+
+def write_config(names_options: dict[str, dict[str, bool]]) -> list[Path]:
+    """Write vstenv's block into each yabridge.toml (VST2, VST3, CLAP roots);
+    a file left with nothing else in it is removed."""
+    wanted = config_sections(names_options)
+    changed = []
+    for root, _ in _CONFIG_ROOTS.values():
+        f = Path.home() / root / "yabridge.toml"
+        old = f.read_text() if f.exists() else ""
+        new = _replace_block(old, wanted.get(f, []))
+        if new == old: continue
+        if new: f.parent.mkdir(parents=True, exist_ok=True); f.write_text(new)
+        else: f.unlink(missing_ok=True)
+        changed.append(f)
+    return changed
+
 def host_launchers() -> list[Path]:
     return [YAB_DIR / n for n in HOST_LAUNCHERS if (YAB_DIR / n).exists()]
 

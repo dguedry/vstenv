@@ -46,7 +46,7 @@ TRISTATE = ("auto", "on", "off")
 # "installs" are remedies for running an installer file (remedies.py), keyed
 # by the file's name; a key may hold * for the version part of a name.
 KNOBS = {"programs": {"rendering": RENDERING, "wm_away": TRISTATE, "browser_software_gl": TRISTATE},
-         "plugins": {"rendering": RENDERING, "hide_wine": TRISTATE},
+         "plugins": {"rendering": RENDERING, "hide_wine": TRISTATE, "force_dnd": TRISTATE},
          "installs": dict(remedies.KNOBS)}
 KINDS = tuple(KNOBS)
 
@@ -62,6 +62,7 @@ KNOB_TEXT = {
     "wm_away": "Keep the window manager away (menus that flash and close as soon as they open)",
     "browser_software_gl": "Software rendering for its embedded browser window (a window that stays blank or black)",
     "hide_wine": "Hide Wine from the plugin (JUCE 8.0.13 and later: an empty panel, missing artwork; never for iLok plugins)",
+    "force_dnd": "Let files be dropped onto the plugin in REAPER (REAPER's FX window catches the drop otherwise)",
 }
 UNNECESSARY = "Most programs need none of this. Only try a setting when you have the problem it describes."
 
@@ -276,6 +277,18 @@ def plugin_hide_wine(p: Prefix) -> tuple[list[str], list[str]]:
         if v == "on": on.append(name)
         elif v == "off": off.append(name)
     return on, off
+
+
+def plugin_force_dnd(p: Prefix) -> list[str]:
+    """Plugin names with force_dnd on (yabridge's editor_force_dnd), choices over the table."""
+    mine, theirs = choices(p)["plugins"], table()["plugins"]
+    return [name for name in sorted(set(mine) | set(theirs))
+            if (mine.get(name, {}).get("force_dnd") or theirs.get(name, {}).get("force_dnd")) == "on"]
+
+
+def plugin_yabridge_options(p: Prefix) -> dict[str, dict[str, bool]]:
+    """{plugin name: {yabridge.toml option: value}} for yabridge.write_config."""
+    return {name: {"editor_force_dnd": True} for name in plugin_force_dnd(p)}
 
 
 def in_effect(p: Prefix) -> list[str]:

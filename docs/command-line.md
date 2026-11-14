@@ -27,6 +27,7 @@ vstenv remove-environment [--downloads]      # delete the prefix and everything 
 vstenv menu remove                           # take away the menu and file manager entries
 vstenv webview2 software-gl on               # software rendering for WebView2 apps
 vstenv recipe set plugin NAME hide_wine=on   # a Troubleshoot setting, from a terminal
+vstenv recipe set plugin NAME force_dnd=on   # REAPER: files dropped onto the plugin reach it
 vstenv doctor                                # every Health check, with its fix
 ```
 

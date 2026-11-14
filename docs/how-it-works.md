@@ -295,6 +295,13 @@ Health lists every check behind these; when one fails it names the fix.
   run inside yabridge's host), so their one setting, Direct3D, travels as a
   DLL override the host applies when it loads that plugin — reload the
   plugin in the DAW to see it. Health lists every setting in effect.
+  *Drop files onto the plugin in REAPER* is yabridge's own `editor_force_dnd`.
+  yabridge already handles drag and drop in both directions (X11/XWayland),
+  but REAPER's FX window registers itself as a drop target and catches files
+  meant for the plugin. vstenv writes this option into a marked block at the
+  end of `~/.vst/yabridge`, `~/.vst3/yabridge` or `~/.clap/yabridge`'s
+  `yabridge.toml`. yabridge applies the first section that matches, so any
+  section you write yourself above that block still takes precedence.
 - **Recipes** — a setting that fixed something for you can fix it for the
   next person. *Share this recipe…* in the Troubleshoot dialog opens a
   prefilled issue on this project's GitHub in your browser, with the

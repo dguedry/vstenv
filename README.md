@@ -239,6 +239,18 @@ Inside the Windows folder, the big parts are usually `drive_c/Program Files`
 (programs and plugins), `drive_c/ProgramData` and
 `drive_c/users/Public/Documents` (where Native Access puts libraries).
 
+### Drag and drop
+
+You can drag samples and loops from your Linux file manager onto a Windows plugin,
+and drag sounds or MIDI out of a plugin (Kontakt, sample players, drum machines)
+into your DAW or a folder. This works in DAWs running under X11 or XWayland, which
+covers nearly all of them.
+
+**In REAPER**, files dropped onto a plugin land in REAPER's FX window instead of
+the plugin. Click the gear button beside the plugin on the Plugins tab and set
+**Drop files onto the plugin in REAPER** to On. Then remove the plugin and add it
+again in REAPER.
+
 ### Keeping sample libraries on another drive
 
 **For new installs**, set the library or content location in the vendor's own
