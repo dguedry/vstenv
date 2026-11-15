@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.139" date="2026-11-15">
+      <description>
+        <p>Offer to turn on ntsync: Wine's fast thread waits (Kontakt's worker pool stuttered without it)</p>
+      </description>
+    </release>
     <release version="0.1.138" date="2026-11-14">
       <description>
         <p>Troubleshoot: drop files onto a plugin in REAPER (yabridge editor_force_dnd, per plugin)</p>
