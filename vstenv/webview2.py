@@ -93,17 +93,34 @@ def _save_cache():
         _SCAN_CACHE.write_text(json.dumps(_cache))
     except OSError: pass
 
-def _exe_uses_webview2(exe: Path) -> bool:
+# What marks a WebView2 host. Tauri 2 builds (wry with webview2-com 0.38, e.g.
+# the Mercurial Tones Hub) load the runtime without WebView2Loader and carry
+# "CoreWebView2" only in UTF-16, so the crate's own name is the plain marker.
+_MARKERS = (b"CoreWebView2", b"msedgewebview2", b"WebView2Loader")
+_TAURI2_MARKERS = ("CoreWebView2".encode("utf-16-le"), b"webview2-com")
+# Bumped when the markers change, so a cached "no" from older markers is re-read.
+_MARKERS_VERSION = 2
+
+NOT_A_HOST, HOST, TAURI2_HOST = 0, 1, 2
+
+def _scan(exe: Path) -> int:
+    """NOT_A_HOST, HOST, or TAURI2_HOST: a host only the Tauri 2 markers find."""
     try: st = exe.stat()
-    except OSError: return False
+    except OSError: return NOT_A_HOST
     c = _load_cache(); key = str(exe)
     hit = c.get(key)
-    if hit and hit[0] == st.st_size and hit[1] == st.st_mtime: return hit[2]
+    if (hit and hit[0] == st.st_size and hit[1] == st.st_mtime
+            and (hit[2] or (len(hit) > 3 and hit[3] == _MARKERS_VERSION))):
+        return int(hit[2])             # True from an older cache is HOST
     try: b = exe.read_bytes()
-    except OSError: return False
-    found = b"CoreWebView2" in b or b"msedgewebview2" in b or b"WebView2Loader" in b
-    c[key] = [st.st_size, st.st_mtime, found]
-    return found
+    except OSError: return NOT_A_HOST
+    kind = (HOST if any(m in b for m in _MARKERS)
+            else TAURI2_HOST if any(m in b for m in _TAURI2_MARKERS) else NOT_A_HOST)
+    c[key] = [st.st_size, st.st_mtime, kind, _MARKERS_VERSION]
+    return kind
+
+def _exe_uses_webview2(exe: Path) -> bool:
+    return _scan(exe) != NOT_A_HOST
 
 # Chromium presents WebView2 content through DirectComposition and repaints only
 # each frame's damaged region, trusting the swapchain to preserve the rest;
@@ -114,6 +131,14 @@ def _exe_uses_webview2(exe: Path) -> bool:
 # the documented WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS variable is ignored
 # under Wine, where every process counts as elevated.
 PRESENTATION_FLAGS = "--disable-direct-composition --ui-disable-partial-swap"
+
+# Tauri 2 hosts get only the second flag. With DirectComposition off, their page
+# sits in a window of its own that Wine loses track of once the main window is
+# moved: the wheel still scrolls, but every click lands somewhere else (the
+# Mercurial Tones Hub's buttons stopped working). Full-frame presentation alone
+# is enough to stop their scrolling jitter.
+TAURI2_FLAGS = "--ui-disable-partial-swap"
+_tauri2_hosts: set[str] = set()     # exe names host_exes found to be Tauri 2 hosts
 
 # Some stacks need more than full-frame presentation: the window downloads its
 # page and then never paints at all, white turning black, taking no input.
@@ -143,9 +168,12 @@ def software_gl(p: Prefix | None = None) -> bool:
         return True
     return bool(_settings(p).get("software_gl"))
 
-def presentation_flags(p: Prefix | None = None) -> str:
-    """The flags every WebView2 host gets, plus software GL when it is on."""
-    return PRESENTATION_FLAGS + (" " + SOFTWARE_GL_FLAGS if software_gl(p) else "")
+def presentation_flags(p: Prefix | None = None, exe: str | None = None) -> str:
+    """The flags a WebView2 host gets (`exe`: its name, for a Tauri 2 host's
+    lighter set), plus software GL when it is on."""
+    if exe is not None and p is not None and not _tauri2_hosts: host_exes(p)
+    base = TAURI2_FLAGS if exe in _tauri2_hosts else PRESENTATION_FLAGS
+    return base + (" " + SOFTWARE_GL_FLAGS if software_gl(p) else "")
 
 def restart_note(done: list[str]) -> str:
     """'Restart X, Y and 29 more to pick it up': every SWAM standalone and the
@@ -164,11 +192,17 @@ def set_software_gl(p: Prefix, on: bool, reporter=None) -> list[str]:
     (p.drive_c / SETTINGS).write_text(json.dumps(st, indent=1))
     exes = host_exes(p)
     if not exes: return []
+    try: have = p.reg_query(POLICY_KEY)
+    except Exception: have = {}
     r.step(f"WebView2 apps: software rendering {'on' if on else 'off'}")
     done = []
     for exe in exes:
+        # A host that already has DirectComposition off keeps it (a vendor
+        # module set it, as Minimal's does for its Hub); only the GL part changes.
+        flags = (presentation_flags(p) if "--disable-direct-composition" in (have.get(exe) or "")
+                 else presentation_flags(p, exe))
         cp = p.run(["reg", "add", POLICY_KEY, "/v", exe, "/t", "REG_SZ",
-                    "/d", presentation_flags(p), "/f"], timeout=120)
+                    "/d", flags, "/f"], timeout=120)
         if cp.returncode == 0: done.append(exe)
     (r.ok if len(done) == len(exes) else r.fail)(", ".join(exes))
     return done
@@ -191,7 +225,10 @@ def host_exes(p: Prefix) -> list[str]:
                 if any(r in str(sub) for r in _RUNTIME_DIRS): continue
                 if sub.name == "BrowserRuntime": continue      # a bundled runtime's own exes are not hosts
                 exes = [e for e in sub.glob("*.exe") if e.name.lower() != "msedgewebview2.exe"]
-                out.update(e.name for e in exes if _exe_uses_webview2(e))
+                for e in exes:
+                    kind = _scan(e)
+                    if kind: out.add(e.name)
+                    if kind == TAURI2_HOST: _tauri2_hosts.add(e.name)
                 if (sub / "BrowserRuntime/msedgewebview2.exe").exists():
                     out.update(e.name for e in exes if not e.name.lower().startswith("unins"))
     vst3 = p.drive_c / "Program Files/Common Files/VST3"
@@ -214,7 +251,7 @@ def apply_presentation_flags(p: Prefix, reporter=None) -> int:
     n = 0
     for exe in missing:
         cp = p.run(["reg", "add", POLICY_KEY, "/v", exe, "/t", "REG_SZ",
-                    "/d", presentation_flags(p), "/f"], timeout=120)
+                    "/d", presentation_flags(p, exe), "/f"], timeout=120)
         if cp.returncode == 0: n += 1
     (r.ok if n == len(missing) else r.fail)(", ".join(missing))
     return n

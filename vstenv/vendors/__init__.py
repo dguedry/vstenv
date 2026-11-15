@@ -250,6 +250,7 @@ def for_product_installer(f: Path) -> Vendor | None:
 STORES = [
     ("Audio Modeling Software Center", "Audio Modeling", "https://audiomodeling.com/"),
     ("SINE Player", "Orchestral Tools", "https://www.orchestraltools.com/sine"),
+    ("Mercurial Tones Hub", "Mercurial Tones", "https://shop.mercurialtones.com/pages/mercurial-tones-hub"),
     ("Spitfire Audio", "Spitfire Audio", "https://www.spitfireaudio.com/library-manager"),
     ("iLok License Manager", "PACE (iLok)", "https://www.ilok.com/"),
 ]

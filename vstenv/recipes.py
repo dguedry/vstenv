@@ -231,7 +231,8 @@ def apply_program(p: Prefix, exe_name: str, settings: dict, reporter=None, exe_p
     elif wm == "off" and unmanaged.applied(p, exe_name): unmanaged.clear(p, exe_name); done.append("wm_away=off")
     gl = settings.get("browser_software_gl", "auto")
     if gl != "auto":
-        flags = webview2.PRESENTATION_FLAGS + (" " + webview2.SOFTWARE_GL_FLAGS if gl == "on" else "")
+        flags = (webview2.presentation_flags(p, exe_name).replace(" " + webview2.SOFTWARE_GL_FLAGS, "")
+                 + (" " + webview2.SOFTWARE_GL_FLAGS if gl == "on" else ""))
         have = {}
         try: have = p.reg_query(webview2.POLICY_KEY)
         except Exception: pass

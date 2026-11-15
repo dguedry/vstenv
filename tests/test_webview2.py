@@ -113,3 +113,33 @@ class PresentationFlagsTest(unittest.TestCase):
                 self.assertTrue(webview2._exe_uses_webview2(exe))      # cache hit
             exe.write_bytes(b"MZ plain"); os.utime(exe, (time.time() + 5, time.time() + 5))
             self.assertFalse(webview2._exe_uses_webview2(exe))         # changed file is re-read
+
+    def test_tauri2_host_is_found(self):
+        # wry + webview2-com 0.38 (Mercurial Tones Hub): no WebView2Loader, and
+        # "CoreWebView2" only in UTF-16.
+        with tempfile.TemporaryDirectory() as tmp:
+            for body in (b"MZ" + "CoreWebView2".encode("utf-16-le"), b"MZ webview2-com-0.38.2"):
+                exe = Path(tmp) / f"hub{len(body)}.exe"; exe.write_bytes(body)
+                self.assertTrue(webview2._exe_uses_webview2(exe))
+
+    def test_tauri2_host_gets_only_full_frame_presentation(self):
+        # DirectComposition off made the Mercurial Tones Hub's clicks miss after
+        # its window was moved; a host the older markers find keeps both flags.
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Prefix(Path(tmp) / "prefix", WineBuild(Path(tmp) / "wine"))
+            hub = p.drive_c / "Program Files/Mercurial Tones Hub/mercurial-software-center.exe"
+            hub.parent.mkdir(parents=True); hub.write_bytes(b"MZ webview2-com-0.38.2")
+            old = p.drive_c / "Program Files/Audio Modeling/Software Center/Software Center.exe"
+            old.parent.mkdir(parents=True); old.write_bytes(b"MZ CoreWebView2 webview2-com")
+            self.assertEqual(webview2.host_exes(p), ["Software Center.exe", "mercurial-software-center.exe"])
+            with mock.patch.object(webview2, "software_gl", return_value=False):
+                self.assertEqual(webview2.presentation_flags(p, "mercurial-software-center.exe"), webview2.TAURI2_FLAGS)
+                self.assertEqual(webview2.presentation_flags(p, "Software Center.exe"), webview2.PRESENTATION_FLAGS)
+                self.assertEqual(webview2.presentation_flags(p), webview2.PRESENTATION_FLAGS)
+
+    def test_cached_miss_from_older_markers_is_read_again(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            exe = Path(tmp) / "hub.exe"; exe.write_bytes(b"MZ webview2-com")
+            st = exe.stat()
+            webview2._load_cache()[str(exe)] = [st.st_size, st.st_mtime, False]   # written by an older version
+            self.assertTrue(webview2._exe_uses_webview2(exe))

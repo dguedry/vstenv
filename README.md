@@ -200,6 +200,7 @@ Known problems and what to do:
 | FabFilter, Soundtoys (with iLok), Valhalla, Xfer Serum 2 | Work as they are |
 | Gig Performer 5 | Works, as a standalone program |
 | Minimal Audio: Minimal Hub, Squash | Works |
+| Mercurial Tones: Mercurial Tones Hub, Janggo | Works. Install, sign in, and play in StageRig. The Hub is slow to respond when maximized; drag its edges to make it bigger instead |
 | KORG: KORG Software Pass, TRITON | Works. Sign in, install, and play in StageRig |
 | Orchestral Tools: SINE Player | Works. Sign-in fields don't show your typing (see above) |
 | Spitfire Audio app | Partly: it opens and browses; signing in and installing libraries not yet confirmed |
