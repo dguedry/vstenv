@@ -1077,6 +1077,10 @@ class Window(Adw.ApplicationWindow):
     def build_health(self):
         page = Adw.PreferencesPage()
         self.health_group = Adw.PreferencesGroup(title="Checks"); page.add(self.health_group)
+        g = Adw.PreferencesGroup(title="Speed")
+        g.add(_row("Speed up plugins", "Turns on the kernel's ntsync driver, so plugins with many threads (Kontakt) waste less CPU. Asks for your password once.",
+                   "power-profile-performance-symbolic", lambda: self.enable_ntsync()))
+        page.add(g)
         g = Adw.PreferencesGroup(title="Sign-in")
         g.add(_row("Fix browser sign-in", "A vendor's manager may sign in through your browser; this makes the link come back to it.", "system-users-symbolic",
                    lambda: self.run_bg("Registering the sign-in handlers", lambda rep: __import__(f"{APP_NAME}.urlschemes", fromlist=["x"]).register_all(self.prefix, rep))))
@@ -1084,6 +1088,33 @@ class Window(Adw.ApplicationWindow):
         g = Adw.PreferencesGroup(title="Reporting a problem", description="If a check above cannot be fixed, send this with your report.")
         g.add(_row("Save a diagnostic report", "Writes a file to your home folder: this app's state and logs, with serials, licence tokens and your home path removed.", "document-save-symbolic", self.save_report))
         page.add(g); return page
+    def enable_ntsync(self):
+        from . import ntsync
+        def fn(r):
+            r.step("Turning on fast thread synchronization (ntsync)")
+            ok, msg = ntsync.enable()
+            (r.ok if ok else r.fail)(msg); return ok, msg
+        self.run_bg("Speeding up plugins", fn, lambda res, err: None if err or not res else self.toast(res[1], 8))
+    def offer_ntsync(self):
+        """Once per launch, in the background: offer the driver when the kernel has
+        it and nobody loaded it. A "no" is remembered."""
+        if getattr(self, "_ntsync_checked", False): return
+        self._ntsync_checked = True
+        from . import ntsync
+        def work():
+            if not ntsync.should_offer(): return
+            def ask():
+                d = Adw.AlertDialog(heading="Make plugins run faster?",
+                                    body="Your kernel has a driver (ntsync) that lets Wine handle plugin threads without a detour, "
+                                         "but it is not turned on. Plugins with many threads, like Kontakt, use less CPU and "
+                                         "stutter less with it.\n\nTurning it on asks for your password once; it stays on "
+                                         "after a restart. Close your DAW afterwards so Wine starts with it.")
+                d.add_response("never", "Don't ask again"); d.add_response("later", "Not now"); d.add_response("enable", "Turn it on")
+                d.set_response_appearance("enable", Adw.ResponseAppearance.SUGGESTED); d.set_default_response("enable"); d.set_close_response("later")
+                d.connect("response", lambda _d, resp: self.enable_ntsync() if resp == "enable" else (ntsync.decline() if resp == "never" else None))
+                d.present(self)
+            ui(ask)
+        threading.Thread(target=work, daemon=True).start()
     def save_report(self):
         from . import report
         def fn(r):
@@ -1132,6 +1163,7 @@ class Window(Adw.ApplicationWindow):
                      "programs": "refresh_programs", "health": "refresh_health"}
 
     def refresh_all(self):
+        if self.is_ready() and not self.busy: self.offer_ntsync()
         self.refresh_notices()                     # cheap, and drives the header
         current = self.stack.get_visible_child_name()
         self._stale = set(self._PAGE_REFRESH) - {current}

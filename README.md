@@ -239,6 +239,15 @@ Inside the Windows folder, the big parts are usually `drive_c/Program Files`
 (programs and plugins), `drive_c/ProgramData` and
 `drive_c/users/Public/Documents` (where Native Access puts libraries).
 
+### Making plugins run faster
+
+Linux 6.14 and later include a driver called ntsync that lets Wine run plugin
+threads much more efficiently. Plugins with many threads, like Kontakt, use less
+CPU and stutter less with it. Most distributions include the driver but don't turn
+it on. If yours is off, the app asks once whether to turn it on, which needs your
+password. You can also do it later from **Health → Speed up plugins**. Once it's
+on, close your DAW and open it again so Wine starts using the driver.
+
 ### Drag and drop
 
 You can drag samples and loops from your Linux file manager onto a Windows plugin,

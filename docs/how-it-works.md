@@ -281,6 +281,18 @@ Health lists every check behind these; when one fails it names the fix.
 
 ## The app in detail
 
+- **Fast thread synchronization (ntsync).** Wine 11 hands NT waits (events,
+  mutexes, semaphores) to the kernel's `/dev/ntsync` when the device exists.
+  Otherwise every wait is a round trip through `wineserver`, which Kontakt's
+  pool of worker threads pays for in CPU use and stutter. Distribution kernels
+  ship the module but don't load it. A Flatpak app can't load modules, so the
+  app runs `pkexec` on the host through `flatpak-spawn --host`. That single
+  password prompt runs `modprobe ntsync` and writes
+  `/etc/modules-load.d/ntsync.conf` (plus a udev rule for mode 0666 if the
+  kernel didn't set it). The app offers this once (remembering a "no"), and
+  it is also available from Health and from `vstenv ntsync enable`.
+  `wineserver` opens the device only when it starts, so a session already
+  running keeps the slow path until it restarts.
 - **Troubleshoot, per program and per plugin** — most of the fixes above are
   the same few settings turned one way or another, keyed by the program's
   exe name in Wine's registry: which Direct3D it gets (DXVK; Wine's own; none,

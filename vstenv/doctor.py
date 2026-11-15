@@ -64,6 +64,14 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
     except Exception as e:
         c.append(Check("DirectComposition and WebView2 settings do not collide", True, f"not checked: {str(e)[:80]}"))
 
+    try:
+        from . import ntsync
+        ns = ntsync.status(); ok, why = ntsync.summary(ns)
+        c.append(Check("fast thread synchronization (ntsync)", ok, why,
+                       fix="vstenv ntsync enable (asks for your password once), or Health → Speed up plugins" if ntsync.can_enable(ns) else ""))
+    except Exception as e:
+        c.append(Check("fast thread synchronization (ntsync)", True, f"not checked: {str(e)[:70]}"))
+
     # A program that runs but never shows a window is usually not the program:
     # mutter can get a window stuck in unmanaging and then refuses to map any
     # Wine window for the rest of the session. Reported as an installer with a

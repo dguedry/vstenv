@@ -73,6 +73,16 @@ def cmd_manager(a):
         if n: print(n)
         for k, val in v.status(p).items(): print(f"  {k:<22} {val}")
 
+def cmd_ntsync(a):
+    """The kernel's ntsync driver: Wine's fast path for thread waits."""
+    from . import ntsync
+    if a.action == "enable":
+        ok, msg = ntsync.enable(); print(msg)
+        if not ok: sys.exit(1)
+        return
+    s = ntsync.status(); ok, why = ntsync.summary(s); print(why)
+    if ntsync.can_enable(s): print(f"Turn it on: {APP_NAME} ntsync enable (asks for your password once)")
+
 def cmd_wedge(a):
     """The DirectComposition wedge: every dcomp GUI hangs until Wine restarts."""
     from . import wedge
@@ -479,6 +489,7 @@ def main(argv=None):
     sp.add_parser("prefixes", help="which vstenv prefixes exist, who owns a vendor daemon, what yabridge points at").set_defaults(f=cmd_prefixes)
     s = sp.add_parser("url-handlers", help="desktop handlers for the vendors' sign-in callback links"); s.add_argument("action", nargs="?", default="register", choices=["register", "unregister", "status"]); s.set_defaults(f=cmd_url_handlers)
     s = sp.add_parser("report", help="write a diagnostic bundle to send with a bug report"); s.add_argument("-o", "--output"); s.add_argument("--summary-only", action="store_true"); s.set_defaults(f=cmd_report)
+    s = sp.add_parser("ntsync", help="Wine's fast thread synchronization (kernel ntsync driver): show it, or turn it on"); s.add_argument("action", nargs="?", default="status", choices=["status", "enable"]); s.set_defaults(f=cmd_ntsync)
     s = sp.add_parser("wedge", help="DirectComposition programs all hang windowless: show it, or restart the Wine session"); s.add_argument("action", nargs="?", default="status", choices=["status", "clear"]); s.set_defaults(f=cmd_wedge)
     sp.add_parser("rescue-install", help="an installer has stopped responding: stop it and finish the install from its payload").set_defaults(f=cmd_rescue)
     s = sp.add_parser("finish-installs", help="complete installs a vendor's manager started but did not finish"); s.add_argument("--no-sync", action="store_true"); s.set_defaults(f=cmd_finish_installs)
