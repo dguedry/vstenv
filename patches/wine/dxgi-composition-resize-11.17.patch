@@ -1,0 +1,37 @@
+--- a/dlls/dxgi/swapchain.c
++++ b/dlls/dxgi/swapchain.c
+@@ -664,6 +664,34 @@
+     d3d11_swapchain_create_d3d11_textures(swapchain, swapchain->device, &wined3d_desc);
+     wined3d_mutex_unlock();
+ 
++    /* A composition swapchain presents into its hidden backing window, and the
++     * GDI present takes that window's client rect as the destination.  Left at
++     * the creation size, a larger frame after ResizeBuffers() was squeezed into
++     * the old composition buffer and blitted into the corner of the target
++     * (IK's TONEX: a shrunken copy of the UI over the resized one).  On Windows
++     * a composition swapchain is exactly as large as its buffers. */
++    if (SUCCEEDED(hr) && swapchain->comp_wnd && IsWindow(swapchain->comp_wnd))
++    {
++        struct wined3d_swapchain_desc now;
++        RECT rc;
++
++        wined3d_mutex_lock();
++        wined3d_swapchain_get_desc(swapchain->wined3d_swapchain, &now);
++        wined3d_mutex_unlock();
++        GetClientRect(swapchain->comp_wnd, &rc);
++        if (now.backbuffer_width && now.backbuffer_height
++                && (rc.right != now.backbuffer_width || rc.bottom != now.backbuffer_height))
++        {
++            UINT swp = SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW;
++
++            if (GetWindowThreadProcessId(swapchain->comp_wnd, NULL) != GetCurrentThreadId())
++                swp |= SWP_ASYNCWINDOWPOS;
++            SetWindowPos(swapchain->comp_wnd, NULL, 0, 0, now.backbuffer_width, now.backbuffer_height, swp);
++            TRACE("Composition window %p resized to %ux%u.\n", swapchain->comp_wnd,
++                    now.backbuffer_width, now.backbuffer_height);
++        }
++    }
++
+     return hr;
+ }
+ 

@@ -34,7 +34,7 @@ PE_DIR = "lib/wine/x86_64-windows"
 MARKER_NAME = "vstenv-wine-fixes.json"
 FIXES = {"dcomp.dll": "DirectComposition (Steinberg's VSTGUI: HALion Sonic 7, Cubase, Dorico; JUCE 8 GUIs: Spitfire Audio), "
                      "and hands composition-swapchain content to the host window",
-         "dxgi.dll": "DXGI composition swapchains that present into the host window (JUCE 8 apps like the Spitfire app)",
+         "dxgi.dll": "DXGI composition swapchains that present into the host window (JUCE 8 apps like the Spitfire app), and follow the app's resizes (TONEX drew pixelated after a resize)",
          "wined3d.dll": "keep-back-buffers swapchains and the composition GL present path (composition swapchains)",
          "win32u.dll": "window and OpenGL plumbing for composition swapchains",
          "d2d1.dll": "Direct2D's copy blend mode (JUCE 8 plugins clear cached images with it; Minimal Audio's readouts smeared when they changed)",

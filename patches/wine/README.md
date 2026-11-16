@@ -229,6 +229,28 @@ modified-preset marker all appear at once.
 Unix-side win32u, which the PE-only DLL set does not ship; see the note at
 the top of that file before relying on any of them.)
 
+## dxgi-composition-resize-<version>.patch
+
+On top of `dcomp-swapchain-present`: a composition swapchain draws into a
+hidden `WineDCompSwapchain` backing window, which is created at the
+swapchain's size and was never resized again. wined3d's GDI present takes
+the device window's client rect as its destination. So after the application
+called `ResizeBuffers()` with a new size, every frame was stretched
+into the old-sized composition buffer, and dcomp blitted that buffer at the
+old size. Seen on IK Multimedia's TONEX 2.2.0 (standalone and VST3,
+github.com/dguedry/vstenv/issues/21): after a window resize the interface was
+pixelated, cropped, or showed a shrunken copy of itself in the corner. The
+patch resizes the backing window to the new buffer size once `ResizeBuffers()`
+succeeds (asynchronously when called from another thread). That is how a
+composition swapchain behaves on Windows: it is as large as its buffers.
+Verified 2026-11-15 by A/B on TONEX 2.2.0 at 1200x700 and 1600x900: the
+shipped DLL draws the interface too large and clipped, the patched one fits
+the window. Janggo (JUCE 8, relays out on resize) rendered correctly either way.
+TONEX also logs `Something's still holding back buffer 0` from
+`wined3d_swapchain_resize_buffers` on some resize steps, with and without the
+patch. A later step succeeds, so it does no visible harm; it is not fixed here.
+giang17's d2d1-dcomp-11.21 branch avoids this differently: its compositor reads the swapchain's buffers back at their own size.
+
 ## ole32-dragdrop-stale-target-<version>.patch
 
 `RevokeDragDrop` crashed WebView2-based apps (Audio Modeling's Software Center,
