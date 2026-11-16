@@ -103,3 +103,55 @@ class InstallTarballTest(unittest.TestCase):
         yabridge._install_tarball(self._tarball(self.root, b"NEW"), None)
         self.assertTrue((self.yab / "yabridgectl").exists())
         self.assertTrue((self.root / ".local/bin/yabridgectl").is_symlink())
+
+
+class BuildRevisionTest(unittest.TestCase):
+    """A CI build carrying older vstenv patches is replaced once a newer one is published."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(); self.root = Path(self.tmp.name)
+        self.yab = self.root / "share/yabridge"; self.yab.mkdir(parents=True)
+        (self.yab / "yabridgectl").write_text("")
+        self.patches = [mock.patch.object(yabridge, "YAB_DIR", self.yab),
+                        mock.patch.object(yabridge, "YCTL", self.yab / "yabridgectl"),
+                        mock.patch.object(yabridge, "MARKER", self.yab / "vstenv-build.json"),
+                        mock.patch.object(yabridge, "pinned_wine_version", lambda: "11.17"),
+                        mock.patch.object(yabridge.Path, "home", staticmethod(lambda: self.root))]
+        for p in self.patches: p.start()
+
+    def tearDown(self):
+        for p in self.patches: p.stop()
+        self.tmp.cleanup()
+
+    def _marker(self, rev=None):
+        m = {"yabridge_commit": "b580a9f", "wine_version": "11.17"}
+        if rev is not None: m["vstenv_build_rev"] = rev
+        return m
+
+    def _tarball(self, rev) -> Path:
+        import tarfile
+        src = self.root / f"pkg{rev}/yabridge"; src.mkdir(parents=True)
+        (src / "yabridgectl").write_text(f"rev {rev}")
+        (src / "vstenv-build.json").write_text(json.dumps(self._marker(rev)))
+        tgz = self.root / f"y{rev}.tar.gz"
+        with tarfile.open(tgz, "w:gz") as t: t.add(src, arcname="yabridge")
+        return tgz
+
+    def test_current_build_is_kept_without_looking_online(self):
+        yabridge.MARKER.write_text(json.dumps(self._marker(yabridge.BUILD_REV)))
+        with mock.patch.object(yabridge, "_find_build_tarball", side_effect=AssertionError("no lookup")):
+            yabridge._install(mock.MagicMock(), False)
+
+    def test_older_build_is_replaced_with_a_fresh_download(self):
+        yabridge.MARKER.write_text(json.dumps(self._marker()))      # builds before revisions had none
+        tgz = self._tarball(yabridge.BUILD_REV)
+        with mock.patch.object(yabridge, "_find_build_tarball", return_value=(tgz, "new")) as find:
+            yabridge._install(mock.MagicMock(), False)
+        self.assertTrue(find.call_args.kwargs.get("fresh"), "a cached tarball of the same name may be the old build")
+        self.assertEqual(yabridge.build_rev(yabridge.build_marker()), yabridge.BUILD_REV)
+
+    def test_older_build_is_kept_until_the_new_one_is_published(self):
+        yabridge.MARKER.write_text(json.dumps(self._marker(1)))
+        with mock.patch.object(yabridge, "_find_build_tarball", return_value=(self._tarball(1), "old")):
+            yabridge._install(mock.MagicMock(), False)
+        self.assertEqual((self.yab / "yabridgectl").read_text(), "", "nothing reinstalled")

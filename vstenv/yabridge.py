@@ -53,6 +53,23 @@ RELEASE_REPOS = ("dguedry/vstenv", "dguedry/nilinux")
 MARKER = YAB_DIR / "vstenv-build.json"
 LEGACY_MARKER_NAME = "nilinux-build.json"     # the same tarball, installed by nilinux
 WINE_NEEDS_MASTER = (9, 22)
+# Revision of vstenv's own yabridge changes (patches/yabridge, BUILD_REV in
+# scripts/build-yabridge.sh); an installed CI build older than this is replaced.
+# 2: the log's "wine version" names the Wine in <prefix>/wineloader, not PATH's.
+BUILD_REV = 2
+
+def build_rev(marker: dict | None) -> int:
+    try: return int((marker or {}).get("vstenv_build_rev", 1))
+    except (TypeError, ValueError): return 1
+
+def _tarball_marker(tgz: Path) -> dict | None:
+    try:
+        with tarfile.open(tgz) as t:
+            for m in t.getmembers():
+                if Path(m.name).name in (MARKER.name, LEGACY_MARKER_NAME) and (f := t.extractfile(m)):
+                    return json.loads(f.read().decode(errors="replace"))
+    except (OSError, tarfile.TarError, ValueError): pass
+    return None
 
 def build_marker() -> dict | None:
     """Metadata of a CI-built yabridge, or None for an upstream release."""
@@ -92,9 +109,11 @@ def compatibility() -> tuple[bool, str]:
     return False, (f"upstream release {installed()} predates Wine 9.22's window changes: with wine {pinned} mouse clicks in "
                    "bridged plugin GUIs land in the wrong place, in every DAW")
 
-def _find_build_tarball(wine_version: str, r) -> tuple[Path | None, str]:
+def _find_build_tarball(wine_version: str, r, fresh=False) -> tuple[Path | None, str]:
     """A CI-built yabridge for this Wine: VSTENV_YABRIDGE_TARBALL, else the asset
-    attached to the latest release of RELEASE_REPOS. Returns (local path, label)."""
+    attached to the latest release of RELEASE_REPOS. Returns (local path, label).
+    fresh: download again even if a tarball of that name is cached (a newer build
+    can keep the name: same yabridge commit, same Wine)."""
     override = os.environ.get("VSTENV_YABRIDGE_TARBALL")
     if override:
         f = Path(override).expanduser()
@@ -106,7 +125,7 @@ def _find_build_tarball(wine_version: str, r) -> tuple[Path | None, str]:
         except Exception as e:
             r.log(f"could not read {repo} releases: {str(e)[:80]}"); continue
         a = pick_asset(rel.get("assets", []), wine_version)
-        if a: return fetch(a["browser_download_url"], paths.DOWNLOADS / a["name"], reporter=r, label="yabridge"), f"{a['name']} ({repo} release {rel.get('tag_name', '')})"
+        if a: return fetch(a["browser_download_url"], paths.DOWNLOADS / a["name"], reporter=r, label="yabridge", force=fresh), f"{a['name']} ({repo} release {rel.get('tag_name', '')})"
     return None, ""
 
 def _install_tarball(tgz: Path, r):
@@ -158,11 +177,16 @@ def install(reporter=None, force=False) -> str:
 def _install(r, force) -> str:
     pinned = pinned_wine_version()
     marker = build_marker()
+    stale = False                                 # our build for this Wine, but older vstenv changes
     if YCTL.exists() and not force:
-        if marker and pinned and str(marker.get("wine_version", "")).startswith(pinned): return installed() or "present"
+        if marker and pinned and str(marker.get("wine_version", "")).startswith(pinned):
+            if build_rev(marker) >= BUILD_REV: return installed() or "present"
+            stale = True
         if not marker and not needs_master(pinned): return installed() or "present"
-    r.step("Installing yabridge" + (f" for wine {pinned}" if pinned else ""))
-    tgz, label = _find_build_tarball(pinned, r)
+    r.step(("Updating" if stale else "Installing") + " yabridge" + (f" for wine {pinned}" if pinned else ""))
+    tgz, label = _find_build_tarball(pinned, r, fresh=stale)
+    if stale and tgz is not None and build_rev(_tarball_marker(tgz)) < BUILD_REV:
+        r.skip(f"keeping {installed()}; the published build is not updated yet"); return installed() or "present"
     if tgz is not None:
         _install_tarball(tgz, r)
         if not MARKER.exists() and not MARKER.with_name(LEGACY_MARKER_NAME).exists():
