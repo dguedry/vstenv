@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.142" date="2026-11-16">
+      <description>
+        <p>Health: warn about a yabridge installed from distribution packages (it ran plugins with the system Wine, #21)</p>
+      </description>
+    </release>
     <release version="0.1.141" date="2026-11-16">
       <description>
         <p>Wine: a composition swapchain follows the app's resizes (TONEX drew pixelated or clipped after a resize, #21)</p>
