@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.143" date="2026-11-16">
+      <description>
+        <p>Install: an .msi that is already installed is removed first, so it installs again (its Remove did nothing under Wine, #20)</p>
+      </description>
+    </release>
     <release version="0.1.142" date="2026-11-16">
       <description>
         <p>Health: warn about a yabridge installed from distribution packages (it ran plugins with the system Wine, #21)</p>
