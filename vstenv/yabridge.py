@@ -482,6 +482,21 @@ def write_config(names_options: dict[str, dict[str, bool]]) -> list[Path]:
         changed.append(f)
     return changed
 
+# A distribution's yabridge package (Arch's, for one) installs its own
+# libyabridge-*.so and yabridge-host.exe under /usr. yabridge's plugin side
+# finds whichever it meets first, and the packaged host runs the
+# distribution's wine instead of ours (reported on CachyOS: REAPER loaded
+# TONEX with the system Wine until the package was removed).
+_SYSTEM_YABRIDGE_GLOBS = ("/usr/lib/libyabridge*.so", "/usr/lib64/libyabridge*.so",
+                          "/usr/lib/x86_64-linux-gnu/libyabridge*.so", "/usr/local/lib/libyabridge*.so",
+                          "/usr/bin/yabridge-host.exe", "/usr/local/bin/yabridge-host.exe")
+
+def system_installs() -> list[str]:
+    """Files of a yabridge installed system-wide (on the host), outside the app's copy."""
+    from . import host
+    out = host.sh("for f in " + " ".join(_SYSTEM_YABRIDGE_GLOBS) + '; do [ -e "$f" ] && echo "$f"; done', timeout=20)
+    return [l for l in out.splitlines() if l.strip()]
+
 def host_launchers() -> list[Path]:
     return [YAB_DIR / n for n in HOST_LAUNCHERS if (YAB_DIR / n).exists()]
 

@@ -181,6 +181,13 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
                    fix="install and start pipewire-pulse (or pulseaudio)"))
     yv = yabridge.installed()
     c.append(Check("yabridge", yv is not None, yv or "", fix="vstenv sync"))
+    try:
+        sysy = yabridge.system_installs()
+        c.append(Check("no second yabridge installed system-wide", not sysy,
+                       "" if not sysy else f"{', '.join(sysy[:3])}: a distribution package; your DAW may load it and run plugins with the system Wine",
+                       fix="" if not sysy else "uninstall your distribution's yabridge package (vstenv brings its own)"))
+    except Exception as e:
+        c.append(Check("no second yabridge installed system-wide", True, f"not checked: {str(e)[:70]}"))
     if yv is not None:
         yok, ydetail = yabridge.compatibility()
         c.append(Check("yabridge matches this wine", yok, ydetail, fix="vstenv sync (installs the build for this wine)"))

@@ -144,6 +144,11 @@ Most Linux DAWs and hosts (REAPER, Bitwig, Ardour, Carla,
 settings and rescan. After installing something new while your DAW is open,
 rescan its plugins.
 
+VST Environment brings its own yabridge. If you also installed yabridge from
+your distribution's packages, uninstall that package: your DAW may otherwise
+load the other copy, which runs plugins with your system's Wine instead.
+**Health** warns you when it finds one.
+
 A plugin appears once for each format it comes in, so one with both VST2 and
 VST3 versions shows up twice. If your DAW only loads VST3, plugins that only
 come as VST2 won't appear in it.
