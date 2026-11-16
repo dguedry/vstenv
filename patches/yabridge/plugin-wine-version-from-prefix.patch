@@ -1,0 +1,30 @@
+diff --git a/src/plugin/utils.cpp b/src/plugin/utils.cpp
+index 86fac91f..a6e74721 100644
+--- a/src/plugin/utils.cpp
++++ b/src/plugin/utils.cpp
+@@ -17,6 +17,7 @@
+ #include "utils.h"
+ 
+ #include <unistd.h>
++#include <fstream>
+ #include <sstream>
+ 
+ // Generated inside of the build directory
+@@ -108,6 +109,17 @@ std::string PluginInfo::wine_version() const {
+     if (const char* wineloader_path = getenv("WINELOADER");
+         wineloader_path && access(wineloader_path, X_OK) == 0) {
+         wine_path = wineloader_path;
++    } else if (std::ifstream recorded(
++                   (normalize_wine_prefix() / "wineloader").string());
++               recorded) {
++        // vstenv: a prefix that records its Wine in `<prefix>/wineloader` has
++        // its host started with that Wine by vstenv's `yabridge-host.exe`
++        // launcher, so report that Wine's version rather than the one on PATH
++        std::string recorded_path;
++        if (std::getline(recorded, recorded_path) &&
++            access(recorded_path.c_str(), X_OK) == 0) {
++            wine_path = recorded_path;
++        }
+     }
+ 
+     Process process(wine_path);

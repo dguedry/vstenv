@@ -495,6 +495,40 @@ def journal(last: int = 20) -> list[dict]:
         except ValueError: pass
     return out
 
+def msi_product_code(installer: Path) -> str:
+    """The .msi's ProductCode ("{GUID}"), "" when it cannot be read."""
+    try:
+        from .msi import Msi
+        for row in Msi(installer).rows("Property"):
+            if row.get("Property") == "ProductCode": return (row.get("Value") or "").strip()
+    except Exception: pass
+    return ""
+
+def msi_installed(p: Prefix, code: str) -> bool:
+    """Is this product registered in the prefix? The live registry, since the
+    hive on disk can lag an install that just finished."""
+    if not re.fullmatch(r"\{[0-9A-Fa-f-]{36}\}", code or ""): return False
+    return any(p.reg_query(f"HKLM\\{u}\\{code}") or p.reg_query(f"HKCU\\{u}\\{code}") for u in UNINSTALL_KEYS)
+
+def _remove_installed_msi(p: Prefix, installer: Path, r) -> bool:
+    """An .msi whose product is already installed opens its maintenance wizard
+    (Change / Repair / Remove) instead of installing. Under Wine that wizard's
+    Remove reports success and removes nothing, and packages that switch off
+    Change and Repair (every Tauri app: the Mercurial Tones Hub) leave no other
+    button, so the person can neither reinstall nor uninstall. Picking the
+    installer again means "install it again": take the old copy out silently,
+    which does work, so the ordinary install wizard runs."""
+    try:
+        code = msi_product_code(installer)
+        if not msi_installed(p, code): return False
+        r.step("Already installed: removing the old copy first")
+        cp = p.run(["msiexec", "/x", code, "/qn"], timeout=1800)
+        if cp.returncode == 0 or cp.returncode in _SUCCESS_REBOOT: r.ok("removed"); invalidate(); return True
+        r.log(f"could not remove it (exit {cp.returncode}); the installer will show its own options")
+    except Exception as e:
+        r.log(f"could not check for an installed copy: {e}")
+    return False
+
 def install(p: Prefix, installer: Path, reporter=None, remedy: dict | None = None) -> int:
     """Run any Windows installer interactively: .msi through msiexec, anything else
     as a program. Plugins it drops are bridged by the caller (yabridge.sync).
@@ -536,7 +570,9 @@ def install(p: Prefix, installer: Path, reporter=None, remedy: dict | None = Non
         pass
     before = {(x.name, x.install_dir) for x in installed(p)}
     pids_before = {pid for pid, _ in p.processes()}
-    if installer.suffix.lower() == ".msi": argv = ["msiexec", "/i", str(installer)]
+    if installer.suffix.lower() == ".msi":
+        _remove_installed_msi(p, installer, r)
+        argv = ["msiexec", "/i", str(installer)]
     else:
         argv = [str(installer)]
         # Some "installers" are the vendor's own downloader (Jamstix 4 Manager),
