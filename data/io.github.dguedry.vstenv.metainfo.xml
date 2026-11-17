@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.144" date="2026-11-17">
+      <description>
+        <p>NI: controllers plugged in after Wine started are seen (nirescan service from ni-wine)</p>
+      </description>
+    </release>
     <release version="0.1.143" date="2026-11-16">
       <description>
         <p>Install: an .msi that is already installed is removed first, so it installs again (its Remove did nothing under Wine, #20)</p>
