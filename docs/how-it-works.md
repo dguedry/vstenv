@@ -25,7 +25,7 @@ the program does and what the app does about it.
   Under Wine its installer does not run, its GPU process is unstable, its Chromium
   sandbox cannot start child processes, its self-updater reverts the changes
   below, and its helper daemon binds fixed localhost ports. The app extracts the
-  files from the installer itself, raises the executable's stack reserve, patches
+  files from the installer itself, patches
   the bundle so it does not self-update, launches it with `--disable-gpu
   --no-sandbox`, installs the NTK daemon from NI's own files, and registers the
   `native-access://` browser sign-in handler.
@@ -504,7 +504,8 @@ object is a `Vendor` instance.
 ### Native Instruments module
 
 Native Access's NSIS installer does not run under Wine, so the app files are
-extracted from it; the exe's stack reserve is raised to 64 MB; the NTK Daemon
+extracted from it (its stack reserve is left as NI ships it: the 64 MB patch
+GE-Proton 10 needed is not needed on Wine 11.17); the NTK Daemon
 helper service is installed from NA's own resources; NA's asar bundle is patched
 so an installed Kontakt Player satisfies library dependencies (NA ≤ 3.25) and so
 NA never self-updates (updates come from an installer you download); the

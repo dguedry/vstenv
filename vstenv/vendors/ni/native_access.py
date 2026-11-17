@@ -12,7 +12,6 @@ from ...wine import Prefix
 
 NA_DOWNLOAD_PAGE = "https://www.native-instruments.com/pages/native-access"
 UPDATE_FEED = "https://na-update.native-instruments.com"   # version lookup only; the installer is never downloaded by this app
-STACK_RESERVE = 0x4000000  # 64MB
 # NA versions validated on this stack (all fixes apply, window renders, installs work)
 KNOWN_GOOD = {"3.23.0", "3.25.2", "3.26.0"}
 # Versions that do not work on this stack, with the reason shown to the user.
@@ -67,28 +66,6 @@ def install(p: Prefix, installer: Path, reporter=None, keep_previous=True):
     tmp = d.with_name("Native Access.new"); shutil.rmtree(tmp, ignore_errors=True)
     extract_app(installer, tmp); tmp.rename(d)
     r.ok(pe.version(na_exe(p)) or "installed")
-
-# --- fix 1: PE stack reserve ---------------------------------------------------------
-def stack_patch(exe: Path) -> str:
-    """Returns 'patched' | 'already' ."""
-    with open(exe, "r+b") as f:
-        hdr = f.read(0x400)
-        opt = struct.unpack_from("<I", hdr, 0x3c)[0] + 24
-        if struct.unpack_from("<H", hdr, opt)[0] != 0x20B: raise RuntimeError("not a PE32+ exe")
-        off = opt + 72
-        reserve = struct.unpack_from("<Q", hdr, off)[0]
-        if reserve >= STACK_RESERVE: return "already"
-        bak = exe.with_suffix(".exe.bak")
-        if not bak.exists(): shutil.copy2(exe, bak)
-        f.seek(off); f.write(struct.pack("<Q", STACK_RESERVE))
-        return "patched"
-
-def stack_ok(exe: Path) -> bool:
-    try:
-        hdr = exe.read_bytes()[:0x400]
-        opt = struct.unpack_from("<I", hdr, 0x3c)[0] + 24
-        return struct.unpack_from("<Q", hdr, opt + 72)[0] >= STACK_RESERVE
-    except Exception: return False
 
 # --- fix 4: NTK Daemon helper service ----------------------------------------------------------------
 def ntk_daemon(p: Prefix, reporter=None) -> str | None:
@@ -378,11 +355,9 @@ def launch(p: Prefix, reporter=None, extra_args=()) -> subprocess.Popen:
     if scope == "unknown": r.log("could not tell whose wineserver holds the prefix lock; launching anyway")
     if p.is_running("Native Access.exe"): p.kill_exe("Native Access.exe")
     clear_stale_mutexes(p)
-    # Belt and braces: the self-updater is disabled (disable_self_update), so NA
-    # should never have replaced its own exe since the last patch. If it has --
-    # a repair that missed, a hand-installed NA -- patch it now rather than
-    # start an NA whose 64MB stack reserve is gone.
-    if stack_patch(exe) == "patched": r.log("re-applied the stack patch: this NA.exe was not patched")
+    # No stack-reserve patch: NA's JavaScript engine overflowed NI's 8 MB main
+    # stack under GE-Proton 10 (2026-08), but NA 3.26 runs on NI's own exe on
+    # Wine 11.17, signed in and browsing (2026-11-16). Exes patched before keep 64 MB.
     ensure_daemon(p, r)
     download_location(p, r)
     paths.ensure_dirs()
@@ -432,13 +407,11 @@ def install_native_access(p: Prefix, installer: Path, reporter=None):
     from ... import runtime, setup
     if not runtime.status(p)["prepared"]: setup.prepare(p, r)
     install(p, installer, r)
-    r.step("Patching Native Access.exe stack reserve to 64MB"); r.ok(stack_patch(na_exe(p)))
     disable_self_update(p, r); bake_launch_flags(p, r); ntk_daemon(p, r); config(p, r); download_location(p, r); dependency_patch(p, r); p.wait_idle()
 
 def install_native_access_fixes(p: Prefix, reporter=None):
     """Re-apply the NA-side fixes to an already installed Native Access (repair)."""
     r = null_reporter(reporter)
-    r.step("Patching Native Access.exe stack reserve to 64MB"); r.ok(stack_patch(na_exe(p)))
     disable_self_update(p, r); bake_launch_flags(p, r); ntk_daemon(p, r); config(p, r); download_location(p, r); dependency_patch(p, r); p.wait_idle()
 
 def status(p: Prefix) -> dict:
@@ -446,7 +419,6 @@ def status(p: Prefix) -> dict:
     return {
         "installed": exe.exists(),
         "version": pe.version(exe) if exe.exists() else None,
-        "stack_patch": stack_ok(exe) if exe.exists() else False,
         "ntk_daemon": (p.drive_c / NTK_REL / "NTKDaemon.exe").exists(),
         "ntk_version": pe.version(p.drive_c / NTK_REL / "NTKDaemon.exe") if (p.drive_c / NTK_REL / "NTKDaemon.exe").exists() else None,
         "dependency_patch": dependency_patched(p) if exe.exists() else False,

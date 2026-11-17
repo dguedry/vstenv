@@ -1,7 +1,7 @@
 """Native Instruments: Native Access, the products it installs, and the NTK daemon.
 
 Native Access is an Electron app whose NSIS installer does not run under Wine;
-the app files are extracted from it instead, then patched (stack reserve, the
+the app files are extracted from it instead, then patched (the
 asar bundle) and accompanied by the NTK Daemon service. Its product installers
 are InstallAware setups (see installers.installaware). Sign-in returns from the
 browser through native-access:// links. See docs/how-it-works.md for every fix.
@@ -73,7 +73,7 @@ class NativeInstruments(Vendor):
         return [Note("Native Access", "patched", "A company that sells thousands of dollars of instruments ships a storefront that is a web page in a "
                      "browser it cannot keep running: its own installer cannot install it, its GPU process crash-loops, its sandbox cannot start "
                      "its own children, its updater would re-break it, and its helper daemon claims fixed ports as if it owned the machine. "
-                     "Seven repairs before it opens: this app unpacks the installer itself, raises the stack reserve, patches the bundle, starts it "
+                     "Six repairs before it opens: this app unpacks the installer itself, patches the bundle, starts it "
                      "with --disable-gpu --no-sandbox, installs the daemon from NI's own files and wires the browser sign-in link."),
                 Note("Kontakt", "patched", "The flagship sampler arrives in an InstallAware wrapper that unpacks its payload, then sits at half a core "
                      "doing nothing, forever. This app kills it and copies the files the installer already had. Libraries the daemon "
@@ -125,7 +125,6 @@ class NativeInstruments(Vendor):
         s = na.status(p)
         c.append(Check("Native Access installed", s["installed"], s["version"] or "", fix=f"download from {na.NA_DOWNLOAD_PAGE}, then: vstenv manager ni install <file>"))
         if s["installed"]:
-            c.append(Check("Native Access stack patch (64MB)", s["stack_patch"], fix="vstenv manager ni launch (re-applies)"))
             c.append(Check("NTK Daemon installed", s["ntk_daemon"], s["ntk_version"] or "", fix="vstenv setup"))
             dep = na.dependency_status(p)
             c.append(Check("NA dependency-check patch", dep != "missing",
