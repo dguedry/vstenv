@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.145" date="2026-11-17">
+      <description>
+        <p>Native Access: no stack-reserve patch (not needed on Wine 11.17)</p>
+      </description>
+    </release>
     <release version="0.1.144" date="2026-11-17">
       <description>
         <p>NI: controllers plugged in after Wine started are seen (nirescan service from ni-wine)</p>
