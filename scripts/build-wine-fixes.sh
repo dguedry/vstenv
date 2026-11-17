@@ -112,6 +112,14 @@ for f in sys.argv[1:]:
     tag = b"Wine builtin DLL"; b[0x40:0x60] = tag + b"\0" * (0x20 - len(tag))
     open(f, "wb").write(bytes(b))
 EOF
+# nirescan.exe (tools/nirescan, from ni-wine): a service vendors/ni/rescan.py copies into
+# the prefix. It restarts NI's hardware services when an NI controller arrives, as Wine
+# never tells a service about new devices. Not a Wine module: no builtin tag.
+echo "== build nirescan.exe"
+x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Wno-unused-parameter -fno-builtin -ffreestanding \
+    -fno-stack-protector -fno-asynchronous-unwind-tables -fno-lto -nostdlib -nostartfiles -s \
+    -Wl,--subsystem,windows -Wl,--entry,entry -o "$PKG/nirescan.exe" "$HERE/tools/nirescan/nirescan.c" \
+    -lkernel32 -ladvapi32 -luser32 -lcfgmgr32 -lshlwapi
 python3 - "$PKG" "$VERSION" "${PATCHES[@]}" <<'EOF'
 import hashlib, json, os, sys
 from pathlib import Path

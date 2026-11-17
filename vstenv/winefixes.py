@@ -48,6 +48,7 @@ FIXES = {"dcomp.dll": "DirectComposition (Steinberg's VSTGUI: HALion Sonic 7, Cu
          "x86_64-unix/nsiproxy.so": "the adapter list holds only interfaces that exist (it grew with every container or VPN interface since Wine started)",
          "powershell.exe": "answers \"is this program running?\" honestly (electron-builder installers: Softube Central)",
          "i386-windows/powershell.exe": "the same, for 32-bit installers",
+         "nirescan.exe": "NI controllers plugged in after Wine started are seen (Komplete Kontrol keyboards, Maschine; from ni-wine)",
          "x86_64-unix/winex11.so": "a cursor set from another process shows as an arrow, not nothing (WebView2 windows: Minimal Hub)"}
 
 def dest(build: wine.WineBuild, name: str) -> Path:

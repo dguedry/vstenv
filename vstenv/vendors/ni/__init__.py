@@ -16,7 +16,7 @@ from ... import unmanaged
 from ...installers import installaware
 from ...programs import Program
 from ...wine import Prefix
-from . import native_access as na, products as prod
+from . import native_access as na, products as prod, rescan
 
 # Programs whose dropdowns are fullscreen popup windows: the window manager
 # activates the popup, the main window deactivates, and the program closes its
@@ -63,6 +63,7 @@ class NativeInstruments(Vendor):
     def prepare(self, p, r=None):
         na.download_location(p, r)
         unmanaged.apply(p, list(MENU_POPUP_EXES), r)
+        rescan.ensure(p, r)
 
     # -- content ---------------------------------------------------------------------------
     def products(self, p):
