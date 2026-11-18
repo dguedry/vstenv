@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.146" date="2026-11-18">
+      <description>
+        <p>Electron apps: GPU and sandbox on from Electron 43; Native Access runs as NI ships it</p>
+      </description>
+    </release>
     <release version="0.1.145" date="2026-11-17">
       <description>
         <p>Native Access: no stack-reserve patch (not needed on Wine 11.17)</p>
