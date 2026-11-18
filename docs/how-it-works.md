@@ -22,13 +22,13 @@ relies on parts of Windows that Wine has not finished. Each item below is what
 the program does and what the app does about it.
 
 - **Native Instruments (Native Access).** The storefront is an Electron app.
-  Under Wine its installer does not run, its GPU process is unstable, its Chromium
-  sandbox cannot start child processes, its self-updater reverts the changes
+  Under Wine its installer does not run, its self-updater reverts the changes
   below, and its helper daemon binds fixed localhost ports. The app extracts the
-  files from the installer itself, patches
-  the bundle so it does not self-update, launches it with `--disable-gpu
-  --no-sandbox`, installs the NTK daemon from NI's own files, and registers the
-  `native-access://` browser sign-in handler.
+  files from the installer itself, patches the bundle so it does not
+  self-update, installs the NTK daemon from NI's own files, and registers the
+  `native-access://` browser sign-in handler. Native Access itself runs as NI
+  ships it: on Wine 11.17 its GPU process and sandbox work, so it needs no
+  extra switches and no change to its exe.
 - **Kontakt, Absynth and other NI products.** Their InstallAware installers
   unpack the payload and then stop making progress, some idle, some spinning on
   a Wine stub. The app ends the stuck installer and copies the already-unpacked
@@ -522,7 +522,9 @@ done, which the app notices while NA is running.
 The IK Product Manager installs as an ordinary Windows program. Two edits to its
 Electron bundle make it work (accept Wine's `ver` output in its os-info module;
 disable GPU acceleration in the app itself, since a plugin may start it), and it
-launches with `--disable-gpu`. IK's JUCE plugin GUIs draw through Direct3D and
+launches with `--disable-gpu`. That flag goes only to Electron apps older than
+Electron 43 (IK's is Electron 11) or whose version cannot be read from the exe;
+Native Access (43) and Softube Central (45) run with their GPU on. IK's JUCE plugin GUIs draw through Direct3D and
 need DXVK to repaint; the app installs DXVK when the machine has a real Vulkan
 driver and says so in Health when it does not. Both the 64-bit and the 32-bit
 DLLs go in: Wine's DLL override is per name, not per bitness, so with only the

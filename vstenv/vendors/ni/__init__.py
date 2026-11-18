@@ -71,10 +71,9 @@ class NativeInstruments(Vendor):
                         content_dir=x.content_dir, registered=x.registered, licensed=x.licensed) for x in prod.installed(p)]
     def product_notes(self, p):
         return [Note("Native Access", "patched", "A company that sells thousands of dollars of instruments ships a storefront that is a web page in a "
-                     "browser it cannot keep running: its own installer cannot install it, its GPU process crash-loops, its sandbox cannot start "
-                     "its own children, its updater would re-break it, and its helper daemon claims fixed ports as if it owned the machine. "
-                     "Six repairs before it opens: this app unpacks the installer itself, patches the bundle, starts it "
-                     "with --disable-gpu --no-sandbox, installs the daemon from NI's own files and wires the browser sign-in link."),
+                     "browser it cannot keep running: its own installer cannot install it, its updater would re-break it, and its helper daemon claims fixed ports as if it owned the machine. "
+                     "Four repairs before it opens: this app unpacks the installer itself, patches the bundle so it does not "
+                     "self-update, installs the daemon from NI's own files and wires the browser sign-in link."),
                 Note("Kontakt", "patched", "The flagship sampler arrives in an InstallAware wrapper that unpacks its payload, then sits at half a core "
                      "doing nothing, forever. This app kills it and copies the files the installer already had. Libraries the daemon "
                      "cannot be bothered to register, the app registers."),
@@ -88,10 +87,10 @@ class NativeInstruments(Vendor):
     def plugin_dirs(self): return ["Program Files/Native Instruments/VSTPlugins 64 bit"]
     def content_dirs(self, p): return [v["ContentDir"] for v in prod.hive_keys(p).values() if v.get("ContentDir")]
     def url_schemes(self, p):
-        # Same flags as launch(): the callback instance normally just hands the
-        # URL to the running NA, but if none is running it becomes the app.
+        # The callback instance normally just hands the URL to the running NA,
+        # but if none is running it becomes the app.
         return [UrlScheme("native-access", "Native Access login callback",
-                          lambda p: [str(p.build.wine), str(na.na_exe(p)), "--disable-gpu", "--no-sandbox"])]
+                          lambda p: [str(p.build.wine), str(na.na_exe(p))])]
     def logs(self, p): return {"native-access.log": na.na_log(p)}
 
     # -- installs ------------------------------------------------------------------------------
@@ -131,7 +130,6 @@ class NativeInstruments(Vendor):
                            "built into Native Access 3.26+" if dep == "native" else ("" if dep == "patched" else "NA picks an owned product over the installed Player: libraries show 'Requires Kontakt'"),
                            fix="vstenv setup"))
             c.append(Check("NA self-updater disabled", s["self_update_disabled"], "updates only via a downloaded installer", fix="vstenv setup"))
-            c.append(Check("NA runs without GPU and sandbox however it is started", s["launch_flags_baked"], "Komplete Kontrol's Manage Products and plugins start it with no arguments", fix="vstenv setup"))
         missing_unmanaged = [e for e in MENU_POPUP_EXES if not unmanaged.applied(p, e)]
         if not missing_unmanaged:
             c.append(Check("Komplete Kontrol menus stay open", True, "the window manager is kept away from its fullscreen menu popups"))

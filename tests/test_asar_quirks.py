@@ -48,8 +48,16 @@ class QuirkTest(unittest.TestCase):
             p = Prefix(Path(d), WineBuild(Path("/w")))
             app = p.drive_c / "Program Files/X"; (app / "resources").mkdir(parents=True); (app / "resources/app.asar").write_bytes(b"")
             plain = p.drive_c / "Program Files/Y"; plain.mkdir(parents=True)
-            self.assertEqual(quirks.launch_args(p, "X", r"C:\Program Files\X"), ["--disable-gpu"])
+            self.assertEqual(quirks.launch_args(p, "X", r"C:\Program Files\X"), ["--disable-gpu"])   # version unknown
             self.assertEqual(quirks.launch_args(p, "Y", r"C:\Program Files\Y"), [])
+            exe = app / "X.exe"
+            exe.write_bytes(b"MZ" + b"\0" * (9 << 20) + b"Chrome/120 Electron/11.1.1 Safari")   # past the first read
+            self.assertEqual(quirks.electron_version(p, r"C:\Program Files\X"), (11, 1, 1))
+            self.assertEqual(quirks.launch_args(p, "X", r"C:\Program Files\X"), ["--disable-gpu"])
+            (app / "Uninstall X.exe").write_bytes(b"MZ" + b"\0" * (10 << 20))                    # bigger, ignored
+            exe.write_bytes(b"MZ Electron/43.2.0 ")
+            self.assertEqual(quirks.electron_version(p, r"C:\Program Files\X"), (43, 2, 0))
+            self.assertEqual(quirks.launch_args(p, "X", r"C:\Program Files\X"), [])
             quirks.LAUNCH_ARGS["X"] = []
             try: self.assertEqual(quirks.launch_args(p, "X", r"C:\Program Files\X"), [])
             finally: quirks.LAUNCH_ARGS.pop("X")
