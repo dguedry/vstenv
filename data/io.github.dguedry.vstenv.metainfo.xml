@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.147" date="2026-11-18">
+      <description>
+        <p>yabridge: build on Ubuntu 24.04 again; the GCC 15 builds hung every plugin at load (#20)</p>
+      </description>
+    </release>
     <release version="0.1.146" date="2026-11-18">
       <description>
         <p>Electron apps: GPU and sandbox on from Electron 43; Native Access runs as NI ships it</p>
