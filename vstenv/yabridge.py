@@ -56,7 +56,9 @@ WINE_NEEDS_MASTER = (9, 22)
 # Revision of vstenv's own yabridge changes (patches/yabridge, BUILD_REV in
 # scripts/build-yabridge.sh); an installed CI build older than this is replaced.
 # 2: the log's "wine version" names the Wine in <prefix>/wineloader, not PATH's.
-BUILD_REV = 2
+# 3: built with GCC 13 again (CI pinned to ubuntu-24.04); the GCC 15 builds of
+#    2026-11-08..18 crashed every plugin at load on Ubuntu 24.04 systems (#20).
+BUILD_REV = 3
 
 def build_rev(marker: dict | None) -> int:
     try: return int((marker or {}).get("vstenv_build_rev", 1))

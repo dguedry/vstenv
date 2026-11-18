@@ -38,7 +38,7 @@ SHA="$(git -C "$WORK/src" rev-parse --short HEAD)"
 
 # vstenv's own changes (patches/yabridge); BUILD_REV in vstenv/yabridge.py says
 # which revision of them an installed build must have, so bump both together.
-BUILD_REV=2
+BUILD_REV=3
 for p in "$(dirname "$0")"/../patches/yabridge/*.patch; do
   [ -e "$p" ] || continue
   echo ">> applying $(basename "$p")"
@@ -59,7 +59,7 @@ cp "$WORK/src"/build/libyabridge-{vst2,vst3,clap}.so "$WORK/src"/build/libyabrid
    "$WORK/src"/build/yabridge-host.exe "$WORK/src"/build/yabridge-host.exe.so "$WORK/src"/README.md "$WORK/src"/CHANGELOG.md "$PKG/"
 cp "$WORK/yabridge/yabridgectl" "$PKG/"
 cat > "$PKG/vstenv-build.json" <<JSON
-{"yabridge_ref": "$REF", "yabridge_commit": "$SHA", "wine_version": "$WINE_VERSION", "yabridgectl_release": "$YCTL_RELEASE", "vstenv_build_rev": $BUILD_REV, "built": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
+{"yabridge_ref": "$REF", "yabridge_commit": "$SHA", "wine_version": "$WINE_VERSION", "yabridgectl_release": "$YCTL_RELEASE", "vstenv_build_rev": $BUILD_REV, "cxx": "$(g++ -dumpfullversion 2>/dev/null || echo unknown)", "built": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
 JSON
 
 NAME="yabridge-$SHA-wine-$WINE_VERSION.tar.gz"

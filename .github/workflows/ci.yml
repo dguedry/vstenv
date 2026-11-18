@@ -187,7 +187,13 @@ jobs:
     name: Build yabridge for the pinned Wine
     needs: [auto-tag]
     if: always() && (needs.auto-tag.result == 'success' || needs.auto-tag.result == 'skipped')
-    runs-on: ubuntu-latest
+    # Pinned, never ubuntu-latest: yabridge-host is C++ and runs against the
+    # user's libstdc++. Built with GCC 15 (ubuntu-latest from 2026-11-08) it
+    # crashed every plugin at load on Ubuntu 24.04-based systems (GCC 13/14
+    # runtime): a garbage pthread_rwlock in the host, then a stack overflow
+    # in Wine's unwinder, and the DAW hangs (#20). Build on the oldest Ubuntu
+    # we support.
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -219,7 +225,7 @@ jobs:
     name: Build the patched Wine DLLs for the pinned Wine
     needs: [auto-tag]
     if: always() && (needs.auto-tag.result == 'success' || needs.auto-tag.result == 'skipped')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04             # pinned like the yabridge job: unix modules run against the user's libc
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
