@@ -9,15 +9,44 @@ def version(exe: Path) -> str | None:
     """FileVersion from the PE VS_FIXEDFILEINFO block (signature 0xFEEF04BD)."""
     try: d = Path(exe).read_bytes()
     except OSError: return None
-    key = "VS_VERSION_INFO".encode("utf-16-le")
-    i, k = -1, d.find(key)
-    while k >= 0:  # signature follows the key within a few padding bytes
-        j = d.find(b"\xbd\x04\xef\xfe", k, k + 80)
-        if j >= 0: i = j; break
-        k = d.find(key, k + 1)
+    i = _fixed_info(d)
     if i < 0 or i + 24 > len(d): return None
     ms, ls = struct.unpack_from("<II", d, i + 8)
     return f"{ms >> 16}.{ms & 0xffff}.{ls >> 16}" + (f".{ls & 0xffff}" if ls & 0xffff else "")
+
+STRING_KEYS = ("CompanyName", "ProductName", "FileDescription", "OriginalFilename")
+
+def _fixed_info(d: bytes) -> int:
+    """Offset of VS_FIXEDFILEINFO's signature (0xFEEF04BD), or -1."""
+    key = "VS_VERSION_INFO".encode("utf-16-le")
+    k = d.find(key)
+    while k >= 0:  # signature follows the key within a few padding bytes
+        j = d.find(b"\xbd\x04\xef\xfe", k, k + 80)
+        if j >= 0: return j
+        k = d.find(key, k + 1)
+    return -1
+
+def strings(exe: Path) -> dict[str, str]:
+    """The version resource's text fields (who made the file and what it calls
+    itself); {} when there are none. Read from the String records that follow
+    the fixed version block: each is wLength, wValueLength, wType=1, the key,
+    padding, the value. Looking for the key names anywhere in the file finds a
+    program's own tables of them instead (every Chromium exe has one)."""
+    try: d = Path(exe).read_bytes()
+    except OSError: return {}
+    i = _fixed_info(d)
+    if i < 0: return {}
+    out = {}
+    for name in STRING_KEYS:
+        k = d.find((name + "\0").encode("utf-16-le"), i, i + 16384)
+        if k < 6: continue
+        _len, vlen, typ = struct.unpack_from("<HHH", d, k - 6)
+        if typ != 1 or not 1 < vlen < 300: continue
+        v0 = k + 2 * len(name) + 2
+        if d[v0:v0 + 2] == b"\0\0": v0 += 2          # padding to a 32-bit boundary
+        v = d[v0:v0 + 2 * (vlen - 1)].decode("utf-16-le", errors="replace").strip("\0 ").strip()
+        if v and v.isprintable(): out[name] = v
+    return out
 
 def _resources(d: bytes):
     """(file offset of the resource directory, sections) or None."""

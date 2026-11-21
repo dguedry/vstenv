@@ -49,6 +49,30 @@ def technology(f: Path) -> str:
     return "unknown"
 
 
+def file_facts(f: Path) -> list[str]:
+    """What identifies an installer file to someone who does not have it: its
+    size, how it was built, who made it and a fingerprint. Goes into a shared
+    report; a file name alone ("Setup.exe") says nothing."""
+    import hashlib
+    from . import pe
+    f = Path(f); out = []
+    try: out.append(f"size: {f.stat().st_size:,} bytes")
+    except OSError: return out
+    tech = technology(f)
+    out.append(f"built with: {TECH_LABEL.get(tech, tech)}")
+    names = {"CompanyName": "company", "ProductName": "product", "FileDescription": "description", "OriginalFilename": "original name"}
+    for k, v in pe.strings(f).items(): out.append(f"{names[k]}: {v[:120]}")
+    v = pe.version(f)
+    if v: out.append(f"file version: {v}")
+    try:
+        h = hashlib.sha256()
+        with open(f, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""): h.update(chunk)
+        out.append(f"sha256: {h.hexdigest()[:16]}")
+    except OSError: pass
+    return out
+
+
 # --- the menu ------------------------------------------------------------------------------
 WINVERS = ("auto", "win7", "win8", "win10", "win11")
 DISABLE_DLLS = ("auto", "netprofm")

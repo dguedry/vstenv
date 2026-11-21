@@ -328,11 +328,13 @@ def environment(p: Prefix | None = None) -> dict[str, str]:
 
 def share_text(p: Prefix | None, kind: str, name: str, settings: dict, symptom: str = "",
                program_version: str | None = None, worked: bool = True, extra: str = "",
-               diagnosis: list | None = None) -> tuple[str, str]:
+               diagnosis: list | None = None, facts: list | None = None, history: list | None = None) -> tuple[str, str]:
     """(title, body) for an issue: the recipe as a JSON block the table takes
     as is, the symptom in the person's words, and the environment. `extra` is
     output to attach (an installer's log tail, already scrubbed); `diagnosis`
-    what the app made of a failure."""
+    what the app made of a failure; `facts` what identifies the file
+    (remedies.file_facts) and `history` the attempts at it so far
+    (programs.history), without which a reviewer cannot tell what a fix fixed."""
     kept = {k: v for k, v in settings.items() if k in KNOBS[kind] and v != "auto"}
     entry = dict(kept)
     if symptom: entry["why"] = symptom
@@ -346,18 +348,26 @@ def share_text(p: Prefix | None, kind: str, name: str, settings: dict, symptom: 
     lines = [f"**{'Worked' if worked else 'Did not help'}:** " + (", ".join(f"{k}={v}" for k, v in kept.items()) or "nothing changed"),
              "", f"**Symptom:** {symptom or '(please describe what you saw)'}"]
     if diagnosis: lines += ["", "**The app's reading:** " + " ".join(diagnosis)]
+    if kind == "installs" and worked and kept.get("as_program") == "on":
+        # This remedy cannot fail: it copies the file and never runs it.
+        lines += ["", "**Note:** \"install it as a program\" copies the file into Program Files without running it. "
+                      "Please say whether it opens from the Programs page and does its job."]
+    if facts: lines += ["", "**The file**"] + [f"- {x}" for x in facts]
+    if history: lines += ["", "**Attempts so far**"] + [f"- {x}" for x in history]
     lines += ["", "```json", json.dumps({kind: {name: entry}}, indent=1), "```", "",
               "**Environment**"] + [f"- {k}: {v}" for k, v in env.items()]
-    if extra: lines += ["", "<details><summary>Output</summary>", "", "```", extra[-5000:], "```", "</details>"]
+    # The whole thing travels in a URL, and GitHub refuses a long one.
+    if extra: lines += ["", "<details><summary>Output</summary>", "", "```", extra[-(3000 if (facts or history) else 5000):], "```", "</details>"]
     return title, "\n".join(lines)
 
 
 def share_url(p: Prefix | None, kind: str, name: str, settings: dict, symptom: str = "",
-              program_version: str | None = None, worked: bool = True, extra: str = "", diagnosis: list | None = None) -> str:
+              program_version: str | None = None, worked: bool = True, extra: str = "", diagnosis: list | None = None,
+              facts: list | None = None, history: list | None = None) -> str:
     """A link that opens a prefilled issue on the repository: nothing is sent
     until the person presses Submit there. A failed install goes in as
     `install-failure`, anything that worked as `recipe`."""
-    title, body = share_text(p, kind, name, settings, symptom, program_version, worked, extra, diagnosis)
+    title, body = share_text(p, kind, name, settings, symptom, program_version, worked, extra, diagnosis, facts, history)
     label = "install-failure" if (kind == "installs" and not worked) else "recipe"
     q = urllib.parse.urlencode({"title": title, "body": body, "labels": label})
     return f"{ISSUES_URL}?{q}"

@@ -22,6 +22,16 @@ next setup pass. An issue without a usable block gets a comment saying what is
 missing and loses the label. To merge one by hand: save the issue body to a
 file and run `scripts/merge-recipe.py <file>`.
 
+An install report (*Share this fix…* after a remedy worked, *Share this
+failure…* after one did not) also carries **The file** (size, installer
+technology, the maker, product and description from its version resource, the
+file version, and the first 16 hex digits of its SHA-256) and **Attempts so
+far** (each run of that file from `logs/installs.jsonl`: the remedy, the exit
+code, and what the app made of a failure). Read those before approving: a file
+name alone says nothing, and "install it as a program" copies the file without
+running it, so it reports success for anything. The report says so, and asks
+whether the program actually runs.
+
 ## Layout
 
 - `vstenv/`: the app (CLI in `cli.py`, window in `gui.py`, setup in `setup.py`).

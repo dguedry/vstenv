@@ -519,6 +519,28 @@ def msi_installed(p: Prefix, code: str) -> bool:
     if not re.fullmatch(r"\{[0-9A-Fa-f-]{36}\}", code or ""): return False
     return any(p.reg_query(f"HKLM\\{u}\\{code}") or p.reg_query(f"HKCU\\{u}\\{code}") for u in UNINSTALL_KEYS)
 
+def log_path(installer: Path) -> Path:
+    """Where the output of the last run of this installer file is kept."""
+    from . import paths
+    return paths.LOGS / f"install-{re.sub(r'[^A-Za-z0-9._-]+', '_', Path(installer).stem)}.log"
+
+def history(name: str, limit: int = 6) -> list[str]:
+    """The last attempts at installing a file of this name, oldest first, one
+    line each: when, with which remedy, how it ended and what the app made of
+    it. For a shared report."""
+    from . import paths
+    out = []
+    try: lines = (paths.LOGS / JOURNAL).read_text(errors="replace").splitlines()
+    except OSError: return out
+    for line in lines:
+        try: e = json.loads(line)
+        except ValueError: continue
+        if e.get("file") != name: continue
+        how = ", ".join(f"{k}={v}" for k, v in (e.get("remedy") or {}).items()) or "as is"
+        end = "copied in as a program (not run)" if e.get("as_program") else f"exit {e.get('exit')} after {e.get('seconds')} s"
+        out.append(f"{e.get('time', '?')} — {how}: {end}" + (" — " + " ".join(e["diagnosis"]) if e.get("diagnosis") else ""))
+    return out[-limit:]
+
 def _remove_installed_msi(p: Prefix, installer: Path, r) -> bool:
     """An .msi whose product is already installed opens its maintenance wizard
     (Change / Repair / Remove) instead of installing. Under Wine that wizard's
@@ -593,7 +615,7 @@ def install(p: Prefix, installer: Path, reporter=None, remedy: dict | None = Non
     # The installer's own output is the one thing that explains a failure
     # ("Library d3d9.dll ... not found"); keep it, per file.
     paths.LOGS.mkdir(parents=True, exist_ok=True)
-    log = paths.LOGS / f"install-{re.sub(r'[^A-Za-z0-9._-]+', '_', installer.stem)}.log"
+    log = log_path(installer)
     t0 = time.time()
     try: cp = p.run(argv, timeout=7200, env=env or None, stderr_to=log)
     finally: cleanup()
@@ -612,12 +634,15 @@ def install(p: Prefix, installer: Path, reporter=None, remedy: dict | None = Non
         # ordinary cancel are not failures: 1602 is "user cancelled" and 3010
         # is "needs a reboot", which under Wine means it finished.
         r.fail(f"exit {cp.returncode}")
-        _journal(entry)
         if cp.returncode in _CANCELLED:
+            _journal(entry)
             raise InstallCancelled(f"{installer.name} was cancelled (exit {cp.returncode})", installer, tech, cp.returncode, log)
         try: text = log.read_text(errors="replace")[-20000:]
         except OSError: text = ""
         diagnosis = remedies.diagnose(tech, cp.returncode, text)
+        # The next run overwrites the log; what it said has to survive in the
+        # journal for a later "this fixed it" report to say what it fixed.
+        _journal(dict(entry, diagnosis=diagnosis))
         for line in diagnosis: r.log(line)
         raise InstallFailed(f"{installer.name} failed (exit {cp.returncode}); nothing was changed",
                             installer, tech, cp.returncode, log, diagnosis, remedy)

@@ -231,10 +231,11 @@ class InstallFailedDialog(Adw.Dialog):
         self.close(); self.win.install_program(self.path, remedy=settings)
 
     def share(self):
-        from . import report
+        from . import report, remedies
         url = recipes.share_url(self.win.prefix, "installs", self.path.name, getattr(self.err, "remedy", {}) or {},
                                 self.symptom.get_text().strip(), worked=False,
-                                extra=report.scrub(getattr(self.err, "log_tail", lambda: "")()), diagnosis=getattr(self.err, "diagnosis", []))
+                                extra=report.scrub(getattr(self.err, "log_tail", lambda: "")()), diagnosis=getattr(self.err, "diagnosis", []),
+                                facts=remedies.file_facts(self.path), history=programs.history(self.path.name))
         Gtk.UriLauncher(uri=url).launch(self.win, None, None)
 
 
@@ -836,12 +837,20 @@ class Window(Adw.ApplicationWindow):
         d = Adw.AlertDialog(heading=f"{name} installed",
                             body=f"It worked with: {remedies_label(remedy)}. That is kept for this file, so installing it again "
                                  "just works.\n\nShare it? That opens a prefilled issue on the project's GitHub in your browser; once "
-                                 "merged, everyone's app applies it to this installer by itself. Nothing is sent until you press Submit there.")
+                                 "merged, everyone's app applies it to this installer by itself. It carries the file's name, size, maker "
+                                 "and version, how each attempt at it ended, and this machine's graphics and desktop. Nothing is sent "
+                                 "until you press Submit there.")
+        # Without this a reviewer sees that something worked, and not what was wrong.
+        symptom = Gtk.Entry(placeholder_text="What went wrong before, in a sentence"); d.set_extra_child(symptom)
         d.add_response("later", "Not now"); d.add_response("share", "Share this fix…")
         d.set_response_appearance("share", Adw.ResponseAppearance.SUGGESTED); d.set_default_response("share"); d.set_close_response("later")
         def resp(_d, r):
             if r == "share":
-                Gtk.UriLauncher(uri=recipes.share_url(self.prefix, "installs", name, remedy, "", worked=True)).launch(self, None, None)
+                from . import report, remedies
+                try: tail = report.scrub(programs.log_path(Path(path)).read_text(errors="replace")[-6000:])
+                except OSError: tail = ""
+                Gtk.UriLauncher(uri=recipes.share_url(self.prefix, "installs", name, remedy, symptom.get_text().strip(), worked=True, extra=tail,
+                                                      facts=remedies.file_facts(Path(path)), history=programs.history(name))).launch(self, None, None)
         d.connect("response", resp); d.present(self)
 
     # ---- install page -------------------------------------------------------------------
