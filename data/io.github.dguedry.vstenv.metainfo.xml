@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.149" date="2026-11-21">
+      <description>
+        <p>Uninstall: MSI programs are removed by product code, not through the maintenance wizard</p>
+      </description>
+    </release>
     <release version="0.1.148" date="2026-11-20">
       <description>
         <p>Electron apps: GPU off again, Native Access included (reverts e24b4f8)</p>
