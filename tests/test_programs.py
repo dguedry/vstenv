@@ -126,6 +126,10 @@ class UninstallArgvTest(unittest.TestCase):
     def test_forms(self):
         self.assertEqual(programs.uninstall_argv(r'"C:\P F\u.exe" /allusers /S'), [r"C:\P F\u.exe", "/allusers", "/S"])
         self.assertEqual(programs.uninstall_argv("MsiExec.exe /X{ABC}"), ["MsiExec.exe", "/X{ABC}"])
+        # by product code: the maintenance wizard's Remove does nothing under Wine
+        code = "{69043884-EB60-4C9A-9C41-3303C319E1A8}"
+        for line in (f"MsiExec.exe /I{code}", f"MsiExec.exe /X{code}", f"msiexec /x {code}"):
+            self.assertEqual(programs.uninstall_argv(line), ["msiexec", "/x", code, "/qn"])
         self.assertEqual(programs.uninstall_argv('cmd.exe /C del "x" && start "" "y.exe"')[:2], ["cmd", "/c"])
         self.assertEqual(programs.uninstall_argv(r"C:\x\unins.exe /silent"), [r"C:\x\unins.exe", "/silent"])
         self.assertEqual(programs.uninstall_argv(""), [])

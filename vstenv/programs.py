@@ -368,6 +368,8 @@ def run(p: Prefix, prog: Program, reporter=None):
     proc.vstenv_window_watch = launchwait.watch_and_resync(p, (prog.exe.rsplit("\\", 1)[-1],))
     r.ok(prog.exe); return proc
 
+_MSI_BY_CODE = re.compile(r"msiexec(?:\.exe)?\s+/[ix]\s*(\{[0-9a-f-]{36}\})", re.I)
+
 def uninstall_argv(uninstall: str) -> list[str]:
     """UninstallString -> argv for the prefix. Quoted exe + options, msiexec
     lines, or anything else through cmd /c (installers write shell-ish strings)."""
@@ -376,7 +378,14 @@ def uninstall_argv(uninstall: str) -> list[str]:
     if s.startswith('"'):
         end = s.find('"', 1)
         if end > 0: return [s[1:end], *shlex.split(s[end + 1:], posix=False)]
-    if s.lower().startswith("msiexec"): return shlex.split(s, posix=False)
+    if s.lower().startswith("msiexec"):
+        # `MsiExec.exe /I{code}` (Steinberg, most WiX packages) opens the
+        # maintenance wizard, whose Remove reports success and removes nothing
+        # under Wine (see _remove_installed_msi). Removing by product code
+        # works; it is silent, and the person has already confirmed.
+        m = _MSI_BY_CODE.fullmatch(s)
+        if m: return ["msiexec", "/x", m.group(1), "/qn"]
+        return shlex.split(s, posix=False)
     if s.lower().startswith("cmd") or "&&" in s or ">" in s: return ["cmd", "/c", s]
     parts = shlex.split(s, posix=False)
     return parts if parts and parts[0].lower().endswith(".exe") else ["cmd", "/c", s]
