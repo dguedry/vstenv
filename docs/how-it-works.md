@@ -22,13 +22,14 @@ relies on parts of Windows that Wine has not finished. Each item below is what
 the program does and what the app does about it.
 
 - **Native Instruments (Native Access).** The storefront is an Electron app.
-  Under Wine its installer does not run, its GPU process is unstable, its Chromium
-  sandbox cannot start child processes, its self-updater reverts the changes
-  below, and its helper daemon binds fixed localhost ports. The app extracts the
-  files from the installer itself, patches
-  the bundle so it does not self-update, launches it with `--disable-gpu
-  --no-sandbox`, installs the NTK daemon from NI's own files, and registers the
-  `native-access://` browser sign-in handler.
+  It runs on the files NI ships, unedited, so it updates itself as it does on
+  Windows. Around it the app does four things: it extracts the files from NI's
+  installer, installs the NTK daemon from NI's own files (Native Access cannot
+  do that itself under Wine) and again whenever an update brings a newer one,
+  keeps Native Access off DirectComposition so its window is smooth with the GPU
+  on, and registers the `native-access://` browser sign-in handler. Installs
+  made by older versions of this app, which edited the bundle to switch
+  self-updates off, get NI's files back at the next setup pass.
 - **Kontakt, Absynth and other NI products.** Their InstallAware installers
   unpack the payload and then stop making progress, some idle, some spinning on
   a Wine stub. The app ends the stuck installer and copies the already-unpacked
@@ -503,12 +504,18 @@ object is a `Vendor` instance.
 
 ### Native Instruments module
 
-Native Access's NSIS installer does not run under Wine, so the app files are
-extracted from it (its stack reserve is left as NI ships it: the 64 MB patch
-GE-Proton 10 needed is not needed on Wine 11.17); the NTK Daemon
-helper service is installed from NA's own resources; NA's asar bundle is patched
-so an installed Kontakt Player satisfies library dependencies (NA ≤ 3.25) and so
-NA never self-updates (updates come from an installer you download); the
+Native Access's app files are extracted from NI's installer and left as NI
+ships them: no stack-reserve patch, no launch switches, self-updates on (NI's
+installer, run the way NA's updater runs it, replaces an extracted install
+cleanly on Wine 11.17; verified 2026-11-23 with 3.26.0 over itself, a real
+version-to-version update is not yet observed). The NTK Daemon helper service
+is installed from NA's own resources, at install and at launch whenever NA
+carries a newer one. A per-program registry value
+(`AppDefaults\Native Access.exe\DllOverrides`, `dcomp=disabled`) keeps NA off
+this app's patched `dcomp.dll`: through DirectComposition its GPU process used
+half a core at idle and the window jittered, without it 1% and smooth. Only
+NA ≤ 3.25 still has its bundle edited, so an installed Kontakt Player satisfies
+library dependencies; the
 download location is pointed inside the prefix when the configured one is unset
 or read-only; libraries the daemon forgot to register get their HKLM keys; the
 `native-access://` sign-in callback is registered with the desktop. NI's

@@ -1,8 +1,8 @@
 """Native Instruments: Native Access, the products it installs, and the NTK daemon.
 
-Native Access is an Electron app whose NSIS installer does not run under Wine;
-the app files are extracted from it instead, then patched (the
-asar bundle) and accompanied by the NTK Daemon service. Its product installers
+Native Access is an Electron app. Its files are extracted from NI's installer
+and left as NI ships them (so it updates itself), accompanied by the NTK
+Daemon service and a per-program Wine setting that keeps its window smooth. Its product installers
 are InstallAware setups (see installers.installaware). Sign-in returns from the
 browser through native-access:// links. See docs/how-it-works.md for every fix.
 """
@@ -53,6 +53,7 @@ class NativeInstruments(Vendor):
         return f"Installed {v['installed']} (current)." if v["installed"] else None
     def accepts_manager_installer(self, f):
         return bool(re.search(r"native[-_ ]?access.*\.exe$", Path(f).name, re.I))
+    def launch_args(self): return {"Native Access": []}     # no --disable-gpu: see native_access.composition_off
     def install_manager(self, p, installer, r=None): na.install_native_access(p, installer, r)
     def repair_manager(self, p, r=None): na.install_native_access_fixes(p, r)
     def pending_manager_update(self, p): return na.pending_update(p)
@@ -70,11 +71,10 @@ class NativeInstruments(Vendor):
         return [Product(name=x.name, vendor=self.id, kind=x.type, version=x.version, install_dir=x.install_dir,
                         content_dir=x.content_dir, registered=x.registered, licensed=x.licensed) for x in prod.installed(p)]
     def product_notes(self, p):
-        return [Note("Native Access", "patched", "A company that sells thousands of dollars of instruments ships a storefront that is a web page in a "
-                     "browser it cannot keep running: its own installer cannot install it, its GPU process crash-loops, its sandbox cannot start "
-                     "its own children, its updater would re-break it, and its helper daemon claims fixed ports as if it owned the machine. "
-                     "Six repairs before it opens: this app unpacks the installer itself, patches the bundle, starts it "
-                     "with --disable-gpu --no-sandbox, installs the daemon from NI's own files and wires the browser sign-in link."),
+        return [Note("Native Access", "patched", "NI's storefront is a web page in a browser. It runs here on NI's own files and updates "
+                     "itself as on Windows; what this app adds sits beside it: it unpacks NI's installer, installs the helper daemon from "
+                     "NI's files (Native Access cannot do that itself under Wine), keeps it off DirectComposition so its window is "
+                     "smooth, and wires the browser sign-in link."),
                 Note("Kontakt", "patched", "The flagship sampler arrives in an InstallAware wrapper that unpacks its payload, then sits at half a core "
                      "doing nothing, forever. This app kills it and copies the files the installer already had. Libraries the daemon "
                      "cannot be bothered to register, the app registers."),
@@ -91,7 +91,7 @@ class NativeInstruments(Vendor):
         # Same flags as launch(): the callback instance normally just hands the
         # URL to the running NA, but if none is running it becomes the app.
         return [UrlScheme("native-access", "Native Access login callback",
-                          lambda p: [str(p.build.wine), str(na.na_exe(p)), "--disable-gpu", "--no-sandbox"])]
+                          lambda p: [str(p.build.wine), str(na.na_exe(p))])]
     def logs(self, p): return {"native-access.log": na.na_log(p)}
 
     # -- installs ------------------------------------------------------------------------------
@@ -130,8 +130,8 @@ class NativeInstruments(Vendor):
             c.append(Check("NA dependency-check patch", dep != "missing",
                            "built into Native Access 3.26+" if dep == "native" else ("" if dep == "patched" else "NA picks an owned product over the installed Player: libraries show 'Requires Kontakt'"),
                            fix="vstenv setup"))
-            c.append(Check("NA self-updater disabled", s["self_update_disabled"], "updates only via a downloaded installer", fix="vstenv setup"))
-            c.append(Check("NA runs without GPU and sandbox however it is started", s["launch_flags_baked"], "Komplete Kontrol's Manage Products and plugins start it with no arguments", fix="vstenv setup"))
+            c.append(Check("NA runs on NI's own files", s["files"] != "edited", "it updates itself, as on Windows", fix="close Native Access, then: vstenv setup"))
+            c.append(Check("NA draws without DirectComposition", s["composition_off"], "smooth with its GPU on, however it is started", fix="vstenv setup"))
         missing_unmanaged = [e for e in MENU_POPUP_EXES if not unmanaged.applied(p, e)]
         if not missing_unmanaged:
             c.append(Check("Komplete Kontrol menus stay open", True, "the window manager is kept away from its fullscreen menu popups"))

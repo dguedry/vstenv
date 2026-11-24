@@ -258,66 +258,74 @@ def dependency_status(p: Prefix) -> str:
 def dependency_patched(p: Prefix) -> bool:
     return dependency_status(p) != "missing"
 
-# --- fix 7: NA self-updater -------------------------------------------------------------------------------------
+# --- NI's own files: edits this app used to make, and undoing them ------------------------------------------
 _AU_ON, _AU_OFF = b"autoUpdateEnabled:!0", b"autoUpdateEnabled:!1"
 
-def _au_edit(js: bytes):
-    if _AU_OFF in js: return None
-    if js.count(_AU_ON) != 1: raise LookupError(f"autoUpdateEnabled default not found once ({js.count(_AU_ON)})")
-    return js.replace(_AU_ON, _AU_OFF, 1)   # same length: build default flips to "auto updates disabled"
-
-def disable_self_update(p: Prefix, reporter=None) -> str:
-    """Flip NA's build-config default so the updater is never initialised (NA
-    logs "auto updates disabled, skipping init"): no download, no prompt, no
-    error toast. Updates happen only through an installer the user downloads
-    from NI (install_native_access). The env var can only enable, never
-    disable, and the dev.json override schema only picks daemon/log keys."""
-    r = null_reporter(reporter)
-    r.step("Disabling Native Access self-updates")
-    if self_update_disabled(p): r.skip("already"); return "already"
-    try: res = _patch_asar(p, {MAIN_RX: _au_edit}, r)
-    except LookupError as e: r.fail(f"{e} — NA version not yet supported"); return "unsupported"
-    st = res[MAIN_RX]
-    (r.ok if st == "patched" else r.fail)("updates only via a downloaded installer" if st == "patched" else st)
-    return st if st == "patched" else "unsupported"
-
-def self_update_disabled(p: Prefix) -> bool:
-    asar = na_dir(p) / "resources/app.asar"
-    return asar.exists() and _AU_OFF in asar.read_bytes()
-
-# NA reads its own "disable hardware acceleration" setting at startup and then
-# appends --disable-gpu itself. Komplete Kontrol (File > Manage Products) and
-# plugins start NA.exe with no arguments, so without this NA ran on its GPU
-# process under Wine: a jittery, barely usable window (2026-10-31). Right after
-# that check, append both switches the launcher passes, unconditionally.
-_GPU_RX = re.compile(rb"try\{\w+(?:\.get\(\)|\[\w+\(\d+\)\]\(\))\.disableHardwareAcceleration&&(\w+)\.commandLine"
-                     rb"\[[^\]]+\]\([^()]*\(?[^()]*\)?\)\}catch\((\w+)\)\{[^{}]*\}")
 _FLAGS_MARK = b"/*VSTENV_NA_FLAGS*/"
 
-def _flags_edit(js: bytes):
-    if _FLAGS_MARK in js: return None
-    ms = list(_GPU_RX.finditer(js))
-    if len(ms) != 1: raise LookupError(f"hardware-acceleration check not found once ({len(ms)})")
-    m = ms[0]; app, err = m.group(1), m.group(2)
-    inject = (b"try{" + app + b'.commandLine.appendSwitch("disable-gpu");' + app + b'.commandLine.appendSwitch("no-sandbox")}catch('
-              + err + b"){}" + _FLAGS_MARK)
-    return js[:m.end()] + inject + js[m.end():]
+def _asar_header_hash(asar: Path) -> str:
+    with open(asar, "rb") as h:
+        head = h.read(16); n = struct.unpack_from("<I", head, 12)[0]
+        return hashlib.sha256(h.read(n)).hexdigest()
 
-def bake_launch_flags(p: Prefix, reporter=None) -> str:
-    """Make NA add --disable-gpu and --no-sandbox itself, so it also runs
-    properly when Komplete Kontrol or a plugin starts it without them."""
-    r = null_reporter(reporter)
-    r.step("Native Access: GPU and sandbox switches built in")
-    if launch_flags_baked(p): r.skip("already"); return "already"
-    try: res = _patch_asar(p, {MAIN_RX: _flags_edit}, r)
-    except LookupError as e: r.fail(f"{e} — NA version not yet supported"); return "unsupported"
-    st = res[MAIN_RX]
-    (r.ok if st == "patched" else r.fail)("also when another program starts it" if st == "patched" else st)
-    return st if st == "patched" else "unsupported"
-
-def launch_flags_baked(p: Prefix) -> bool:
+def stock_status(p: Prefix) -> str:
+    """'stock' when app.asar is NI's own, 'edited' when it carries one of the
+    edits this app used to make (self-updates off, launch switches built in)."""
     asar = na_dir(p) / "resources/app.asar"
-    return asar.exists() and _FLAGS_MARK in asar.read_bytes()
+    if not asar.exists(): return "missing"
+    data = asar.read_bytes()
+    return "edited" if (_AU_OFF in data or _FLAGS_MARK in data) else "stock"
+
+def restore_stock(p: Prefix, reporter=None) -> str:
+    """Put NI's own app.asar and exe back where this app used to edit them.
+
+    Until 2026-11 the bundle was edited to switch NA's self-updater off and to
+    build --disable-gpu --no-sandbox in. Neither is needed on Wine 11.17 (see
+    composition_off and launch), and an edited bundle is what a future NA
+    update could break: the edits depend on patch sites that move. With NI's
+    files in place NA updates itself the way it does on Windows."""
+    r = null_reporter(reporter)
+    r.step("Native Access: NI's own files, self-updates on")
+    st = stock_status(p)
+    if st != "edited": r.skip("already" if st == "stock" else "not installed"); return st
+    if p.is_running("Native Access.exe"): r.skip("Native Access is open; done the next time it is closed"); return "running"
+    asar = na_dir(p) / "resources/app.asar"; exe = na_exe(p)
+    orig = asar.with_suffix(".asar.orig"); exb = exe.with_suffix(".exe.pre-asarpatch")
+    if not (orig.exists() and exb.exists()):
+        r.fail("the copies of NI's files are gone; install Native Access again from NI's installer"); return "unsupported"
+    # The exe carries the hash of the bundle's header and refuses any other
+    # bundle, so the two copies must be a pair (a stale exe from an older NA
+    # next to a newer bundle would leave NA unable to start).
+    if _asar_header_hash(orig).encode() not in exb.read_bytes():
+        r.fail("the copies of NI's files do not belong together; install Native Access again from NI's installer"); return "unsupported"
+    for src, dst in ((orig, asar), (exb, exe)):
+        tmp = dst.with_name(dst.name + ".tmp"); shutil.copy2(src, tmp); tmp.replace(dst)
+    # The copies now equal the live files; left behind they would go stale at
+    # NA's next update and pass for "NI's files" of a version that is gone.
+    orig.unlink(missing_ok=True); exb.unlink(missing_ok=True)
+    r.ok("restored")
+    return "restored"
+
+# --- drawing --------------------------------------------------------------------------------------------------
+# NA's GPU process, on this app's patched dcomp.dll, presents through
+# DirectComposition: about half a core while NA sits idle, and a window that
+# jitters (measured 2026-11-19: 52% with DXVK, 36% with Wine's Direct3D). With
+# dcomp.dll kept from NA alone, Chromium presents the ordinary way: 1% idle and
+# smooth, GPU and sandbox on, no switches (2026-11-23). A per-program registry
+# value rather than switches because it also holds when Komplete Kontrol or a
+# plugin starts NA with no arguments, and it survives NA updating itself.
+NA_DLL_KEY = r"HKCU\Software\Wine\AppDefaults\Native Access.exe\DllOverrides"
+
+def composition_is_off(p: Prefix) -> bool:
+    return p.reg_query(NA_DLL_KEY).get("dcomp", "").lower().startswith("d")
+
+def composition_off(p: Prefix, reporter=None) -> bool:
+    r = null_reporter(reporter)
+    r.step("Native Access: drawing without DirectComposition")
+    if composition_is_off(p): r.skip("already"); return False
+    p.reg_add(NA_DLL_KEY, "dcomp", "disabled")
+    r.ok("smooth, with its GPU on")
+    return True
 
 def version_notice(p: Prefix) -> dict:
     """installed vs latest (from NI's feed, version string only) and whether latest is validated."""
@@ -358,16 +366,34 @@ def launch(p: Prefix, reporter=None, extra_args=()) -> subprocess.Popen:
     # No stack-reserve patch: NA's JavaScript engine overflowed NI's 8 MB main
     # stack under GE-Proton 10 (2026-08), but NA 3.26 runs on NI's own exe on
     # Wine 11.17, signed in and browsing (2026-11-16). Exes patched before keep 64 MB.
+    daemon_current(p, r)
     ensure_daemon(p, r)
     download_location(p, r)
     paths.ensure_dirs()
     log = paths.LOGS / "native-access-launch.log"
-    # --disable-gpu: NA >= 3.25's GPU process crash-loops under Wine (blank window)
-    # --no-sandbox: NA >= 3.26 (Electron 43) cannot start any child process under
-    #   Wine with Chromium's Windows sandbox on ("GPU process launch failed:
-    #   error_code=39", "Network service crashed", then "GPU process isn't usable.
-    #   Goodbye." within a second); harmless on older builds
-    return p.spawn([str(exe), "--disable-gpu", "--no-sandbox", *extra_args], log=log)
+    composition_off(p)          # one registry read when it is already set
+    # No switches: NA 3.26 runs with its GPU and sandbox on under Wine 11.17
+    # once it is kept off DirectComposition (see composition_off).
+    return p.spawn([str(exe), *extra_args], log=log)
+
+def bundled_daemon_version(p: Prefix) -> str | None:
+    """Version of the NTK daemon setup NA carries ("NTKDaemon 1.32.0 Setup PC.exe")."""
+    found = [m.group(1) for f in (na_dir(p) / "resources/daemon").rglob("NTKDaemon*Setup*.exe")
+             if (m := re.search(r"(\d+\.\d+\.\d+)", f.name))]
+    return max(found, key=_vtuple) if found else None
+
+def daemon_current(p: Prefix, reporter=None) -> bool:
+    """Install the daemon NA carries when it is newer than the installed one.
+    NA updating itself brings a newer daemon setup and then asks to install
+    it through an elevation that does not exist under Wine; this app has
+    always installed the daemon from NA's own files, so it does that here too.
+    Returns whether it installed one."""
+    want = bundled_daemon_version(p)
+    exe = p.drive_c / NTK_REL / "NTKDaemon.exe"
+    have = pe.version(exe) if exe.exists() else None
+    if not want or (have and _vtuple(have) >= _vtuple(want)): return False
+    ntk_daemon(p, reporter)
+    return True
 
 def ensure_daemon(p: Prefix, reporter=None) -> bool:
     """Start the NTK daemon if it is installed but not running. Returns whether
@@ -407,12 +433,12 @@ def install_native_access(p: Prefix, installer: Path, reporter=None):
     from ... import runtime, setup
     if not runtime.status(p)["prepared"]: setup.prepare(p, r)
     install(p, installer, r)
-    disable_self_update(p, r); bake_launch_flags(p, r); ntk_daemon(p, r); config(p, r); download_location(p, r); dependency_patch(p, r); p.wait_idle()
+    composition_off(p, r); ntk_daemon(p, r); config(p, r); download_location(p, r); dependency_patch(p, r); p.wait_idle()
 
 def install_native_access_fixes(p: Prefix, reporter=None):
     """Re-apply the NA-side fixes to an already installed Native Access (repair)."""
     r = null_reporter(reporter)
-    disable_self_update(p, r); bake_launch_flags(p, r); ntk_daemon(p, r); config(p, r); download_location(p, r); dependency_patch(p, r); p.wait_idle()
+    restore_stock(p, r); composition_off(p, r); ntk_daemon(p, r); config(p, r); download_location(p, r); dependency_patch(p, r); p.wait_idle()
 
 def status(p: Prefix) -> dict:
     exe = na_exe(p)
@@ -422,8 +448,8 @@ def status(p: Prefix) -> dict:
         "ntk_daemon": (p.drive_c / NTK_REL / "NTKDaemon.exe").exists(),
         "ntk_version": pe.version(p.drive_c / NTK_REL / "NTKDaemon.exe") if (p.drive_c / NTK_REL / "NTKDaemon.exe").exists() else None,
         "dependency_patch": dependency_patched(p) if exe.exists() else False,
-        "self_update_disabled": self_update_disabled(p) if exe.exists() else False,
-        "launch_flags_baked": launch_flags_baked(p) if exe.exists() else False,
+        "files": stock_status(p) if exe.exists() else "missing",
+        "composition_off": composition_is_off(p) if exe.exists() else False,
         "pending_update": pending_update(p) is not None,
         "running": p.is_running("Native Access.exe"),
     }
