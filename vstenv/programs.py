@@ -344,6 +344,10 @@ def run(p: Prefix, prog: Program, reporter=None):
     if prog.install_dir: quirks.apply(p, prog.name, prog.install_dir, r)
     try: fmx.apply_if_fmx(p, p.to_host(prog.exe), r)      # a FireMonkey GUI draws right only with GDI+
     except Exception: pass
+    try:
+        from . import recipes, menu_colors
+        if recipes.effective(p, "programs", prog.exe.rsplit("\\", 1)[-1])["desktop_menu_colors"][0] == "on": menu_colors.apply(p)
+    except Exception: pass                      # colours are cosmetic: never block a launch
     r.step(f"Starting {prog.name}")
     cwd = p.to_host(prog.workdir) if prog.workdir else None
     extra = quirks.launch_args(p, prog.name, prog.install_dir) if prog.install_dir else []

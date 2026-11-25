@@ -45,7 +45,8 @@ RENDERING = ("auto", "dxvk", "wine", "gdi")
 TRISTATE = ("auto", "on", "off")
 # "installs" are remedies for running an installer file (remedies.py), keyed
 # by the file's name; a key may hold * for the version part of a name.
-KNOBS = {"programs": {"rendering": RENDERING, "wm_away": TRISTATE, "browser_software_gl": TRISTATE},
+KNOBS = {"programs": {"rendering": RENDERING, "wm_away": TRISTATE, "browser_software_gl": TRISTATE,
+                      "desktop_menu_colors": TRISTATE},
          "plugins": {"rendering": RENDERING, "hide_wine": TRISTATE, "force_dnd": TRISTATE},
          "installs": dict(remedies.KNOBS)}
 KINDS = tuple(KNOBS)
@@ -61,6 +62,7 @@ KNOB_TEXT = {
     "rendering": "Which Direct3D the program gets",
     "wm_away": "Keep the window manager away (menus that flash and close as soon as they open)",
     "browser_software_gl": "Software rendering for its embedded browser window (a window that stays blank or black)",
+    "desktop_menu_colors": "Copy the desktop theme's (Plasma or GNOME) window colours into Wine's menu colours (the native menu bar stays white on a dark theme); off unless set on",
     "hide_wine": "Hide Wine from the plugin (JUCE 8.0.13 and later: an empty panel, missing artwork; never for iLok plugins)",
     "force_dnd": "Let files be dropped onto the plugin in REAPER (REAPER's FX window catches the drop otherwise)",
 }
@@ -238,6 +240,12 @@ def apply_program(p: Prefix, exe_name: str, settings: dict, reporter=None, exe_p
         except Exception: pass
         if have.get(exe_name) != flags:
             p.reg_add(webview2.POLICY_KEY, exe_name, flags); done.append(f"browser_software_gl={gl}")
+    if settings.get("desktop_menu_colors") == "on":
+        from . import menu_colors
+        if menu_colors.apply(p): done.append("desktop_menu_colors=on")
+    elif (p.drive_c / "vstenv-menu-colors.json").exists():
+        from . import menu_colors
+        if menu_colors.reset(p): done.append("desktop_menu_colors=off")
     if done:
         r.step(f"Recipe for {exe_name}"); r.ok(", ".join(done))
     return done
