@@ -380,3 +380,17 @@ its wineserver by request numbers). Regenerate it for a new Wine version by
 re-applying the hunks and renaming the file; `winefixes.wine_version()` picks
 the asset by the pinned build's version. Written for Wine 11.17, verified with
 HALion Sonic 7 on 2026-09-26; a candidate for upstreaming to wine-staging.
+
+## d2d1-zz-shader-cache-<version>.patch
+
+Cubase 14 opens a context menu with ~20 icons in ~1 s because every 13x13 icon
+gets its own Direct2D device (about 55 ms each). `d2d_device_init` ran
+`D3DCompile` on the shape vertex shaders and the pixel shader for every device,
+and `CreateWicBitmapRenderTarget` makes a device too. A mingw micro-benchmark
+of the icon sequence (WIC 13x13 target or D2D device + context, draw,
+CopyFromBitmap/Map, GetDC, ReleaseDC; under the host runtime on a private Xvfb)
+measured 20.0 ms per icon steady state, 16 ms of it device creation. The
+patch compiles once per process (critical section, blobs shared by reference),
+giving 3.4 ms per icon. Left: a new D3D11 device per icon costs another ~32 ms
+(wined3d device/context creation), only if Cubase does that. Named `zz` to sort
+after `d2d1-zz-layer-opacity-mask` (same file).
