@@ -53,9 +53,9 @@ def cmd_manager(a):
             v.finish_installs(p, r, since=t0); setup.after_change(p, r)
         else: _join_window_watch(proc)       # stay until the window is up, for the resync
     elif a.action == "apply-pending-update":
-        # A manager whose self-updater this app disables can still be holding an
-        # update it downloaded before that: it will never install it itself, and
-        # installing it through this app is the only way it lands patched.
+        # A fallback: the manager downloaded an update for itself and its own
+        # updater did not get it installed. No manager's updater is disabled now
+        # (Native Access's was until 2026-11).
         p = _prefix()
         f = v.pending_manager_update(p)
         if f is None:

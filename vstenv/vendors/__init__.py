@@ -114,9 +114,8 @@ class Vendor:
     def pending_manager_update(self, p: "Prefix") -> "Path | None":
         """An update the manager downloaded for itself but has not installed.
 
-        Only meaningful for a manager whose self-updater this app disables: the
-        file can be left over from before that, and the manager will never act
-        on it. Returns the installer, or None."""
+        A fallback for when the manager's own updater does not get it installed
+        under Wine. Returns the installer, or None."""
         return None
 
     def apply_pending_manager_update(self, p: "Prefix", r: "Reporter | None" = None) -> bool:

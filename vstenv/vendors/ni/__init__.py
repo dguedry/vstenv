@@ -146,10 +146,6 @@ class NativeInstruments(Vendor):
             elif v["newer"]:
                 c.append(Check("Native Access version", True, f"{v['installed']} installed; {v['latest']} available "
                                + ("(validated)" if v["latest_known_good"] else ("(does not work on this stack: " + v["latest_known_bad"] + ")" if v["latest_known_bad"] else "(not yet validated on this stack)"))))
-            if s["pending_update"]:
-                c.append(Check("no pending NA self-update", False,
-                               "an update NA downloaded before its updater was disabled; NA will never install it itself",
-                               fix=f"vstenv manager ni apply-pending-update (installs it with this app's fixes), or delete it and ignore"))
         # The NTK daemon binds fixed localhost ports, one daemon per machine. A daemon
         # from another prefix holding them means plugins bridged from *this* prefix talk
         # to the wrong daemon and hang in every DAW.
