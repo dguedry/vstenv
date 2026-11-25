@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.156" date="2026-11-25">
+      <description>
+        <p>Merge branch 'pr34' into prtest</p>
+      </description>
+    </release>
     <release version="0.1.155" date="2026-11-25">
       <description>
         <p>CI: wait for the Pages artifact to be listed before deploying it</p>
