@@ -400,3 +400,17 @@ window unpainted. With this patch the line no longer flickers (Cubase 14,
 wine-staging 11.17) and idle CPU right after start was lower (about 6.3 cores
 against 8.6 in a 10 s sample; both include start-up scanning). Layers on
 `dcomp-steinberg`; a candidate for upstreaming with it.
+
+## dcomp-zz-compose-thread-keeps-running-<version>.patch
+
+Cubase 14, after minimize and restore, kept the window as it was when it
+went away: no redraw until something else forced one. The compositor thread
+of `dcomp-steinberg` ends the first time a tick draws nothing (a failed
+tick, or a target with no root) and only `IDCompositionDevice::Commit()`
+starts it again, which a program with nothing new to say never calls. The
+patch counts a target for as long as its window exists, regardless of the
+tick's result, so the thread ends only when all windows of the device are
+gone; and it skips drawing while the target's top-level window is
+minimized or destroyed (the first tick after the restore redraws every
+visual). Candidate fix from reading the source; built, not yet run in Cubase.
+Layers on `dcomp-swapchain-present-offscreen`.

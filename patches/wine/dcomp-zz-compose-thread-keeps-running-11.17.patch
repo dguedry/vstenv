@@ -1,0 +1,57 @@
+dcomp: keep the composition thread running while a target's window exists
+
+The compositor thread of dcomp-steinberg ends as soon as one tick drew
+nothing (no target ticked successfully, or a target had no root) and is only
+started again by IDCompositionDevice::Commit(). A program that does not
+commit again has nothing drawn from then on: Cubase 14's window stayed as it
+was after a minimize and restore, because the restore commits nothing.
+
+Count a target for as long as its window exists, whatever the tick returned,
+so the thread ends only when every window of the device is gone (and Commit()
+starts it again). Skip drawing while the target's top level window is
+minimized: the first tick after the restore redraws every visual, and the
+window's surface was not worth keeping up meanwhile. Skipping windows that
+no longer exist also stops the thread drawing on a destroyed hwnd.
+
+Layers on dcomp-swapchain-present-offscreen. Untested in Cubase; built only.
+
+--- a/dlls/dcomp/device.c
++++ b/dlls/dcomp/device.c
+@@ -898,20 +898,32 @@
+         count = 0;
+         LIST_FOR_EACH_ENTRY(target, &device->targets, struct composition_target, entry)
+         {
++            /* Skip targets created from a shared visual handle. Composition for such targets will
++             * be done for the visual tree where the visual created from the shared visual handle is at */
++            if (target->shared_visual_handle)
++                continue;
++
++            /* The thread is only restarted by Commit(), which a program that has nothing new
++             * to say never calls: a tick that failed once, a target without a root yet or a
++             * minimized window used to end it for good, and the window stayed as it was when
++             * it came back.  A target counts while its window exists. */
++            if (!IsWindow(target->hwnd))
++                continue;
++            count++;
++
+             if (!target->root)
+             {
+                 FIXME("Target %p has no root.\n", &target->IDCompositionTarget_iface);
+                 continue;
+             }
+ 
+-            /* Skip targets created from a shared visual handle. Composition for such targets will
+-             * be done for the visual tree where the visual created from the shared visual handle is at */
+-            if (target->shared_visual_handle)
++            /* Nothing to show, and the window's surface is not the program's to keep up
++             * while it is minimized; the first tick after the restore draws it all. */
++            if (IsIconic(GetAncestor(target->hwnd, GA_ROOT)))
+                 continue;
+ 
+             visual = impl_from_IDCompositionVisual(target->root);
+-            if (SUCCEEDED(composite_target_tick(target, visual)))
+-                count++;
++            composite_target_tick(target, visual);
+         }
+ 
+         if (!count)
