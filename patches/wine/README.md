@@ -380,3 +380,19 @@ its wineserver by request numbers). Regenerate it for a new Wine version by
 re-applying the hunks and renaming the file; `winefixes.wine_version()` picks
 the asset by the pinned build's version. Written for Wine 11.17, verified with
 HALion Sonic 7 on 2026-09-26; a candidate for upstreaming to wine-staging.
+
+## win32u.so (rebuilt unix library, no patch of its own)
+
+`dcomp-swapchain-present-<version>.patch` changes `dlls/win32u/menu.c` so that a
+32-bit menu bitmap is drawn with `NtGdiAlphaBlend` (per-pixel alpha); a plain
+BitBlt turns the transparent, premultiplied pixels of Cubase's context-menu
+icons into black squares. But the menu, window and GDI code lives in the unix
+half of win32u, `win32u.so`; the PE `win32u.dll` is only syscall thunks. The
+build script rebuilt only the PE half, so the hunk never reached the runtime
+and every icon stayed a black square even with the Direct2D layer fix
+(`d2d1-zz-layer-opacity-mask`). `scripts/build-wine-fixes.sh` now also builds
+`win32u.so` (in the same X-enabled second configure as `winex11.so`). That
+configure no longer passes `--without-freetype --without-fontconfig`: without
+them the rebuilt `win32u.so` has no font support (it came out 2.3 MB against the
+stock 2.9 MB). The script checks for both
+SONAME defines. Tested in Cubase 14 under Xwayland on KDE Plasma.

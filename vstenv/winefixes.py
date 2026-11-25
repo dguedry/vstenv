@@ -49,7 +49,8 @@ FIXES = {"dcomp.dll": "DirectComposition (Steinberg's VSTGUI: HALion Sonic 7, Cu
          "powershell.exe": "answers \"is this program running?\" honestly (electron-builder installers: Softube Central)",
          "i386-windows/powershell.exe": "the same, for 32-bit installers",
          "nirescan.exe": "NI controllers plugged in after Wine started are seen (Komplete Kontrol keyboards, Maschine; from ni-wine)",
-         "x86_64-unix/winex11.so": "a cursor set from another process shows as an arrow, not nothing (WebView2 windows: Minimal Hub)"}
+         "x86_64-unix/winex11.so": "a cursor set from another process shows as an arrow, not nothing (WebView2 windows: Minimal Hub)",
+         "x86_64-unix/win32u.so": "menu icons keep their alpha (32-bit menu bitmaps are alpha-blended); built with FreeType and fontconfig"}
 
 def dest(build: wine.WineBuild, name: str) -> Path:
     """Where a packaged file goes in the Wine build: a bare name is a 64-bit PE
