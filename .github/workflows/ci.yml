@@ -313,6 +313,7 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+      actions: read
       pages: write
       id-token: write
     environment:
@@ -348,5 +349,18 @@ jobs:
       - uses: actions/upload-pages-artifact@v5
         with:
           path: site
+      # Since 2026-11-25 the deploy step, run a second after the upload, lists
+      # the run's artifacts without the one just uploaded ("No artifacts named
+      # github-pages") and fails. Wait until the list shows it.
+      - name: Wait for the uploaded site to be listed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for i in $(seq 1 30); do
+            n=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?name=github-pages" --jq .total_count || echo 0)
+            [ "$n" -ge 1 ] && break
+            sleep 5
+          done
+          sleep 30
       - id: deploy
         uses: actions/deploy-pages@v5
