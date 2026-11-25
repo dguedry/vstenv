@@ -380,3 +380,23 @@ its wineserver by request numbers). Regenerate it for a new Wine version by
 re-applying the hunks and renaming the file; `winefixes.wine_version()` picks
 the asset by the pinned build's version. Written for Wine 11.17, verified with
 HALion Sonic 7 on 2026-09-26; a candidate for upstreaming to wine-staging.
+
+## dcomp-swapchain-present-offscreen-<version>.patch
+
+Cubase 14's project cursor line (the line under the downward triangle in the
+ruler, down the track area) flickered, with the project stopped. A 60 fps
+recording of just that line showed it in one of two states, a bright line or
+only the faint bar line, two frames each, repeating about every four frames.
+The compositor of `dcomp-steinberg` drew every visual of a tick straight onto
+the target window's DC, one after another, so the window could reach the screen
+with the base visual drawn and the overlay visual (the cursor line) not yet on
+top of it. The patch composes each tick into an off-screen bitmap (the window's
+current content copied in first, so what no visual draws is kept), then copies
+the result to the window once. The bitmap lives on the target while the window
+size holds; if it cannot be made the old direct drawing is used. Tried and
+ruled out first: skipping the reblit timer's `Present(0,0)` of
+`dcomp-swapchain-present` did not change the flicker and left parts of the
+window unpainted. With this patch the line no longer flickers (Cubase 14,
+wine-staging 11.17) and idle CPU right after start was lower (about 6.3 cores
+against 8.6 in a 10 s sample; both include start-up scanning). Layers on
+`dcomp-steinberg`; a candidate for upstreaming with it.

@@ -1,0 +1,170 @@
+dcomp: composite each tick into an off-screen frame and copy it to the window once
+
+The DirectComposition compositor (dcomp-steinberg) drew every visual of a
+tick straight onto the target window's DC, one visual after another. The
+window's surface can reach the screen between two of those blits, so a frame
+that is composited but not finished shows up: the base visual without the
+overlay visual drawn on top of it. In Cubase 14 that is the project cursor
+line, which flickered on and off (two frames bright, two dim, about 15 Hz in
+a 60 fps recording) with the project stopped.
+
+Compose into an off-screen bitmap instead: copy the window's current content
+in (so what no visual draws is kept), let do_composite() draw every visual
+into it, and BitBlt the result to the window once. The bitmap is kept on the
+target while the window size holds, and falls back to the old direct drawing
+when it cannot be made.
+
+Layers on dcomp-steinberg. Candidate for upstreaming together with it.
+
+Tested with Cubase 14 on wine-staging 11.17: the cursor line no longer
+flickers, and idle CPU after start dropped (about 6.3 cores against 8.6 in a
+10 s sample taken just after start; start-up scanning is part of both).
+
+--- a/dlls/dcomp/device.c	2026-11-24 12:54:34.160152259 +0200
++++ b/dlls/dcomp/device.c	2026-11-24 14:58:48.951713883 +0200
+@@ -409,6 +409,14 @@
+     return hr;
+ }
+ 
++/* The window a composite tick is drawing to is not touched until the whole
++ * frame is done: visuals are drawn into this off-screen DC, which is copied to
++ * the window once at the end.  Drawing straight onto the window one visual
++ * after another let a half-composited frame (the content without the overlay
++ * visual on top of it, such as Cubase's cursor line) reach the screen.  Only
++ * the composite thread sets it, and only around one target's tick. */
++static HDC back_dc;
++
+ static void do_composite_dxgi_surface(const struct composition_target *target,
+                                       struct composition_visual *visual,
+                                       IDXGISurface *dxgi_surface, float x, float y, float sx, float sy)
+@@ -570,13 +578,21 @@
+         goto done;
+     }
+ 
+-    style = DCX_USESTYLE | DCX_CACHE;
+-    if (!target->topmost)
+-        style |= DCX_CLIPCHILDREN;
+-    dst_dc = GetDCEx(target->hwnd, 0, style);
+-    GdiAlphaBlend(dst_dc, (int)x, (int)y, (int)(size.width * sx), (int)(size.height * sy),
+-            src_dc, 0, 0, size.width, size.height, blend_func);
+-    ReleaseDC(target->hwnd, dst_dc);
++    if (back_dc)
++    {
++        GdiAlphaBlend(back_dc, (int)x, (int)y, (int)(size.width * sx), (int)(size.height * sy),
++                src_dc, 0, 0, size.width, size.height, blend_func);
++    }
++    else
++    {
++        style = DCX_USESTYLE | DCX_CACHE;
++        if (!target->topmost)
++            style |= DCX_CLIPCHILDREN;
++        dst_dc = GetDCEx(target->hwnd, 0, style);
++        GdiAlphaBlend(dst_dc, (int)x, (int)y, (int)(size.width * sx), (int)(size.height * sy),
++                src_dc, 0, 0, size.width, size.height, blend_func);
++        ReleaseDC(target->hwnd, dst_dc);
++    }
+ 
+     ID2D1GdiInteropRenderTarget_ReleaseDC(visual->interop, NULL);
+     ID2D1DeviceContext_SetTarget(visual->device_context, old_target);
+@@ -676,6 +692,9 @@
+     if (!comp_dc || !dims)
+         return FALSE;   /* no frame published yet -- composite the content instead */
+ 
++    if (back_dc)
++        return BitBlt(back_dc, (int)x, (int)y, LOWORD(dims), HIWORD(dims), comp_dc, 0, 0, SRCCOPY);
++
+     if (!(target_dc = GetDC(target->hwnd)))
+         return FALSE;
+     drawn = BitBlt(target_dc, (int)x, (int)y, LOWORD(dims), HIWORD(dims),
+@@ -804,6 +823,60 @@
+ }
+ 
+ 
++/* One composite tick of a target, through the off-screen frame.  The window's
++ * current content is copied in first so that what no visual draws (and what
++ * the application paints on its own) is kept.  Falls back to drawing onto the
++ * window directly when the window has no size or the frame cannot be made. */
++static HRESULT composite_target_tick(struct composition_target *target, struct composition_visual *visual)
++{
++    DWORD style = DCX_USESTYLE | DCX_CACHE | (target->topmost ? 0 : DCX_CLIPCHILDREN);
++    HBITMAP old_bitmap;
++    HDC window_dc;
++    RECT client;
++    HRESULT hr;
++    int w, h;
++
++    GetClientRect(target->hwnd, &client);
++    w = client.right - client.left;
++    h = client.bottom - client.top;
++    if (w <= 0 || h <= 0 || !(window_dc = GetDCEx(target->hwnd, 0, style)))
++        return do_composite(target, visual, 0.0f, 0.0f);
++
++    if (!(back_dc = CreateCompatibleDC(window_dc)))
++    {
++        ReleaseDC(target->hwnd, window_dc);
++        return do_composite(target, visual, 0.0f, 0.0f);
++    }
++    if (target->back_bitmap && (target->back_width != w || target->back_height != h))
++    {
++        DeleteObject(target->back_bitmap);
++        target->back_bitmap = NULL;
++    }
++    if (!target->back_bitmap && (target->back_bitmap = CreateCompatibleBitmap(window_dc, w, h)))
++    {
++        target->back_width = w;
++        target->back_height = h;
++    }
++    if (!target->back_bitmap)
++    {
++        DeleteDC(back_dc);
++        back_dc = NULL;
++        ReleaseDC(target->hwnd, window_dc);
++        return do_composite(target, visual, 0.0f, 0.0f);
++    }
++
++    old_bitmap = SelectObject(back_dc, target->back_bitmap);
++    BitBlt(back_dc, 0, 0, w, h, window_dc, 0, 0, SRCCOPY);
++    hr = do_composite(target, visual, 0.0f, 0.0f);
++    BitBlt(window_dc, 0, 0, w, h, back_dc, 0, 0, SRCCOPY);
++
++    SelectObject(back_dc, old_bitmap);
++    DeleteDC(back_dc);
++    back_dc = NULL;
++    ReleaseDC(target->hwnd, window_dc);
++    return hr;
++}
++
+ static DWORD WINAPI composite_thread_proc(void *iface)
+ {
+     struct composition_device *device = impl_from_IDCompositionDevice(iface);
+@@ -837,7 +910,7 @@
+                 continue;
+ 
+             visual = impl_from_IDCompositionVisual(target->root);
+-            if (SUCCEEDED(do_composite(target, visual, 0.0f, 0.0f)))
++            if (SUCCEEDED(composite_target_tick(target, visual)))
+                 count++;
+         }
+ 
+--- a/dlls/dcomp/dcomp_private.h	2026-11-24 12:54:34.160315250 +0200
++++ b/dlls/dcomp/dcomp_private.h	2026-11-24 14:58:48.951403111 +0200
+@@ -77,6 +77,8 @@
+     BOOL topmost;
+     HWND hwnd;
+     HANDLE shared_visual_handle;
++    HBITMAP back_bitmap;           /* off-screen frame the compositor draws a tick into, kept while the size holds */
++    int back_width, back_height;
+     struct list entry;
+     LONG ref;
+ };
+--- a/dlls/dcomp/target.c	2026-11-24 12:54:32.433350251 +0200
++++ b/dlls/dcomp/target.c	2026-11-24 14:58:48.951484891 +0200
+@@ -73,6 +73,8 @@
+         dcomp_lock();
+         list_remove(&target->entry);
+         dcomp_unlock();
++        if (target->back_bitmap)
++            DeleteObject(target->back_bitmap);
+         IDCompositionDevice_Release(target->device);
+         if (target->root)
+         {
