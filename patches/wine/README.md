@@ -380,3 +380,20 @@ its wineserver by request numbers). Regenerate it for a new Wine version by
 re-applying the hunks and renaming the file; `winefixes.wine_version()` picks
 the asset by the pinned build's version. Written for Wine 11.17, verified with
 HALion Sonic 7 on 2026-09-26; a candidate for upstreaming to wine-staging.
+
+## dxgi-zz-shared-wined3d-<version>.patch
+
+`D3D11CreateDevice` makes a new DXGI factory, and every factory made its own
+wined3d object, which probes the GL adapter again (a throw-away GL context,
+capability tables, format probing). Cubase 14 creates a D3D11 device per
+context-menu icon. In a traced creation 30 of 32 ms were
+`wined3d_adapter_gl_create`; `D3D11CreateDevice` went from 29 ms to 8.5 ms with
+the patch (host runtime, Xvfb, so llvmpipe; the probing is driver work, the
+number on NVIDIA will differ). One wined3d object is now kept per process
+(created on first use, never released, one reference per factory) and replaced
+when the virtual screen rectangle changes, since the outputs are read at
+creation. The first device in a process still pays about 220 ms (driver load
+and GL context, about 140 ms of it the first GL context; software-GL
+specific in size). What is left per device (about 8 ms create, 8 ms release, 20 ms
+first draw, 12 ms first readback on a fresh device) is the GL context and
+wined3d's per-device GLSL program cache.
