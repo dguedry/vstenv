@@ -134,6 +134,13 @@ class UninstallArgvTest(unittest.TestCase):
         self.assertEqual(programs.uninstall_argv(r"C:\x\unins.exe /silent"), [r"C:\x\unins.exe", "/silent"])
         self.assertEqual(programs.uninstall_argv(""), [])
 
+    def test_unquoted_path_with_spaces_is_one_program(self):
+        """Softube Heartbeat registers its uninstaller unquoted; through cmd it
+        ran "C:\\Program" and removed nothing."""
+        exe = r"C:\Program Files\Softube\Plug-Ins 64-bit\Uninstall Softube Heartbeat (x64).exe"
+        self.assertEqual(programs.uninstall_argv(exe), [exe])
+        self.assertEqual(programs.uninstall_argv(exe + " /S"), [exe, "/S"])
+
 if __name__ == "__main__":
     unittest.main()
 

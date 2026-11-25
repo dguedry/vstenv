@@ -370,6 +370,8 @@ def run(p: Prefix, prog: Program, reporter=None):
 
 _MSI_BY_CODE = re.compile(r"msiexec(?:\.exe)?\s+/[ix]\s*(\{[0-9a-f-]{36}\})", re.I)
 
+_UNQUOTED_EXE = re.compile(r"([a-z]:\\.+?\.exe)(?:\s+(.*))?", re.I)
+
 def uninstall_argv(uninstall: str) -> list[str]:
     """UninstallString -> argv for the prefix. Quoted exe + options, msiexec
     lines, or anything else through cmd /c (installers write shell-ish strings)."""
@@ -387,6 +389,11 @@ def uninstall_argv(uninstall: str) -> list[str]:
         if m: return ["msiexec", "/x", m.group(1), "/qn"]
         return shlex.split(s, posix=False)
     if s.lower().startswith("cmd") or "&&" in s or ">" in s: return ["cmd", "/c", s]
+    # An unquoted path with spaces (Softube Heartbeat: C:\Program Files\Softube\
+    # Plug-Ins 64-bit\Uninstall Softube Heartbeat (x64).exe). Windows tries each
+    # space as the end of the program; cmd stops at "C:\Program" and runs nothing.
+    m = _UNQUOTED_EXE.fullmatch(s)
+    if m: return [m.group(1), *shlex.split(m.group(2) or "", posix=False)]
     parts = shlex.split(s, posix=False)
     return parts if parts and parts[0].lower().endswith(".exe") else ["cmd", "/c", s]
 
