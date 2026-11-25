@@ -380,3 +380,28 @@ its wineserver by request numbers). Regenerate it for a new Wine version by
 re-applying the hunks and renaming the file; `winefixes.wine_version()` picks
 the asset by the pinned build's version. Written for Wine 11.17, verified with
 HALion Sonic 7 on 2026-09-26; a candidate for upstreaming to wine-staging.
+
+## d2d1-zz-layer-opacity-mask-<version>.patch
+
+Cubase 14's context-menu icons drew as solid near-black squares. It builds each
+icon with Direct2D: PushLayer with an opacity brush (the icon's alpha as a
+bitmap brush), a solid-colour FillRectangle, PopLayer. Wine's PushLayer and
+PopLayer are stubs, so the fill covered the whole 13x13 icon (colour
+0xff010200). The icon bitmaps were already wrong on arrival in the menu code;
+the black is not a D3D readback or `dxgi_surface_GetDC` problem (GetDC returns
+the real UI pixels). A debug print in `d2d_wic_render_target_present` gave 36 of
+36 uniform ff010200 icons before and 0 after the patch (alpha shapes instead).
+The device context now keeps the opacity brush of a layer (non-command-list
+targets only) until PopLayer, and `FillGeometry` (so `FillRectangle`) uses it
+when the caller passes no opacity brush. Geometric masks and other layer
+parameters are still ignored; layers are counted, so only the outermost
+layer's brush applies and an inner PopLayer leaves it. The brush is released in
+PopLayer, in EndDraw (a layer left open) and when the context is destroyed. An
+earlier version released it inside `SetTextRenderingParams` without clearing it,
+which crashed a test that set text rendering params inside a layer (checked:
+the old build crashes in that scenario, the new one passes it, together with a
+nested layer, a layer left open and a layer that is released with the context;
+the icon mask renders the same 88 transparent / 81 painted pixels). Named `zz` so it sorts after
+`d2d1-primitive-blend-copy` (same file). Not fixed here: the slow context menu
+(about 55 ms per item, spent creating a Direct2D device and WIC render target
+per icon).
