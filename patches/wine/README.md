@@ -380,3 +380,88 @@ its wineserver by request numbers). Regenerate it for a new Wine version by
 re-applying the hunks and renaming the file; `winefixes.wine_version()` picks
 the asset by the pinned build's version. Written for Wine 11.17, verified with
 HALion Sonic 7 on 2026-09-26; a candidate for upstreaming to wine-staging.
+
+## dcomp-swapchain-present-offscreen-<version>.patch
+
+Cubase 14's project cursor line (the line under the downward triangle in the
+ruler, down the track area) flickered, with the project stopped. A 60 fps
+recording of just that line showed it in one of two states, a bright line or
+only the faint bar line, two frames each, repeating about every four frames.
+The compositor of `dcomp-steinberg` drew every visual of a tick straight onto
+the target window's DC, one after another, so the window could reach the screen
+with the base visual drawn and the overlay visual (the cursor line) not yet on
+top of it. The patch composes each tick into an off-screen bitmap (the window's
+current content copied in first, so what no visual draws is kept), then copies
+the result to the window once. The bitmap lives on the target while the window
+size holds; if it cannot be made the old direct drawing is used. Tried and
+ruled out first: skipping the reblit timer's `Present(0,0)` of
+`dcomp-swapchain-present` did not change the flicker and left parts of the
+window unpainted. With this patch the line no longer flickers (Cubase 14,
+wine-staging 11.17) and idle CPU right after start was lower (about 6.3 cores
+against 8.6 in a 10 s sample; both include start-up scanning). Layers on
+`dcomp-steinberg`; a candidate for upstreaming with it.
+
+## dcomp-zz-compose-thread-keeps-running-<version>.patch
+
+Cubase 14, after minimize and restore, kept the window as it was when it
+went away: no redraw until something else forced one. The compositor thread
+of `dcomp-steinberg` ends the first time a tick draws nothing (a failed
+tick, or a target with no root) and only `IDCompositionDevice::Commit()`
+starts it again, which a program with nothing new to say never calls. The
+patch counts a target for as long as its window exists, regardless of the
+tick's result, so the thread ends only when all windows of the device are
+gone; and it skips drawing while the target's top-level window is
+minimized or destroyed (the first tick after the restore redraws every
+visual). Candidate fix from reading the source; built, not yet run in Cubase.
+Layers on `dcomp-swapchain-present-offscreen`.
+
+## dcomp-zz-swapchain-alpha-blend-<version>.patch
+
+Cubase 14's start-up splash showed a black strip, about 20 px tall, across
+the bottom of the window (cutting the steinberg logo) where the progress bar
+and the loading text belong. That overlay is a composition swapchain with
+premultiplied alpha, transparent around the bar and text, and the compositor
+copied its buffer with SRCCOPY, so transparent pixels came out black.
+wined3d now sets the window property `__wine_dcomp_comp_alpha` when the
+swapchain is premultiplied and the compositor then uses AlphaBlend. Checked
+with a test program (a blue window, a premultiplied composition swapchain
+cleared to 0,0,0,0 as an overlay visual, headless kwin Xwayland): the overlay
+area was black (0,0,0) with the stock DLLs and blue (0,0,255) with the patched
+dcomp.dll and wined3d.dll. Not yet seen in Cubase itself. A translucent overlay
+is re-blended each tick over the window content if no base visual redraws it.
+Layers on `dcomp-zz-compose-thread-keeps-running`.
+
+## dcomp-zz-recompose-on-restore-<version>.patch
+
+After a minimize and restore of Cubase 14's project window (with
+`dcomp-zz-compose-thread-keeps-running` and `winex11-zz-wm-restore-follows`)
+the transport row, the track area and the channel and inspector bodies were
+black. X drops the window's content when it is unmapped, and the compositor
+read the window into its off-screen frame at every tick, so a tick after the
+restore began from black. A first version kept the frame only when a tick saw
+the window minimized; in Cubase it worked for the first cycle only (the
+cycles are fast, the size passes through odd values and the frame was thrown
+away on every size change). Now the window is read once, for the first frame,
+and the frame is carried over on resize. Test (MinGW program, headless KWin
+Xwayland :3: a GDI-painted window painted once plus a composition-swapchain
+visual, WM_CHANGE_STATE Iconic then _NET_ACTIVE_WINDOW after 0.05, 0.1, 0.3, 1
+and 3 s, whole window compared to the first snapshot): 84111 pixels differ in
+every cycle with the compose-thread dcomp, 0 with this patch. Limit: what a
+program paints onto the top-level window itself after the first frame is
+overwritten by the retained frame (child windows are not touched). Layers on
+`dcomp-zz-swapchain-alpha-blend`.
+
+The same patch carries the child-window fix for Cubase 14's splash. The
+splash is a 750x407 window whose image is one dcomp target; the progress bar
+and the loading text are a child ("Plugin View" with a 750x21 child of its
+own) with a second device and target, a premultiplied virtual surface redrawn
+every 33 ms. The parent's device context has WS_CLIPCHILDREN, so nothing ever
+painted the image under the child, and the child's transparent pixels showed
+the black window: a black strip over the lower edge of the image (the xwd of
+the splash window itself showed it, so not a compositor or KWin issue). A
+child's target now takes its base from the nearest composed ancestor's frame.
+Test (MinGW program `sp.cpp`: a WS_CLIPCHILDREN popup with an image target, a
+child with its own device, target and virtual surface redrawn every 33 ms by
+another thread; headless KWin Xwayland :3): the strip row without the bar was
+(0,0,0) with the live dcomp.dll and (42,46,51), the image, with this patch;
+the bar stayed visible. In Cubase 14 (Xwayland, KDE Plasma) the splash's progress bar still does not show.

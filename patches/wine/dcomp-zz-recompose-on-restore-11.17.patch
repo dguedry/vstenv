@@ -1,0 +1,147 @@
+dcomp: keep the last composed frame, never re-read the window after the first
+
+Restoring a minimized Cubase 14 window left parts of it black: the transport
+row, the track area and the channel and inspector bodies. X drops a window's
+content when it is unmapped. The compositor copied the window's content into
+its off-screen frame at the start of every tick, to keep what no visual draws,
+so a tick after a restore started from black and only the visuals with
+content showed over it.
+
+The frame is now the compositor's own state: the window is read once, for the
+first frame, and every later tick starts from the previous frame. A minimize
+and restore can be over between two ticks, and the size passes through odd
+values around it (a frame that changed size used to be thrown away), so the
+frame is also carried over, copied into the new bitmap, when the size changes.
+
+A target whose window is a child of another composed window (Cubase 14's
+splash: the progress bar and the loading text are a child window with a
+dcomp target of their own over the lower edge of the image, the image being
+the parent's target) now starts each tick from the nearest composed
+ancestor's frame, at the child's place. The parent's device context clips its
+child windows, so the window held black there, and the transparent parts of
+the child's visual showed it as a solid black strip across the image with no
+bar or text. The target is published on its window as the composed-window
+property (was the value 1) and read under dcomp_lock, which every device's
+compose thread holds for a tick.
+
+--- a/dlls/dcomp/device.c	2026-11-25 13:26:54.199345127 +0200
++++ b/dlls/dcomp/device.c	2026-11-25 13:42:52.478231937 +0200
+@@ -844,6 +844,36 @@
+  * current content is copied in first so that what no visual draws (and what
+  * the application paints on its own) is kept.  Falls back to drawing onto the
+  * window directly when the window has no size or the frame cannot be made. */
++/* A window whose target is a child of another composed window: DWM puts the child's visuals over
++ * the parent's, here the parent never paints under its children (it clips them) and the child's
++ * transparent parts would show what the window held there, which is black.  The frame of the nearest
++ * composed ancestor, at the child's place, is the base then.  Cubase 14's splash: the progress bar
++ * and text are a child window with a target of its own over the lower edge of the image. */
++static BOOL copy_ancestor_frame(const struct composition_target *target, HDC dst, int w, int h)
++{
++    HWND ancestor = target->hwnd;
++
++    while ((ancestor = GetAncestor(ancestor, GA_PARENT)) && ancestor != GetDesktopWindow())
++    {
++        struct composition_target *parent;
++        POINT pt = {0, 0};
++        HBITMAP old;
++        HDC src;
++
++        if (!(parent = GetPropW(ancestor, L"wine_window_non_topmost_composed")))
++            parent = GetPropW(ancestor, L"wine_window_topmost_composed");
++        if (!parent || parent == target || !parent->back_bitmap) continue;
++        if (!(src = CreateCompatibleDC(dst))) return FALSE;
++        MapWindowPoints(target->hwnd, ancestor, &pt, 1);
++        old = SelectObject(src, parent->back_bitmap);
++        BitBlt(dst, 0, 0, w, h, src, pt.x, pt.y, SRCCOPY);
++        SelectObject(src, old);
++        DeleteDC(src);
++        return TRUE;
++    }
++    return FALSE;
++}
++
+ static HRESULT composite_target_tick(struct composition_target *target, struct composition_visual *visual)
+ {
+     DWORD style = DCX_USESTYLE | DCX_CACHE | (target->topmost ? 0 : DCX_CLIPCHILDREN);
+@@ -851,6 +881,7 @@
+     HDC window_dc;
+     RECT client;
+     HRESULT hr;
++    BOOL first_frame = FALSE;
+     int w, h;
+ 
+     GetClientRect(target->hwnd, &client);
+@@ -866,13 +897,33 @@
+     }
+     if (target->back_bitmap && (target->back_width != w || target->back_height != h))
+     {
+-        DeleteObject(target->back_bitmap);
+-        target->back_bitmap = NULL;
++        /* The size passes through odd values around a minimize and a restore: the frame is
++         * carried over, not thrown away. */
++        HBITMAP new_bitmap = CreateCompatibleBitmap(window_dc, w, h);
++        HDC old_dc = CreateCompatibleDC(window_dc);
++
++        if (new_bitmap && old_dc)
++        {
++            HBITMAP old_old = SelectObject(old_dc, target->back_bitmap);
++            HBITMAP old_new = SelectObject(back_dc, new_bitmap);
++
++            BitBlt(back_dc, 0, 0, w, h, old_dc, 0, 0, SRCCOPY);
++            SelectObject(back_dc, old_new);
++            SelectObject(old_dc, old_old);
++            DeleteObject(target->back_bitmap);
++            target->back_bitmap = new_bitmap;
++            target->back_width = w;
++            target->back_height = h;
++            new_bitmap = NULL;
++        }
++        if (new_bitmap) DeleteObject(new_bitmap);
++        if (old_dc) DeleteDC(old_dc);
+     }
+     if (!target->back_bitmap && (target->back_bitmap = CreateCompatibleBitmap(window_dc, w, h)))
+     {
+         target->back_width = w;
+         target->back_height = h;
++        first_frame = TRUE;
+     }
+     if (!target->back_bitmap)
+     {
+@@ -883,7 +934,13 @@
+     }
+ 
+     old_bitmap = SelectObject(back_dc, target->back_bitmap);
+-    BitBlt(back_dc, 0, 0, w, h, window_dc, 0, 0, SRCCOPY);
++    /* The window is read once, for what the program painted onto it itself.  X drops a
++     * window's content when it is unmapped, and a minimize and restore can be over between two
++     * ticks, so later ticks start from the last frame instead of from the window. */
++    if (!target->topmost && copy_ancestor_frame(target, back_dc, w, h))
++        ;
++    else if (first_frame)
++        BitBlt(back_dc, 0, 0, w, h, window_dc, 0, 0, SRCCOPY);
+     hr = do_composite(target, visual, 0.0f, 0.0f);
+     BitBlt(window_dc, 0, 0, w, h, back_dc, 0, 0, SRCCOPY);
+ 
+--- a/dlls/dcomp/target.c	2026-11-25 12:30:56.510628359 +0200
++++ b/dlls/dcomp/target.c	2026-11-25 13:41:54.708760500 +0200
+@@ -68,9 +68,9 @@
+     if (!ref)
+     {
+         prop = target->topmost ? wine_window_topmost_composed : wine_window_non_topmost_composed;
+-        RemovePropW(target->hwnd, prop);
+ 
+         dcomp_lock();
++        RemovePropW(target->hwnd, prop);
+         list_remove(&target->entry);
+         dcomp_unlock();
+         if (target->back_bitmap)
+@@ -188,7 +188,8 @@
+     *new_target = &target->IDCompositionTarget_iface;
+ 
+     prop = target->topmost ? wine_window_topmost_composed : wine_window_non_topmost_composed;
+-    SetPropW(target->hwnd, prop, (HANDLE)1);
++    /* the target itself, for a child window's target to find the frame under it (read under dcomp_lock) */
++    SetPropW(target->hwnd, prop, target);
+     return S_OK;
+ }
+ 
