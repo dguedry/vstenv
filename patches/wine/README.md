@@ -7,6 +7,10 @@ the DLLs it lists, and attaches `wine-fixes-<version>.tar.gz` to every
 release; setup installs the DLLs into `lib/wine/x86_64-windows/` of the app's
 Wine, keeping the originals as `.orig`.
 
+To build them from this checkout and install them into your runtime in one
+command: `scripts/install-from-source.sh` (see `--help`; needs the MinGW
+compiler, flex, bison, and the X, OpenGL, Vulkan, FreeType and fontconfig headers).
+
 **Licence.** These patches modify Wine and are derivative works of it, so they
 and the DLLs built from them are under Wine's licence, LGPL-2.1-or-later, not the
 GPL that covers the rest of vstenv.
