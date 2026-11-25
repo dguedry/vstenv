@@ -1,0 +1,62 @@
+dcomp: alpha-blend a premultiplied composition swapchain onto the target
+
+The compositor copied a composition swapchain's buffer onto the window with
+SRCCOPY. A swapchain created with DXGI_ALPHA_MODE_PREMULTIPLIED that draws
+over another visual (Cubase 14's splash: the progress bar and the loading
+text, transparent around them) has pixels of 0,0,0,0 there, and a plain copy
+paints them solid black: a black strip cut the splash's lower edge and the
+bar and text never showed.
+
+wined3d publishes the swapchain's premultiplied-alpha flag on its window
+(__wine_dcomp_comp_alpha) beside the buffer, and the compositor blends the
+buffer with AlphaBlend / AC_SRC_ALPHA when it is set. Other swapchains are
+copied as before.
+
+--- a/dlls/dcomp/device.c	2026-11-25 12:50:58.103312430 +0200
++++ b/dlls/dcomp/device.c	2026-11-25 13:14:09.101133984 +0200
+@@ -692,6 +692,23 @@
+     if (!comp_dc || !dims)
+         return FALSE;   /* no frame published yet -- composite the content instead */
+ 
++    /* A premultiplied-alpha swapchain (a bar or text over another visual) has transparent pixels
++     * of 0,0,0,0: copying them as they are paints solid black. */
++    if (GetPropW(comp_wnd, L"__wine_dcomp_comp_alpha"))
++    {
++        static const BLENDFUNCTION over = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
++
++        if (back_dc)
++            return GdiAlphaBlend(back_dc, (int)x, (int)y, LOWORD(dims), HIWORD(dims),
++                    comp_dc, 0, 0, LOWORD(dims), HIWORD(dims), over);
++        if (!(target_dc = GetDC(target->hwnd)))
++            return FALSE;
++        drawn = GdiAlphaBlend(target_dc, (int)x, (int)y, LOWORD(dims), HIWORD(dims),
++                comp_dc, 0, 0, LOWORD(dims), HIWORD(dims), over);
++        ReleaseDC(target->hwnd, target_dc);
++        return drawn;
++    }
++
+     if (back_dc)
+         return BitBlt(back_dc, (int)x, (int)y, LOWORD(dims), HIWORD(dims), comp_dc, 0, 0, SRCCOPY);
+ 
+--- a/dlls/wined3d/swapchain.c	2026-11-25 12:30:56.508162923 +0200
++++ b/dlls/wined3d/swapchain.c	2026-11-25 13:14:09.100781931 +0200
+@@ -92,6 +92,7 @@
+         RemovePropW(swapchain->win_handle, L"__wine_dcomp_comp_dc");
+         RemovePropW(swapchain->win_handle, L"__wine_dcomp_comp_size");
+         RemovePropW(swapchain->win_handle, L"__wine_dcomp_comp_bits");
++        RemovePropW(swapchain->win_handle, L"__wine_dcomp_comp_alpha");
+     }
+ 
+     /* The dcomp leaf layer (issue 206): count out of the sink so dcomp stops
+@@ -1500,6 +1501,11 @@
+             if (!SetPropW(swapchain->win_handle, L"__wine_dcomp_comp_size", (HANDLE)dims))
+                 WARN("Failed to set __wine_dcomp_comp_size property.\n");
+         }
++        /* The compositor alpha-blends this buffer when the app made it with premultiplied alpha. */
++        if (swapchain->state.desc.flags & WINED3D_SWAPCHAIN_PREMULTIPLIED_ALPHA)
++            SetPropW(swapchain->win_handle, L"__wine_dcomp_comp_alpha", (HANDLE)1);
++        else
++            RemovePropW(swapchain->win_handle, L"__wine_dcomp_comp_alpha");
+         /* Expose surface_bits so root can composite per-visual layers. */
+         if (!SetPropW(swapchain->win_handle, L"__wine_dcomp_comp_bits",
+                 (HANDLE)(swapchain->surface_bits ? swapchain->surface_bits : swapchain->comp_bits)))

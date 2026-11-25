@@ -414,3 +414,19 @@ gone; and it skips drawing while the target's top-level window is
 minimized or destroyed (the first tick after the restore redraws every
 visual). Candidate fix from reading the source; built, not yet run in Cubase.
 Layers on `dcomp-swapchain-present-offscreen`.
+
+## dcomp-zz-swapchain-alpha-blend-<version>.patch
+
+Cubase 14's start-up splash showed a black strip, about 20 px tall, across
+the bottom of the window (cutting the steinberg logo) where the progress bar
+and the loading text belong. That overlay is a composition swapchain with
+premultiplied alpha, transparent around the bar and text, and the compositor
+copied its buffer with SRCCOPY, so transparent pixels came out black.
+wined3d now sets the window property `__wine_dcomp_comp_alpha` when the
+swapchain is premultiplied and the compositor then uses AlphaBlend. Checked
+with a test program (a blue window, a premultiplied composition swapchain
+cleared to 0,0,0,0 as an overlay visual, headless kwin Xwayland): the overlay
+area was black (0,0,0) with the stock DLLs and blue (0,0,255) with the patched
+dcomp.dll and wined3d.dll. Not yet seen in Cubase itself. A translucent overlay
+is re-blended each tick over the window content if no base visual redraws it.
+Layers on `dcomp-zz-compose-thread-keeps-running`.
