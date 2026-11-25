@@ -1,0 +1,71 @@
+--- a/dlls/d2d1/d2d1_private.h
++++ b/dlls/d2d1/d2d1_private.h
+@@ -31,6 +31,7 @@
+ #include "d2d1_3.h"
+ #include "d2d1effectauthor.h"
+ #include "d3d11_1.h"
++#include "d3d11_4.h"
+ #ifdef D2D1_INIT_GUID
+ #include "initguid.h"
+ #endif
+--- a/dlls/d2d1/device.c
++++ b/dlls/d2d1/device.c
+@@ -125,6 +125,7 @@
+     ID3D11Device1 *device = render_target->d3d_device;
+     ID3D11DeviceContext1 *context;
+     ID3D11Buffer *vs_cb = render_target->vs_cb, *ps_cb = render_target->ps_cb;
++    ID3D11Multithread *multithread;
+     D3D11_RECT scissor_rect;
+     unsigned int offset;
+     D3D11_VIEWPORT vp;
+@@ -140,6 +141,14 @@
+         EnterCriticalSection(render_target->cs);
+ 
+     ID3D11Device1_GetImmediateContext1(device, &context);
++    /* The factory lock only orders this factory's threads. Another component drawing on the same device
++     * (the DirectComposition compositor thread, a second factory) holds the device's own lock, and
++     * swapping the context state under two different locks interleaves the swaps: one thread then
++     * restores a state the other thread's swap handed it, and the context ends up with none. */
++    if (FAILED(ID3D11DeviceContext1_QueryInterface(context, &IID_ID3D11Multithread, (void **)&multithread)))
++        multithread = NULL;
++    if (multithread)
++        ID3D11Multithread_Enter(multithread);
+     ID3D11DeviceContext1_SwapDeviceContextState(context, render_target->d3d_state, &prev_state);
+ 
+     ID3D11DeviceContext1_IASetInputLayout(context, shape_resources->il);
+@@ -195,6 +204,11 @@
+         ID3D11DeviceContext1_Draw(context, index_count, 0);
+ 
+     ID3D11DeviceContext1_SwapDeviceContextState(context, prev_state, NULL);
++    if (multithread)
++    {
++        ID3D11Multithread_Leave(multithread);
++        ID3D11Multithread_Release(multithread);
++    }
+     ID3D11DeviceContext1_Release(context);
+     ID3DDeviceContextState_Release(prev_state);
+ 
+@@ -4337,6 +4351,23 @@
+         goto err;
+     }
+ 
++    /* A multi-threaded factory's callers expect to use its bitmaps from several threads at once. The
++     * factory lock only covers drawing, so Map, Unmap and the copies reach the immediate context bare, and
++     * DXVK's context is not safe against that unless multithread protection is on. */
++    if (render_target->cs)
++    {
++        ID3D11DeviceContext1 *immediate;
++        ID3D11Multithread *multithread;
++
++        ID3D11Device1_GetImmediateContext1(render_target->d3d_device, &immediate);
++        if (SUCCEEDED(ID3D11DeviceContext1_QueryInterface(immediate, &IID_ID3D11Multithread, (void **)&multithread)))
++        {
++            ID3D11Multithread_SetMultithreadProtected(multithread, TRUE);
++            ID3D11Multithread_Release(multithread);
++        }
++        ID3D11DeviceContext1_Release(immediate);
++    }
++
+     for (i = 0; i < ARRAY_SIZE(shape_info); ++i)
+     {
+         const struct shape_info *si = &shape_info[i];
