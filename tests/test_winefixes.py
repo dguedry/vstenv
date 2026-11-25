@@ -71,4 +71,19 @@ class WineFixesTest(unittest.TestCase):
                 self.assertEqual((b.root / winefixes.PE_DIR / "dcomp.dll").read_bytes(), b"second"); self.assertEqual(winefixes.marker(b)["release"], "v0.2.1")
                 self.assertEqual((b.root / winefixes.PE_DIR / "dcomp.dll.orig").read_bytes(), b"stock dcomp.dll", "the stock file stays the original")
 
+class ForeignDllsTest(unittest.TestCase):
+    """A patched DLL in the build is a different size from the prefix's stock copy; not 'another Wine'."""
+    def test_patched_dll_is_not_foreign_but_others_still_are(self):
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d); b = _fake_build(tmp); p = wine.Prefix(tmp / "prefix", b)
+            for sysdir, pedir, dll in p.PROBE_DLLS:
+                for f, data in ((b.root / "lib/wine" / pedir / dll, b"ours"), (p.drive_c / "windows" / sysdir / dll, b"theirs!")):
+                    f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(data)
+            ntdll = winefixes.dest(b, "ntdll.dll"); ntdll.write_bytes(b"patched"); ntdll.with_suffix(".dll.orig").write_bytes(b"theirs!")
+            self.assertEqual(p.foreign_dlls(), ["syswow64/comctl32.dll", "system32/comctl32.dll", "syswow64/user32.dll"])
+            (p.drive_c / "windows/system32/ntdll.dll").write_bytes(b"another wine's")   # neither the patched nor the stock size
+            self.assertIn("system32/ntdll.dll", p.foreign_dlls())
+            (p.drive_c / "windows/system32/ntdll.dll").write_bytes(b"patched")          # refreshed prefix
+            self.assertNotIn("system32/ntdll.dll", p.foreign_dlls())
+
 if __name__ == "__main__": unittest.main()
