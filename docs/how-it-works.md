@@ -566,6 +566,9 @@ wined3d.dll and win32u.dll add real DXGI composition swapchains (ported from
 the giang17/wine fork) so apps that render through them — the Spitfire Audio
 app, and WebView2/Chromium hosts — present into their window instead of
 deadlocking on Wine's hidden-window emulation.
+WineASIO (an ASIO driver over JACK/PipeWire) ships in the same tarball and is
+registered in the prefix by setup; in Cubase pick it under Studio > Studio Setup >
+Audio System > ASIO Driver, and set the buffer size in its Control Panel.
 
 
 ## Why it is not on Flathub

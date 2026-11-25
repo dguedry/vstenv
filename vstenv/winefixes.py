@@ -48,6 +48,8 @@ FIXES = {"dcomp.dll": "DirectComposition (Steinberg's VSTGUI: HALion Sonic 7, Cu
          "x86_64-unix/nsiproxy.so": "the adapter list holds only interfaces that exist (it grew with every container or VPN interface since Wine started)",
          "powershell.exe": "answers \"is this program running?\" honestly (electron-builder installers: Softube Central)",
          "i386-windows/powershell.exe": "the same, for 32-bit installers",
+         "wineasio.dll": "WineASIO's PE half: an ASIO driver over JACK/PipeWire for low-latency audio (Cubase); vstenv/wineasio.py registers it",
+         "x86_64-unix/wineasio.dll.so": "WineASIO's unix half, under the name Wine loads it by",
          "nirescan.exe": "NI controllers plugged in after Wine started are seen (Komplete Kontrol keyboards, Maschine; from ni-wine)",
          "x86_64-unix/winex11.so": "a cursor set from another process shows as an arrow, not nothing (WebView2 windows: Minimal Hub)"}
 
@@ -159,12 +161,13 @@ def install(build: wine.WineBuild, reporter=None, force=False) -> dict[str, str]
     return installed(build)
 
 def remove(build: wine.WineBuild, reporter=None) -> list[str]:
-    """Put the stock DLLs back from their .orig copies."""
+    """Put the stock DLLs back from their .orig copies; a fix with no stock original is an addition (WineASIO) and is deleted."""
     r = null_reporter(reporter); r.step("Restoring stock Wine DLLs")
     back = []
     for name in list((marker(build) or {}).get("files") or {}):
         dst = dest(build, name); orig = dst.with_suffix(dst.suffix + ".orig")
         if orig.exists(): orig.replace(dst); back.append(name)
+        elif dst.exists(): dst.unlink(); back.append(name)
     (build.root / MARKER_NAME).unlink(missing_ok=True)
     r.ok(", ".join(back) if back else "nothing to restore")
     return back

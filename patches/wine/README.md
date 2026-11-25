@@ -380,3 +380,18 @@ its wineserver by request numbers). Regenerate it for a new Wine version by
 re-applying the hunks and renaming the file; `winefixes.wine_version()` picks
 the asset by the pinned build's version. Written for Wine 11.17, verified with
 HALion Sonic 7 on 2026-09-26; a candidate for upstreaming to wine-staging.
+
+## WineASIO (no patch: built from upstream)
+
+The tarball also carries WineASIO 1.3.0 (github.com/wineasio/wineasio), an ASIO
+driver over JACK, for low-latency audio in Cubase and other ASIO hosts. It is
+built from upstream source with the patched tree's own `winegcc`/`winebuild`
+(64-bit only) and installed as `x86_64-unix/wineasio.dll.so` (the only unix name
+Wine 11 loads; the AUR's `wineasio64.dll.so` is ignored) and the PE stub
+`wineasio.dll`. `vstenv/wineasio.py` (setup, `vstenv wine-fixes install`) copies
+the stub into the prefix's system32 as `wineasio64.dll` and runs `regsvr32 /s`
+through the app's Wine runner, which creates `HKLM\Software\ASIO\WineASIO`.
+Wine runs on the host, so it dlopens the host's `libjack.so.0`: PipeWire's
+(`pipewire-jack`) or JACK's own must be installed there. In Cubase: Studio > Studio
+Setup > Audio System > ASIO Driver = WineASIO; the buffer size is set in its
+Control Panel button there.

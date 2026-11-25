@@ -11,7 +11,8 @@
 # stale target, for WebView2 apps), and hidparse.sys (HID descriptors with
 # hundreds of usages, for Komplete Kontrol S-series MK1 keyboards), and iphlpapi.dll
 # with nsiproxy.so (listing the network adapters is cheap, and only lists the ones
-# that exist, for KORG's TRITON). This applies every
+# that exist, for KORG's TRITON), and WineASIO (ASIO drivers over JACK/PipeWire,
+# for low-latency audio in Cubase; built from its upstream source). This applies every
 # patches/wine/*-<version>.patch to the Wine sources (on top of the full
 # wine-staging set, since the pinned build is a staging build), builds just
 # those DLLs with the MinGW cross compiler, and produces
@@ -96,6 +97,34 @@ for U in "${UNIX_MODULES[@]}"; do
     make -j"$(nproc)" "$(unix_module_path "$U")" >/dev/null
     strip --strip-unneeded -o "$PKG/x86_64-unix/$U" "$SRC/$(unix_module_path "$U")" 2>/dev/null || cp "$SRC/$(unix_module_path "$U")" "$PKG/x86_64-unix/$U"
 done
+# WineASIO (ASIO over JACK/PipeWire): a Winelib library, so it is built with the patched
+# tree's own winegcc/winebuild against the unix-side import libraries. Wine loads its
+# unix half only under the name wineasio.dll.so (the AUR's wineasio64.dll.so is ignored);
+# the PE half is a fake DLL that names it. It dlopens libjack at run time, so no JACK
+# headers are needed here. 64-bit only.
+WINEASIO_VERSION=1.3.0
+echo "== build WineASIO $WINEASIO_VERSION"
+WINEASIO_SHA256=91267e22f2684b27a1d656021c52e1ff05f7cc9241086ae526bff551410b9325   # v1.3.0 archive; bump with WINEASIO_VERSION
+curl -fsSL -o wineasio.tar.gz "https://github.com/wineasio/wineasio/archive/refs/tags/v$WINEASIO_VERSION.tar.gz"
+echo "$WINEASIO_SHA256  wineasio.tar.gz" | sha256sum -c - >/dev/null || { echo "wineasio.tar.gz does not match its pinned sha256 $WINEASIO_SHA256" >&2; exit 1; }
+tar -xzf wineasio.tar.gz -C "$WORK"
+ASIO="$WORK/wineasio-$WINEASIO_VERSION"
+make -k -j"$(nproc)" $(for i in include/*.idl; do echo "${i%.idl}.h"; done) >/dev/null 2>&1 || true   # the headers that have a rule; -k goes on past those that have none
+for H in unknwn wtypes objidl oaidl objbase; do   # what WineASIO's sources include; a failed generation must stop here, not at its compile
+    [ -f "include/$H.h" ] || { echo "wine headers: include/$H.h was not generated" >&2; exit 1; }
+done
+make -j"$(nproc)" libs/winecrt0/libwinecrt0.a libs/uuid/libuuid.a dlls/odbc32/libodbc32.a dlls/ole32/libole32.a \
+    dlls/winmm/libwinmm.a dlls/advapi32/libadvapi32.a dlls/kernel32/libkernel32.a dlls/ntdll/libntdll.a >/dev/null
+mkdir -p "$ASIO/build"
+for C in asio jackbridge main regsvr; do
+    gcc -c -I"$ASIO" -I"$SRC/include" -m64 -D_REENTRANT -fPIC -O2 -DNDEBUG -fvisibility=hidden -fno-strict-aliasing \
+        -o "$ASIO/build/$C.o" "$ASIO/$C.c"
+done
+LIBDIRS=(); for D in libs/winecrt0 libs/uuid dlls/odbc32 dlls/ole32 dlls/winmm dlls/advapi32 dlls/kernel32 dlls/ntdll; do LIBDIRS+=("-L$SRC/$D"); done
+"$SRC/tools/winegcc/winegcc" --wine-objdir "$SRC" "$ASIO"/build/*.o -shared -m64 "$ASIO/wineasio.dll.spec" "${LIBDIRS[@]}" \
+    -lodbc32 -lole32 -luuid -lwinmm -ladvapi32 -lkernel32 -lntdll "$SRC/libs/winecrt0/libwinecrt0.a" -o "$ASIO/build/wineasio.dll.so"
+"$SRC/tools/winebuild/winebuild" -m64 --dll --fake-module -E "$ASIO/wineasio.dll.spec" "$ASIO"/build/*.o -o "$PKG/wineasio.dll"
+strip --strip-unneeded -o "$PKG/x86_64-unix/wineasio.dll.so" "$ASIO/build/wineasio.dll.so"
 # powershell.exe in place of Wine's stub (tools/psshim): it answers "is this program
 # running?" honestly and exits 0 for anything else, as the stub did. Built for both
 # bitnesses and tagged "Wine builtin DLL" at 0x40, as Wine's own builds are, or Wine
