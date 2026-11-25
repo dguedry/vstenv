@@ -430,3 +430,38 @@ area was black (0,0,0) with the stock DLLs and blue (0,0,255) with the patched
 dcomp.dll and wined3d.dll. Not yet seen in Cubase itself. A translucent overlay
 is re-blended each tick over the window content if no base visual redraws it.
 Layers on `dcomp-zz-compose-thread-keeps-running`.
+
+## dcomp-zz-recompose-on-restore-<version>.patch
+
+After a minimize and restore of Cubase 14's project window (with
+`dcomp-zz-compose-thread-keeps-running` and `winex11-zz-wm-restore-follows`)
+the transport row, the track area and the channel and inspector bodies were
+black. X drops the window's content when it is unmapped, and the compositor
+read the window into its off-screen frame at every tick, so a tick after the
+restore began from black. A first version kept the frame only when a tick saw
+the window minimized; in Cubase it worked for the first cycle only (the
+cycles are fast, the size passes through odd values and the frame was thrown
+away on every size change). Now the window is read once, for the first frame,
+and the frame is carried over on resize. Test (MinGW program, headless KWin
+Xwayland :3: a GDI-painted window painted once plus a composition-swapchain
+visual, WM_CHANGE_STATE Iconic then _NET_ACTIVE_WINDOW after 0.05, 0.1, 0.3, 1
+and 3 s, whole window compared to the first snapshot): 84111 pixels differ in
+every cycle with the compose-thread dcomp, 0 with this patch. Limit: what a
+program paints onto the top-level window itself after the first frame is
+overwritten by the retained frame (child windows are not touched). Layers on
+`dcomp-zz-swapchain-alpha-blend`.
+
+The same patch carries the child-window fix for Cubase 14's splash. The
+splash is a 750x407 window whose image is one dcomp target; the progress bar
+and the loading text are a child ("Plugin View" with a 750x21 child of its
+own) with a second device and target, a premultiplied virtual surface redrawn
+every 33 ms. The parent's device context has WS_CLIPCHILDREN, so nothing ever
+painted the image under the child, and the child's transparent pixels showed
+the black window: a black strip over the lower edge of the image (the xwd of
+the splash window itself showed it, so not a compositor or KWin issue). A
+child's target now takes its base from the nearest composed ancestor's frame.
+Test (MinGW program `sp.cpp`: a WS_CLIPCHILDREN popup with an image target, a
+child with its own device, target and virtual surface redrawn every 33 ms by
+another thread; headless KWin Xwayland :3): the strip row without the bar was
+(0,0,0) with the live dcomp.dll and (42,46,51), the image, with this patch;
+the bar stayed visible. In Cubase 14 (Xwayland, KDE Plasma) the splash's progress bar still does not show.
