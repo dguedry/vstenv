@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.153" date="2026-11-25">
+      <description>
+        <p>Drop the health check that called a downloaded Native Access update a problem</p>
+      </description>
+    </release>
     <release version="0.1.152" date="2026-11-25">
       <description>
         <p>Uninstall runs an uninstaller registered as an unquoted path with spaces</p>
