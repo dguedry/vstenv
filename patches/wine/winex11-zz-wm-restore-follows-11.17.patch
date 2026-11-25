@@ -1,0 +1,114 @@
+winex11: make the Win32 window follow a restore done by the window manager.
+
+Restoring a minimized Cubase window from the taskbar took many clicks.
+The window manager's WM_STATE change to NormalState arrives with no request
+pending; the driver posts WM_WINE_WINDOW_STATE_CHANGED and only the message
+handler brings the Win32 style back from WS_MINIMIZE. Until then every
+SetWindowPos of the app runs X11DRV_WindowPosChanged, which derives the
+desired WM state from the still minimized style and iconifies the window
+again. Remember that the window manager restored the window and, until the
+style has lost WS_MINIMIZE, turn the IconicState derived from the style into
+NormalState (the result of get_desired_wm_state, not a style with the bit
+removed: the minimized rectangle is unmapped and that gave WithdrawnState).
+
+The restore itself had two holes. A maximized window returned SC_MAXIMIZE
+without activating, and a disabled window (a modal dialog opened while it was
+minimized) returned nothing at all, because WM_SYSCOMMAND is ignored by
+disabled windows, so it stayed WS_MINIMIZE while X showed it. Activate in the
+maximized case, and restore a disabled window directly with ShowWindow.
+
+--- a/dlls/winex11.drv/x11drv.h
++++ b/dlls/winex11.drv/x11drv.h
+@@ -712,6 +712,7 @@
+     unsigned long configure_serial;    /* serial of last pending configure request */
+     unsigned long net_wm_icon_serial;  /* serial of last pending _NET_WM_ICON request */
+     unsigned long state_locks;         /* X11 state requests lock while updating win32 state */
++    BOOL wm_restored;                  /* the window manager restored a minimized window, win32 still has to follow */
+ };
+ 
+ extern struct x11drv_win_data *get_win_data( HWND hwnd );
+--- a/dlls/winex11.drv/window.c
++++ b/dlls/winex11.drv/window.c
+@@ -1693,17 +1693,21 @@
+ 
+     if ((old_style & WS_MINIMIZE) && !(new_style & WS_MINIMIZE))
+     {
++        BOOL activate = (old_style & WS_VISIBLE) != 0;
++
++        if (old_style & WS_DISABLED)
++        {
++            /* WM_SYSCOMMAND is ignored by disabled windows, X11DRV_GetWindowStateUpdates restores it directly */
++            TRACE( "restoring disabled win %p/%lx\n", data->hwnd, data->whole_window );
++            return SC_RESTORE | 0x80000000;
++        }
+         if ((old_style & WS_CAPTION) == WS_CAPTION && (new_style & WS_MAXIMIZE))
+         {
+-            if ((old_style & WS_MAXIMIZEBOX) && !(old_style & WS_DISABLED))
+-            {
+-                TRACE( "restoring to max %p/%lx\n", data->hwnd, data->whole_window );
+-                return SC_MAXIMIZE;
+-            }
++            TRACE( "restoring to max %p/%lx\n", data->hwnd, data->whole_window );
++            return MAKELONG(SC_MAXIMIZE, activate);
+         }
+         else if (old_style & (WS_MINIMIZE | WS_MAXIMIZE))
+         {
+-            BOOL activate = (old_style & (WS_MINIMIZE | WS_VISIBLE)) == (WS_MINIMIZE | WS_VISIBLE);
+             TRACE( "restoring win %p/%lx\n", data->hwnd, data->whole_window );
+             return MAKELONG(SC_RESTORE, activate);
+         }
+@@ -1834,6 +1838,13 @@
+         *swp_flags = window_update_client_config( data );
+         *rect = window_rect_from_visible( &data->rects, data->current_state.rect );
+         release_win_data( data );
++        if (*state_cmd == (SC_RESTORE | 0x80000000))
++        {
++            NtUserShowWindow( hwnd, SW_RESTORE ); /* goes back to maximized when it was */
++            *state_cmd = 0;
++        }
++        else if (LOWORD(*state_cmd) == SC_MAXIMIZE && HIWORD(*state_cmd) && hwnd != old_foreground)
++            *foreground = hwnd; /* SC_MAXIMIZE does not activate */
+     }
+ 
+     if (!*state_cmd && !*swp_flags && !*foreground) return FALSE;
+@@ -1875,6 +1886,7 @@
+     UINT *desired = &data->desired_state.wm_state, *pending = &data->pending_state.wm_state, *current = &data->current_state.wm_state;
+     unsigned long *expect_serial = &data->wm_state_serial;
+     const char *reason = NULL, *expected, *received, *prefix;
++    BOOL restored = FALSE;
+ 
+     prefix = wine_dbg_sprintf( "window %p/%lx ", data->hwnd, data->whole_window );
+     received = wine_dbg_sprintf( "WM_STATE %#x/%lu", value, serial );
+@@ -1882,9 +1894,11 @@
+     /* ignore Metacity/Mutter transient NormalState during WithdrawnState <-> IconicState transitions */
+     if (value == NormalState && *current + *pending == IconicState) reason = "transient ";
+ 
++    if (!reason && !*expect_serial && *current == IconicState && value == NormalState) restored = TRUE;
+     if (!handle_state_change( serial, expect_serial, sizeof(value), &value, desired, pending,
+                               current, expected, prefix, received, reason ))
+         return;
++    data->wm_restored = restored;
+     data->current_state.activate = data->pending_state.activate;
+     data->reparenting = 0;
+ 
+@@ -3269,6 +3283,7 @@
+     UINT ex_style = NtUserGetWindowLongW( hwnd, GWL_EXSTYLE ), new_style = NtUserGetWindowLongW( hwnd, GWL_STYLE );
+     struct window_rects old_rects;
+     BOOL is_managed, was_fullscreen, activate = !(swp_flags & SWP_NOACTIVATE), fullscreen = !!(swp_flags & WINE_SWP_FULLSCREEN);
++    UINT wm_state;
+ 
+     if ((is_managed = is_window_managed( hwnd, swp_flags, fullscreen ))) make_owner_managed( hwnd );
+ 
+@@ -3328,7 +3343,11 @@
+ #endif
+     }
+ 
+-    window_set_wm_state( data, get_desired_wm_state( new_style, new_rects ), activate );
++    /* the window manager restored it and win32 has not followed yet: don't iconify it again */
++    if (!(new_style & WS_MINIMIZE) || data->current_state.wm_state != NormalState) data->wm_restored = FALSE;
++    wm_state = get_desired_wm_state( new_style, new_rects );
++    if (data->wm_restored && wm_state == IconicState) wm_state = NormalState;
++    window_set_wm_state( data, wm_state, activate );
+     if (!data->wm_state_serial && data->pending_state.wm_state != WithdrawnState)
+     {
+         if (swp_flags & (SWP_FRAMECHANGED | SWP_STATECHANGED)) set_wm_hints( data );

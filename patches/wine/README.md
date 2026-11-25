@@ -380,3 +380,22 @@ its wineserver by request numbers). Regenerate it for a new Wine version by
 re-applying the hunks and renaming the file; `winefixes.wine_version()` picks
 the asset by the pinned build's version. Written for Wine 11.17, verified with
 HALion Sonic 7 on 2026-09-26; a candidate for upstreaming to wine-staging.
+
+## winex11-zz-wm-restore-follows-<version>.patch
+
+Restoring the minimized Cubase 14 window from the taskbar took many clicks.
+A restore by the window manager arrives as an unexpected WM_STATE
+NormalState; the Win32 window only loses WS_MINIMIZE later, when the posted
+WM_WINE_WINDOW_STATE_CHANGED is handled. Any SetWindowPos in between makes
+`X11DRV_WindowPosChanged` derive IconicState from the still-minimized style
+and `XIconifyWindow` the window again. The patch sets `wm_restored` on such a
+restore and derives NormalState while the style still has WS_MINIMIZE. It
+also activates after the maximized restore (SC_MAXIMIZE branch, via the
+foreground out-parameter) and restores a disabled window directly with
+`ShowWindow(SW_RESTORE)`, since WM_SYSCOMMAND is ignored by disabled windows
+and the window stayed WS_MINIMIZE with X showing it Normal. Upstream master
+has no change here. Test (MinGW program, headless KWin): the disabled-while-
+minimized case reproduces and is fixed; the re-iconify race did not reproduce
+in a plain run, so that part is from reading the source. Tested in Cubase 14 under Xwayland on KDE Plasma.
+
+Fix to the above: the first build removed WS_MINIMIZE from the style it passed to `get_desired_wm_state`. The minimized window's rectangle is unmapped, so a SetWindowPos landing in the race window made the driver request WithdrawnState and the window vanished from the taskbar. It now takes IconicState from the unmodified style and turns that into NormalState, and drops the flag when X is no longer Normal.
