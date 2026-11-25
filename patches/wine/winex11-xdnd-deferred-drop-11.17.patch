@@ -1,0 +1,149 @@
+winex11: run an XDND drop from the message loop, and finish copy drops early
+
+A program that asks a question from inside IDropTarget::Drop hung the whole
+desktop interaction. Cubase 14 shows its "Import Options" dialog there when a
+file is dragged onto it from a file manager: the dialog opened, but nothing
+in it could be clicked, and Cubase had to be killed.
+
+The cause is in the X11 driver. XdndDrop was handled by calling the drop
+target from inside the X event handler, and X11DRV_ProcessEvents() does not
+process nested events (current_event is set, so mask = 0). The dialog's own
+message loop therefore received no mouse or keyboard input from X for as long
+as Drop was running.
+
+Queue the drop instead: the XdndDrop handler posts a driver message
+(WM_X11DRV_XDND_DROP) and the message loop runs drag_drop_drop() after the event
+handler has returned. For a copy or link drop, XdndFinished is also sent right
+away with the effect the target accepted at the last XdndPosition: the data was
+imported when the drag entered, and the source (a Wayland file manager through
+XWayland) holds its drag until it gets the answer. A move still waits for the
+result, because the source deletes what it moved as soon as it sees XdndFinished.
+
+Tested with Cubase 14 on wine-staging 11.17, dragging an mp3 from Dolphin
+onto an audio track: the Import Options dialog opens, answers clicks, and the
+file is imported. Candidate for upstreaming to Wine.
+
+--- a/dlls/winex11.drv/event.c	2026-11-24 12:54:32.012943902 +0200
++++ b/dlls/winex11.drv/event.c	2026-11-24 15:13:01.448387281 +0200
+@@ -1507,6 +1507,10 @@
+ }
+ 
+ 
++/* The drop effect answered to the last XdndPosition: what the target accepted,
++ * which XdndDrop reports back to the source in XdndFinished. */
++static UINT xdnd_last_effect;
++
+ static void handle_xdnd_position_event( HWND hwnd, XClientMessageEvent *event )
+ {
+     XClientMessageEvent e;
+@@ -1516,6 +1520,7 @@
+     point = root_to_virtual_screen( event->data.l[2] >> 16, event->data.l[2] & 0xFFFF );
+     effect = xdnd_action_to_drop_effect( event->data.l[4] );
+     effect = drag_drop_drag( hwnd, point, effect );
++    xdnd_last_effect = effect;
+ 
+     TRACE( "actionRequested(%ld) chosen(0x%x) at x(%d),y(%d)\n",
+            event->data.l[4], effect, point.x, point.y );
+@@ -1538,24 +1543,61 @@
+ }
+ 
+ 
+-static void handle_xdnd_drop_event( HWND hwnd, XClientMessageEvent *event )
++/* A drop that is waiting for the message loop, see handle_xdnd_drop_event(). */
++static struct
+ {
+-    XClientMessageEvent e;
+-    UINT effect;
++    Display *display;
++    Window source;      /* the window that started the drag, which gets XdndFinished */
++    Window target;      /* our X window the drop was sent to */
++    BOOL finished;      /* XdndFinished already sent */
++} xdnd_pending_drop;
+ 
+-    effect = drag_drop_drop( hwnd );
++static void send_xdnd_finished( UINT effect )
++{
++    XClientMessageEvent e;
+ 
+-    /* Tell the target we are finished. */
+     memset( &e, 0, sizeof(e) );
+     e.type = ClientMessage;
+-    e.display = event->display;
+-    e.window = event->data.l[0];
++    e.display = xdnd_pending_drop.display;
++    e.window = xdnd_pending_drop.source;
+     e.message_type = x11drv_atom(XdndFinished);
+     e.format = 32;
+-    e.data.l[0] = event->window;
++    e.data.l[0] = xdnd_pending_drop.target;
+     e.data.l[1] = !!effect;
+     e.data.l[2] = drop_effect_to_xdnd_action( effect );
+-    XSendEvent( event->display, event->data.l[0], False, NoEventMask, (XEvent *)&e );
++    XSendEvent( e.display, e.window, False, NoEventMask, (XEvent *)&e );
++    XFlush( e.display );
++    xdnd_pending_drop.finished = TRUE;
++}
++
++/* IDropTarget::Drop may not return for a long time: a program can ask a
++ * question in a dialog from inside it (Cubase's import options).  Called
++ * from the X event handler it would block the whole driver, because
++ * X11DRV_ProcessEvents() does not process nested events: the dialog's own
++ * message loop would get no mouse or keyboard input.  So the drop is only
++ * queued here, and runs from the message loop (x11drv_xdnd_deferred_drop).
++ * The data was imported when the drag entered, so a copy or link drop can
++ * also be finished now with the effect the target accepted, which lets the
++ * source release its pointer grab.  A move waits for the result: the source
++ * deletes what it moved as soon as it sees the answer. */
++static void handle_xdnd_drop_event( HWND hwnd, XClientMessageEvent *event )
++{
++    UINT effect = xdnd_last_effect;
++
++    TRACE_(xdnd)( "XdndDrop: accepted effect %#x, queueing the drop\n", effect );
++    xdnd_pending_drop.display = event->display;
++    xdnd_pending_drop.source = event->data.l[0];
++    xdnd_pending_drop.target = event->window;
++    xdnd_pending_drop.finished = FALSE;
++    if (effect && !(effect & DROPEFFECT_MOVE)) send_xdnd_finished( effect );
++    NtUserPostMessage( hwnd, WM_X11DRV_XDND_DROP, 0, 0 );
++}
++
++void x11drv_xdnd_deferred_drop( HWND hwnd )
++{
++    UINT effect = drag_drop_drop( hwnd );
++
++    if (!xdnd_pending_drop.finished) send_xdnd_finished( effect );
+ }
+ 
+ 
+--- a/dlls/winex11.drv/x11drv.h	2026-11-24 12:54:32.013277385 +0200
++++ b/dlls/winex11.drv/x11drv.h	2026-11-24 15:12:08.847112496 +0200
+@@ -633,7 +633,8 @@
+     WM_X11DRV_UPDATE_CLIPBOARD = WM_WINE_FIRST_DRIVER_MSG,
+     WM_X11DRV_SET_WIN_REGION,
+     WM_X11DRV_DELETE_TAB,
+-    WM_X11DRV_ADD_TAB
++    WM_X11DRV_ADD_TAB,
++    WM_X11DRV_XDND_DROP,
+ };
+ 
+ /* _NET_WM_STATE properties that we keep track of */
+@@ -772,6 +773,7 @@
+ extern void x11drv_init_keyboard( Display *display );
+ extern void x11drv_init_mouse( Display *display );
+ extern BOOL X11DRV_ProcessEvents( DWORD mask );
++extern void x11drv_xdnd_deferred_drop( HWND hwnd );
+ 
+ typedef int (*x11drv_error_callback)( Display *display, XErrorEvent *event, void *arg );
+ 
+--- a/dlls/winex11.drv/window.c	2026-11-24 12:54:33.078999453 +0200
++++ b/dlls/winex11.drv/window.c	2026-11-24 15:12:08.847403218 +0200
+@@ -3559,6 +3559,9 @@
+     case WM_X11DRV_ADD_TAB:
+         taskbar_add_tab( hwnd );
+         return 0;
++    case WM_X11DRV_XDND_DROP:
++        x11drv_xdnd_deferred_drop( hwnd );
++        return 0;
+     default:
+         FIXME( "got window msg %x hwnd %p wp %lx lp %lx\n", msg, hwnd, (long)wp, lp );
+         return 0;
