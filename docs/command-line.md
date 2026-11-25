@@ -13,7 +13,7 @@ vstenv doctor | report | rescue-install | finish-installs | dxvk | wine-fixes | 
 vstenv manager <vendor> apply-pending-update   install an update the manager downloaded for itself but did not install
 vstenv wedge [status|clear]        no Wine GUI can open a window: show it, or restart (and boot) the Wine session
 vstenv webview2 software-gl [on|off]   software rendering for WebView2 apps (the ☰ menu checkbox); no value shows it
-vstenv recipe list | show program|plugin NAME | set program|plugin NAME rendering=wine [wm_away=on] [browser_software_gl=on] [hide_wine=on]
+vstenv recipe list | show program|plugin NAME | set program|plugin NAME rendering=wine [wm_away=on] [browser_software_gl=on] [desktop_menu_colors=on] [hide_wine=on]
 vstenv recipe reset program|plugin NAME | share program|plugin NAME [--symptom "..."] [--failed] | update
 ```
 
