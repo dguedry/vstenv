@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.154" date="2026-11-25">
+      <description>
+        <p>CI: current GitHub Pages actions; the Flatpak repo stopped publishing</p>
+      </description>
+    </release>
     <release version="0.1.153" date="2026-11-25">
       <description>
         <p>Drop the health check that called a downloaded Native Access update a problem</p>
