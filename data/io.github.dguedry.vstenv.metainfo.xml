@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.152" date="2026-11-25">
+      <description>
+        <p>Uninstall runs an uninstaller registered as an unquoted path with spaces</p>
+      </description>
+    </release>
     <release version="0.1.151" date="2026-11-24">
       <description>
         <p>Native Access runs on NI's own files and updates itself</p>
