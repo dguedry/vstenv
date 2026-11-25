@@ -41,6 +41,10 @@ whether the program actually runs.
 - `patches/wine/`: the Wine patches the app ships, with
   [their own README](../patches/wine/README.md); `scripts/build-wine-fixes.sh`
   builds them, `scripts/build-yabridge.sh` builds yabridge against the pinned Wine.
+  `scripts/install-from-source.sh` builds the Wine fixes from this checkout and
+  installs them into the app's Wine runtime in one go (`--dry-run` checks the
+  tools and prints the steps; `--version`, `--work DIR`, `--keep-work`, `--force`):
+  `scripts/install-from-source.sh`. Restart running Windows programs afterwards.
 - `flatpak/`: the Flatpak manifests and `build.sh`.
 - `tests/`: unit tests.
 
