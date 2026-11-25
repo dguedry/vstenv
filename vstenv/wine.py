@@ -211,8 +211,12 @@ class Prefix:
         # nothing; its dummy-composition-swapchain option makes them render and
         # take input. Harmless for everything else (it only changes the call that
         # otherwise fails), and a user's own DXVK_CONFIG always wins.
+        # The context lock makes every call on the immediate context take the
+        # device lock, as Windows' d3d11 does: Cubase draws on one device from
+        # many threads (Direct2D, DirectComposition, its own), and DXVK's context
+        # without it corrupts its state and hangs the program.
         if "DXVK_CONFIG" not in os.environ:
-            e["DXVK_CONFIG"] = "dxgi.enableDummyCompositionSwapchain = True"
+            e["DXVK_CONFIG"] = "dxgi.enableDummyCompositionSwapchain = True; d3d11.enableContextLock = True"
         # Startup notification. A new Wine window carries no _NET_WM_USER_TIME, and
         # the window manager focuses such a window on sight -- over whatever the
         # user is doing (focus-new-windows=strict does not change that). Wine reads
