@@ -64,24 +64,56 @@ class WineAsioTest(unittest.TestCase):
         jack = "/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack"
         with tempfile.TemporaryDirectory() as d:
             p, _ = self._prefix(d)
-            with mock.patch.object(wineasio, "pipewire_jack_dir", return_value=(jack, "")):
+            with mock.patch.object(wineasio, "_host_facts", return_value=(jack, "", "")):
                 self.assertNotIn("LD_LIBRARY_PATH", p.wine_env())
                 (p.drive_c / "windows/system32/wineasio64.dll").write_bytes(b"stub")
                 self.assertEqual(p.wine_env()["LD_LIBRARY_PATH"], jack)
-            with mock.patch.object(wineasio, "pipewire_jack_dir", return_value=(jack, "/opt/x/lib")):
+            with mock.patch.object(wineasio, "_host_facts", return_value=(jack, "/opt/x/lib", "")):
                 self.assertEqual(p.wine_env()["LD_LIBRARY_PATH"], jack + ":/opt/x/lib")
-            with mock.patch.object(wineasio, "pipewire_jack_dir", return_value=("", "")):    # no PipeWire, or jackd runs
+            with mock.patch.object(wineasio, "_host_facts", return_value=("", "", "")):    # no PipeWire, or jackd runs
                 self.assertNotIn("LD_LIBRARY_PATH", p.wine_env())
-            with mock.patch.object(wineasio, "pipewire_jack_dir", return_value=(jack, jack)):   # already first on the host
+            with mock.patch.object(wineasio, "_host_facts", return_value=(jack, jack, "")):   # already first on the host
                 self.assertNotIn("LD_LIBRARY_PATH", p.wine_env())
 
-    def test_the_host_script_names_the_directory_and_the_hosts_own_path(self):
-        wineasio.pipewire_jack_dir.cache_clear()
-        with mock.patch.object(wineasio.host, "sh", return_value="/usr/lib64/pipewire-0.3/jack\n/opt/lib\n"):
+    def test_the_host_script_names_the_directory_and_the_hosts_own_paths(self):
+        wineasio._host_facts.cache_clear()
+        with mock.patch.object(wineasio.host, "sh", return_value="/usr/lib64/pipewire-0.3/jack\n/opt/lib\n/usr/bin:/bin\n"):
             self.assertEqual(wineasio.pipewire_jack_dir(), ("/usr/lib64/pipewire-0.3/jack", "/opt/lib"))
-        wineasio.pipewire_jack_dir.cache_clear()
-        with mock.patch.object(wineasio.host, "sh", return_value=""):
-            self.assertEqual(wineasio.pipewire_jack_dir(), ("", ""))
-        wineasio.pipewire_jack_dir.cache_clear()
+        wineasio._host_facts.cache_clear()
+        with mock.patch.object(wineasio.host, "sh", return_value="\n\n/usr/bin:/bin\n"):     # no PipeWire, or jackd runs
+            self.assertEqual(wineasio.pipewire_jack_dir(), ("", "")); self.assertEqual(wineasio._host_facts()[2], "/usr/bin:/bin")
+        wineasio._host_facts.cache_clear()
+        with mock.patch.object(wineasio.host, "sh", return_value=""):                         # the host could not be asked
+            self.assertEqual(wineasio._host_facts(), ("", "", ""))
+        wineasio._host_facts.cache_clear()
+
+    def test_the_control_panel_launcher_is_on_wines_path_while_it_exists(self):
+        with tempfile.TemporaryDirectory() as d:
+            b = Path(d) / "wineasio-bin"
+            with mock.patch.object(wineasio, "BIN", b), mock.patch.object(wineasio, "LAUNCHER", b / "wineasio-settings"), \
+                 mock.patch.object(wineasio, "_host_facts", return_value=("", "", "/usr/bin:/bin")), \
+                 mock.patch("vstenv.menu.launcher", return_value="flatpak run --command=vstenv io.github.dguedry.vstenv"):
+                self.assertEqual(wineasio.launch_env(), {})                       # nothing written yet: PATH is left alone
+                wineasio.write_launcher()
+                text = (b / "wineasio-settings").read_text()
+                self.assertTrue(text.startswith("#!/bin/sh\n")); self.assertIn("exec flatpak run --command=vstenv io.github.dguedry.vstenv wineasio settings\n", text)
+                self.assertTrue((b / "wineasio-settings").stat().st_mode & 0o100)
+                self.assertEqual(wineasio.launch_env(), {"PATH": f"{b}:/usr/bin:/bin"})
+            with mock.patch.object(wineasio, "BIN", b), mock.patch.object(wineasio, "LAUNCHER", b / "wineasio-settings"), \
+                 mock.patch.object(wineasio, "_host_facts", return_value=("", "", "")):
+                self.assertEqual(wineasio.launch_env(), {}, "without the host's PATH ours must not replace it")
+
+    def test_settings_default_to_the_drivers_and_are_checked_before_they_are_written(self):
+        with tempfile.TemporaryDirectory() as d:
+            p, _ = self._prefix(d)
+            with mock.patch.object(Prefix, "reg_query", return_value={"Preferred buffersize": "256", "Number of inputs": "nonsense", "Number of outputs": "999"}):
+                s = wineasio.settings(p)
+            self.assertEqual((s["buffer"], s["inputs"], s["outputs"], s["fixed-buffer"], s["connect-hardware"], s["autostart-jack"]), (256, 16, 128, 1, 1, 0))
+            with mock.patch.object(Prefix, "reg_add") as add:
+                self.assertEqual(wineasio.set_setting(p, "buffer", "128"), 128)
+                add.assert_called_once_with(wineasio.KEY_SETTINGS, "Preferred buffersize", "128", kind="REG_DWORD")
+                for name, bad in (("buffer", 300), ("buffer", "x"), ("inputs", -1), ("fixed-buffer", 2), ("nope", 1)):
+                    with self.assertRaises(ValueError): wineasio.set_setting(p, name, bad)
+                self.assertEqual(add.call_count, 1)
 
 if __name__ == "__main__": unittest.main()

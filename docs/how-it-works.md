@@ -580,8 +580,12 @@ ASIO-only programs do not need it to make sound: Cubase installs "Steinberg
 built-in ASIO Driver", which plays through Wine's normal audio. WineASIO is for
 lower latency and more channels. Once on, every ASIO program in the prefix lists
 it; in Cubase pick it under Studio > Studio Setup > Audio System > ASIO Driver.
-The buffer size is the JACK/PipeWire one (WineASIO's own settings window is a
-separate program that vstenv does not ship). Where PipeWire is the sound server
+Its settings (channel counts, whether the program may change the buffer size
+and which size to offer, connecting to the sound card) are in a small window:
+the Control Panel button beside the driver in the program opens it, and so
+does `vstenv wineasio settings`; `vstenv wineasio set <name> <value>` changes
+one from a terminal and `vstenv wineasio` lists them. Unless you let the
+program change it, the buffer size is the one PipeWire or JACK runs at. Where PipeWire is the sound server
 but the system's `libjack.so.0` is still JACK's own (Debian, Ubuntu, Mint), vstenv
 starts Wine with PipeWire's JACK library first, so `pw-jack` is not needed; the
 package `pipewire-jack` has to be installed.

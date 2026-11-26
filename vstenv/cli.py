@@ -93,8 +93,21 @@ def cmd_wineasio(a):
         print("WineASIO: " + ("on (ASIO programs list it as WineASIO)" if on else "off" if have else "not in this Wine build (vstenv wine-fixes install)"))
         d, _ = wineasio.pipewire_jack_dir()
         print("JACK library: " + (f"PipeWire's ({d})" if d else "the system's libjack.so.0 (a JACK server must be running, or install pipewire-jack)"))
+        if p.exists:
+            vals = wineasio.settings(p)
+            for name, (_, default, _, _, what) in wineasio.SETTINGS.items():
+                print(f"  {name:<17} {vals[name]:<5} {what}" + ("" if vals[name] == default else f" (default {default})"))
+            print(f"Change one: {APP_NAME} wineasio set <name> <value>   or the window: {APP_NAME} wineasio settings")
         if have and not on: print(f"Turn it on: {APP_NAME} wineasio enable")
         return
+    if a.action == "set":
+        if not a.name or a.value is None: sys.exit(f"usage: {APP_NAME} wineasio set <{'|'.join(wineasio.SETTINGS)}> <value>")
+        try: v = wineasio.set_setting(p, a.name, a.value)
+        except (ValueError, RuntimeError) as e: sys.exit(str(e))
+        print(f"{a.name} = {v} (used the next time a program opens the driver)"); return
+    if a.action == "settings":
+        from . import wineasio_gui
+        sys.exit(wineasio_gui.run(p))
     r = ConsoleReporter()
     if a.action == "enable": wineasio.register(p, r)
     else: wineasio.unregister(p, r)
@@ -504,8 +517,10 @@ def main(argv=None):
     s.set_defaults(f=cmd_webview2)
     s = sp.add_parser("wine-fixes", help="patched Wine DLLs this app ships (DirectComposition for Steinberg): install | status | remove")
     s.add_argument("action", nargs="?", default="install", choices=["install", "status", "remove"]); s.add_argument("--force", action="store_true"); s.set_defaults(f=cmd_wine_fixes)
-    s = sp.add_parser("wineasio", help="an ASIO driver over JACK/PipeWire for ASIO-only programs that need low latency (Cubase): status | enable | disable")
-    s.add_argument("action", nargs="?", default="status", choices=["status", "enable", "disable"]); s.set_defaults(f=cmd_wineasio)
+    s = sp.add_parser("wineasio", help="an ASIO driver over JACK/PipeWire for ASIO-only programs that need low latency (Cubase): status | enable | disable | set <name> <value> | settings (a window)")
+    s.add_argument("action", nargs="?", default="status", choices=["status", "enable", "disable", "set", "settings"])
+    s.add_argument("name", nargs="?", help="for set: inputs, outputs, buffer, fixed-buffer, connect-hardware, autostart-jack"); s.add_argument("value", nargs="?")
+    s.set_defaults(f=cmd_wineasio)
     s = sp.add_parser("dxvk", help="Direct3D on Vulkan for plugin GUIs that Wine draws wrong")
     s.add_argument("action", nargs="?", default="install", choices=["install", "remove", "status"]); s.add_argument("--force", action="store_true"); s.set_defaults(f=cmd_dxvk)
     sp.add_parser("prefixes", help="which vstenv prefixes exist, who owns a vendor daemon, what yabridge points at").set_defaults(f=cmd_prefixes)

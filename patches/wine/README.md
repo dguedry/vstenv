@@ -596,5 +596,17 @@ directory first on Wine's `LD_LIBRARY_PATH` when PipeWire's socket exists and
 no `jackd` runs. Measured with a small ASIO client on Linux Mint (PipeWire
 1.0.5): system libjack, init fails; PipeWire's, 16 in / 16 out, 1024 samples,
 48 kHz. In Cubase: Studio > Studio Setup > Audio System > ASIO Driver =
-WineASIO. Its Control Panel button starts `wineasio-settings`, a separate host
-program that is not shipped; the buffer size is JACK's/PipeWire's.
+WineASIO.
+
+The driver's Control Panel button runs a host program named `wineasio-settings`
+(`execvp`, so from PATH). Upstream's is a PyQt tool under the GPL that edits
+`~/.wine` unless `WINEPREFIX` says otherwise and calls whatever `regedit` is on
+PATH; it is not shipped. Instead `vstenv wineasio enable` writes a two-line
+launcher of that name into `~/.local/share/vstenv/wineasio-bin`, which is put
+first on Wine's PATH while the driver is registered, and it opens vstenv's own
+settings window (`vstenv/wineasio_gui.py`, also `vstenv wineasio settings`) for
+this prefix. The window and `vstenv wineasio set` write the six REG_DWORD values
+the driver reads from `HKCU\Software\Wine\WineASIO` when a program opens it.
+Checked with the ASIO client: after `inputs 4`, `fixed-buffer 0`, `buffer 256`
+the driver reports 4 inputs and a 16 to 8192 range with 256 preferred, and
+`ControlPanel()` runs the launcher.
