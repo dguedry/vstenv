@@ -570,3 +570,31 @@ Softube Central; and in REAPER the editors of Squash, SINE Player, Serum 2 and
 Kontakt 8 at unchanged CPU (121, 60, 17 and 16 percent of a core). If something
 in window, cursor or font behaviour changes after this release, restoring
 `win32u.so.orig` is the first thing to try.
+
+## WineASIO (no patch: built from upstream)
+
+The tarball also carries WineASIO 1.3.0 (github.com/wineasio/wineasio), an ASIO
+driver over JACK, for low-latency audio in Cubase and other ASIO hosts. It is
+built from upstream source with the patched tree's own `winegcc`/`winebuild`
+(64-bit only) and installed as `x86_64-unix/wineasio.dll.so` (the only unix name
+Wine 11 loads; the AUR's `wineasio64.dll.so` is ignored) and the PE stub
+`wineasio.dll`. It is opt-in: `vstenv wineasio enable` (`vstenv/wineasio.py`)
+copies the stub into the prefix's system32 as `wineasio64.dll` and runs
+`regsvr32 /s` through the app's Wine runner, which creates
+`HKLM\Software\ASIO\WineASIO`; setup and `vstenv wine-fixes install` only keep
+an existing registration's copy current. Opt-in because every ASIO program in
+the prefix then lists it, and Cubase already has Steinberg's built-in ASIO
+driver over Wine's normal audio (it opened here at 2 in / 2 out, 480 samples,
+48 kHz).
+
+Wine runs on the host, so the driver dlopens the host's `libjack.so.0`. On
+Debian, Ubuntu and Mint that is JACK2's library even with PipeWire as the sound
+server (PipeWire's sits in `/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack`, which
+only `pw-jack` adds), and WineASIO's `init` fails with "Unable to open a JACK
+client". While the driver is registered, `Prefix.wine_env` puts PipeWire's JACK
+directory first on Wine's `LD_LIBRARY_PATH` when PipeWire's socket exists and
+no `jackd` runs. Measured with a small ASIO client on Linux Mint (PipeWire
+1.0.5): system libjack, init fails; PipeWire's, 16 in / 16 out, 1024 samples,
+48 kHz. In Cubase: Studio > Studio Setup > Audio System > ASIO Driver =
+WineASIO. Its Control Panel button starts `wineasio-settings`, a separate host
+program that is not shipped; the buffer size is JACK's/PipeWire's.

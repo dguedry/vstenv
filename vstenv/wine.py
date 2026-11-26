@@ -226,6 +226,10 @@ class Prefix:
         # the GUI sets one stamped with the click (see gui.startup_id); from a
         # terminal there is none and the old behaviour stays.
         if (sid := os.environ.get("DESKTOP_STARTUP_ID")): e["DESKTOP_STARTUP_ID"] = sid
+        # WineASIO (opt-in) loads the host's libjack.so.0; where that is JACK2's while
+        # PipeWire is the sound server, it needs PipeWire's instead (see wineasio.py).
+        from . import wineasio
+        if wineasio.enabled(self): e.update(wineasio.jack_env())
         if extra: e.update(extra)
         return e
 

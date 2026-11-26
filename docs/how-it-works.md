@@ -573,6 +573,18 @@ wined3d.dll and win32u.dll add real DXGI composition swapchains (ported from
 the giang17/wine fork) so apps that render through them — the Spitfire Audio
 app, and WebView2/Chromium hosts — present into their window instead of
 deadlocking on Wine's hidden-window emulation.
+WineASIO (an ASIO driver over JACK/PipeWire) ships in the same tarball but is off
+until you ask for it: `vstenv wineasio enable` registers it in the prefix,
+`vstenv wineasio disable` takes it out again, `vstenv wineasio` shows the state.
+ASIO-only programs do not need it to make sound: Cubase installs "Steinberg
+built-in ASIO Driver", which plays through Wine's normal audio. WineASIO is for
+lower latency and more channels. Once on, every ASIO program in the prefix lists
+it; in Cubase pick it under Studio > Studio Setup > Audio System > ASIO Driver.
+The buffer size is the JACK/PipeWire one (WineASIO's own settings window is a
+separate program that vstenv does not ship). Where PipeWire is the sound server
+but the system's `libjack.so.0` is still JACK's own (Debian, Ubuntu, Mint), vstenv
+starts Wine with PipeWire's JACK library first, so `pw-jack` is not needed; the
+package `pipewire-jack` has to be installed.
 
 
 ## Why it is not on Flathub
