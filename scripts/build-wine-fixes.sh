@@ -36,9 +36,12 @@ MODULES=(d2d1.dll sensapi.dll dcomp.dll advapi32.dll dxgi.dll ole32.dll wined3d.
 # nsiproxy.so is the network driver's unix half: its interface table must drop
 # interfaces that have gone, and read the statistics once per listing (KORG's
 # TRITON lists the adapters a few thousand times as it starts).
-UNIX_MODULES=(winex11.so nsiproxy.so)
+# win32u.so is the unix half of win32u: the menu, window and GDI code that the patches change
+# (menu icons are drawn there, see patches/wine/README.md). It must be built with FreeType
+# and fontconfig, or the rebuilt library has no fonts.
+UNIX_MODULES=(winex11.so nsiproxy.so win32u.so)
 # Where each is built: a graphics driver in dlls/<name>.drv, a kernel driver's unix half in dlls/<name>.sys.
-unix_module_path() { case "$1" in nsiproxy.so) echo "dlls/nsiproxy.sys/$1";; *) echo "dlls/${1%.so}.drv/$1";; esac; }
+unix_module_path() { case "$1" in nsiproxy.so) echo "dlls/nsiproxy.sys/$1";; win32u.so) echo "dlls/win32u/$1";; *) echo "dlls/${1%.so}.drv/$1";; esac; }
 # WINE_FIXES_WORK=<dir> keeps the patched tree (unstripped DLL for symbols).
 if [ -n "${WINE_FIXES_WORK:-}" ]; then WORK="$WINE_FIXES_WORK"; mkdir -p "$WORK"; else WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT; fi
 cd "$WORK"
@@ -79,7 +82,7 @@ done
 # out; reconfigure the same (already patched) tree with them and build only
 # that library. Its import stubs for ntdll.so/win32u.so are made on the way.
 echo "== configure again, with X/OpenGL/Vulkan, for the unix libraries"
-./configure --enable-win64 --disable-tests --without-freetype --without-fontconfig --without-alsa --without-pulse \
+./configure --enable-win64 --disable-tests --without-alsa --without-pulse \
     --without-gstreamer --without-wayland --without-dbus --without-usb --without-udev \
     --without-gnutls --without-krb5 --without-sane --without-gphoto --without-cups --without-netapi \
     --without-opencl --without-pcap --without-pcsclite --without-capi --without-v4l2 --without-oss --without-ffmpeg \
@@ -87,7 +90,8 @@ echo "== configure again, with X/OpenGL/Vulkan, for the unix libraries"
 # Every optional part the pinned winex11.so has; a missing -dev package would
 # silently drop one (XInput2 is the mouse, Xcursor the pointer themes).
 for FEATURE in SONAME_LIBXCURSOR SONAME_LIBXI SONAME_LIBXRANDR SONAME_LIBXRENDER SONAME_LIBXFIXES SONAME_LIBXINERAMA \
-               SONAME_LIBXCOMPOSITE SONAME_LIBXXF86VM SONAME_LIBVULKAN SONAME_LIBGL HAVE_X11_EXTENSIONS_XINPUT2_H; do
+               SONAME_LIBXCOMPOSITE SONAME_LIBXXF86VM SONAME_LIBVULKAN SONAME_LIBGL HAVE_X11_EXTENSIONS_XINPUT2_H \
+               SONAME_LIBFREETYPE SONAME_LIBFONTCONFIG; do
     grep -q "^#define $FEATURE" include/config.h || { echo "winex11: $FEATURE not detected; install its -dev package" >&2; exit 1; }
 done
 mkdir -p "$PKG/x86_64-unix"

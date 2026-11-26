@@ -542,3 +542,31 @@ gets the answer. A move still waits for the drop's result, since the source
 deletes what it moved when it sees `XdndFinished`. Only `winex11.so` is rebuilt.
 Verified with an mp3 dragged from Dolphin onto a Cubase 14 audio track on
 wine-staging 11.17; a candidate for upstreaming to Wine.
+
+## win32u.so (rebuilt unix library, no patch of its own)
+
+`dcomp-swapchain-present-<version>.patch` changes `dlls/win32u/menu.c` so that a
+32-bit menu bitmap is drawn with `NtGdiAlphaBlend` (per-pixel alpha); a plain
+BitBlt turns the transparent, premultiplied pixels of Cubase's context-menu
+icons into black squares. But the menu, window and GDI code lives in the unix
+half of win32u, `win32u.so`; the PE `win32u.dll` is only syscall thunks. The
+build script rebuilt only the PE half, so the hunk never reached the runtime
+and every icon stayed a black square even with the Direct2D layer fix
+(`d2d1-zz-layer-opacity-mask`). `scripts/build-wine-fixes.sh` now also builds
+`win32u.so` (in the same X-enabled second configure as `winex11.so`). That
+configure no longer passes `--without-freetype --without-fontconfig`: without
+them the rebuilt `win32u.so` has no font support (it came out 2.3 MB against the
+stock 2.9 MB). The script checks for both
+SONAME defines. Tested in Cubase 14 under Xwayland on KDE Plasma.
+
+This switches on more than the menu hunk: every `dlls/win32u` unix-side change
+in `dcomp-swapchain-present` was dormant until now (cursoricon, font.c, dce.c
+with its cross-process `has_foreign_ancestor()` handling, window.c, OpenGL,
+input, sysparams, the SC_MAXIMIZE geometry), about 1,100 lines, and they now
+run in every program. Checked on Cinnamon (X11) with the rebuilt library
+against the stock one: notepad draws pixel-identical (fonts), menus, minimize
+and restore, a file drop; SINE Player's tabs and Store page, Minimal Hub and
+Softube Central; and in REAPER the editors of Squash, SINE Player, Serum 2 and
+Kontakt 8 at unchanged CPU (121, 60, 17 and 16 percent of a core). If something
+in window, cursor or font behaviour changes after this release, restoring
+`win32u.so.orig` is the first thing to try.
