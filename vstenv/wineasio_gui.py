@@ -20,7 +20,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         page = Adw.PreferencesPage(); self.toasts.set_child(page)
         on = wineasio.enabled(prefix)
         g = Adw.PreferencesGroup(title="Channels", description=None if on else
-                                 "WineASIO is off. Turn it on with: vstenv wineasio enable")
+                                 "WineASIO is off. Turn it on in the app's Health page, or with: vstenv wineasio enable")
         page.add(g)
         for name, title in (("inputs", "Inputs"), ("outputs", "Outputs")):
             _, _, lo, hi, _ = wineasio.SETTINGS[name]

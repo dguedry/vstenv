@@ -1090,6 +1090,13 @@ class Window(Adw.ApplicationWindow):
         g.add(_row("Speed up plugins", "Turns on the kernel's ntsync driver, so plugins with many threads (Kontakt) waste less CPU. Asks for your password once.",
                    "power-profile-performance-symbolic", lambda: self.enable_ntsync()))
         page.add(g)
+        g = Adw.PreferencesGroup(title="Audio", description="Programs already get sound through Wine's normal audio. WineASIO is an extra for programs "
+                                 "that only use ASIO (Cubase) when you need less delay or more channels.")
+        self.asio_switch = Adw.SwitchRow(title="WineASIO driver", subtitle="An ASIO driver over PipeWire or JACK. Programs then list it as WineASIO.")
+        self.asio_switch.connect("notify::active", lambda *_: self.on_asio_switch()); g.add(self.asio_switch)
+        g.add(_row("WineASIO settings", "Channels and buffer size. The driver's Control Panel button in a program opens the same window.",
+                   "preferences-system-symbolic", self.open_asio_settings))
+        page.add(g)
         g = Adw.PreferencesGroup(title="Sign-in")
         g.add(_row("Fix browser sign-in", "A vendor's manager may sign in through your browser; this makes the link come back to it.", "system-users-symbolic",
                    lambda: self.run_bg("Registering the sign-in handlers", lambda rep: __import__(f"{APP_NAME}.urlschemes", fromlist=["x"]).register_all(self.prefix, rep))))
@@ -1097,6 +1104,32 @@ class Window(Adw.ApplicationWindow):
         g = Adw.PreferencesGroup(title="Reporting a problem", description="If a check above cannot be fixed, send this with your report.")
         g.add(_row("Save a diagnostic report", "Writes a file to your home folder: this app's state and logs, with serials, licence tokens and your home path removed.", "document-save-symbolic", self.save_report))
         page.add(g); return page
+    def sync_asio(self):
+        """Show the driver's real state on the switch, without the switch acting on it."""
+        from . import wineasio
+        on = bool(self.prefix is not None and self.prefix.exists and wineasio.enabled(self.prefix))
+        self._asio_syncing = True
+        try: self.asio_switch.set_active(on)
+        finally: self._asio_syncing = False
+    def on_asio_switch(self):
+        from . import wineasio
+        if getattr(self, "_asio_syncing", False): return
+        want = self.asio_switch.get_active()
+        if not self.is_ready(): self.toast("Run setup first"); self.sync_asio(); return
+        if want == wineasio.enabled(self.prefix): return
+        if self.busy: self.toast(f"Busy: {self._busy_title or 'a task is running'}"); self.sync_asio(); return
+        def done(res, err):
+            self.sync_asio()
+            if err or not res:
+                self.toast("WineASIO was not turned on. See the Progress page." if want else
+                           "WineASIO stays on while Windows programs are running: close them and try again.", 8)
+            elif want: self.toast("WineASIO is on. Choose it as the ASIO driver in the program.", 8)
+        self.run_bg("Turning on WineASIO" if want else "Turning off WineASIO",
+                    (lambda rep: wineasio.register(self.prefix, rep)) if want else (lambda rep: wineasio.unregister(self.prefix, rep)), done)
+    def open_asio_settings(self):
+        if not self.is_ready(): self.toast("Run setup first"); return
+        from . import wineasio_gui
+        wineasio_gui.SettingsWindow(self.get_application(), self.prefix).present()
     def enable_ntsync(self):
         from . import ntsync
         def fn(r):
@@ -1130,6 +1163,7 @@ class Window(Adw.ApplicationWindow):
             r.step("Collecting diagnostics"); dest = report.write_bundle(p=self.prefix); r.ok(str(dest)); return dest
         self.run_bg("Saving a diagnostic report", fn)
     def refresh_health(self):
+        self.sync_asio()
         token = self._health_token = getattr(self, "_health_token", 0) + 1
         def add_row(c):
             if token != self._health_token: return

@@ -1,8 +1,11 @@
 # vstenv on the command line
 
-Everything the app's window does is also a command. In the Flatpak, run them as
-`flatpak run --command=vstenv io.github.dguedry.vstenv <command>`; from a source
-install, just `vstenv <command>`. `vstenv --help` and `vstenv <command> --help`
+Everything the app's window does is also a command: `vstenv <command>`. The
+Flatpak's setup writes that command as `~/.local/bin/vstenv` (Flatpak itself only
+exports a wrapper that opens the window). If `~/.local/bin` is not on your PATH,
+or setup has not run yet, the long form always works:
+`flatpak run --command=vstenv io.github.dguedry.vstenv <command>`. A file named
+`vstenv` there that the app did not write is left alone. `vstenv --help` and `vstenv <command> --help`
 list every option.
 
 ```
@@ -15,6 +18,7 @@ vstenv wedge [status|clear]        no Wine GUI can open a window: show it, or re
 vstenv webview2 software-gl [on|off]   software rendering for WebView2 apps (the ☰ menu checkbox); no value shows it
 vstenv recipe list | show program|plugin NAME | set program|plugin NAME rendering=wine [wm_away=on] [browser_software_gl=on] [desktop_menu_colors=on] [hide_wine=on]
 vstenv recipe reset program|plugin NAME | share program|plugin NAME [--symptom "..."] [--failed] | update
+vstenv wineasio [status|enable|disable] | set NAME VALUE | settings    an ASIO driver over PipeWire/JACK, off by default (Health → Audio)
 ```
 
 Common tasks:
@@ -28,6 +32,8 @@ vstenv menu remove                           # take away the menu and file manag
 vstenv webview2 software-gl on               # software rendering for WebView2 apps
 vstenv recipe set plugin NAME hide_wine=on   # a Troubleshoot setting, from a terminal
 vstenv ntsync [enable]                       # Wine's fast thread synchronization: show it, or turn it on (password prompt)
+vstenv wineasio enable                       # the WineASIO driver, for ASIO-only programs that need less delay (Cubase)
+vstenv wineasio set fixed-buffer 0 && vstenv wineasio set buffer 256   # let the program pick the buffer, and offer 256
 vstenv recipe set plugin NAME force_dnd=on   # REAPER: files dropped onto the plugin reach it
 vstenv doctor                                # every Health check, with its fix
 ```
