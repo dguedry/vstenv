@@ -285,6 +285,40 @@ unaware one (it opens "Your DAW plugin interface is not High-DPI aware" in a for
 that is still hidden, and waits for OK). The variable is set for that plugin's
 host only (`plugin-host-env`). Rebuilds the 64-bit `user32` only.
 
+## user32-foreign-children-dce-<version>.patch
+
+SINE Player (JUCE 8 with a bundled WebView2) shows its Store and My Licenses
+pages in a browser window: `Chrome_WidgetWin_0` (SINE's process) >
+`Chrome_WidgetWin_1` (the browser process) > "Intermediate D3D Window" (the
+browser's GPU process). Going back to Library hides the first two, and the page
+stayed painted over the Library until SINE was restarted (issue #37).
+
+The GPU process presents through a cached window DC (`client_surface_present()`
+in win32u, `DCX_CACHE | DCX_USESTYLE`). A cached DC keeps its visible region
+until `invalidate_dce()` marks it, and that runs only in the process that showed,
+hid or resized a window ("cross-process invalidation is not supported yet" in
+win32u/dce.c). The hide happened in two other processes, so the GPU process kept
+its old region and painted the last page into the host's window. No browser flag
+changes this (software rendering, no partial swap, no DirectComposition were all
+tried).
+
+The patch gives `ShowWindow` and `SetWindowPos` real bodies in `user32` (they
+were forwards to win32u). When a call changes a window's visibility or size, the
+descendants that other processes own get
+`SetWindowPos(SWP_FRAMECHANGED | SWP_ASYNCWINDOWPOS | no move/size/z-order)`,
+which runs in the owner's thread and invalidates its DCEs. For a visibility
+change it then waits for those threads (a `WM_NULL` with a 100 ms timeout, queued
+behind the request) and invalidates the area, so whatever the other process drew
+in between is painted over. A window without descendants in another process
+costs one child enumeration and nothing else.
+
+Verified on SINE Player 1.4.3 (Library back after My Licenses and after Store,
+the page shown again on the next visit) and, for regressions, on Minimal Hub
+(Tauri + WebView2) and Softube Central (Electron). The real fix belongs in
+win32u's unix side (invalidate across processes); drop this when Wine has it.
+Rebuilds the 64-bit `user32` only: `EndDeferWindowPos`, `SetParent` and
+`ShowWindowAsync` still go straight to win32u.
+
 ## d2d1-primitive-blend-copy-<version>.patch
 
 `SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_COPY)` was stored and then ignored: every

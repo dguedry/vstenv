@@ -1,0 +1,125 @@
+--- a/dlls/user32/user32.spec
++++ b/dlls/user32/user32.spec
+@@ -1114,7 +1114,7 @@
+ @ stdcall -arch=win64 SetWindowLongPtrW(long long long)
+ @ stdcall SetWindowLongW(long long long)
+ @ stdcall SetWindowPlacement(long ptr) NtUserSetWindowPlacement
+-@ stdcall SetWindowPos(long long long long long long long) NtUserSetWindowPos
++@ stdcall SetWindowPos(long long long long long long long)
+ @ stdcall SetWindowRgn(long long long) NtUserSetWindowRgn
+ # @ stub SetWindowRgnEx
+ @ stdcall SetWindowStationUser(long long)
+@@ -1133,7 +1133,7 @@
+ @ stdcall ShowScrollBar(long long long) NtUserShowScrollBar
+ @ stub ShowStartGlass
+ # @ stub ShowSystemCursor
+-@ stdcall ShowWindow(long long) NtUserShowWindow
++@ stdcall ShowWindow(long long)
+ @ stdcall ShowWindowAsync(long long) NtUserShowWindowAsync
+ @ stdcall ShutdownBlockReasonCreate(long wstr)
+ @ stdcall ShutdownBlockReasonDestroy(long)
+--- a/dlls/user32/win.c
++++ b/dlls/user32/win.c
+@@ -834,6 +834,102 @@
+ }
+ 
+ 
++/* A window's cached DC keeps its visible region until invalidate_dce() marks it,
++ * and that only happens in the process that shows, hides or resizes a window.
++ * A browser embedded in another program (WebView2, CEF) draws from a GPU process
++ * into a child window of the host's window: when the host or the browser process
++ * hid that window's parent, the GPU process kept presenting through the region
++ * it had, and the last page stayed painted over the host (SINE Player's Library
++ * behind its Store page).  Until win32u invalidates across processes, tell the
++ * descendants other processes own: a position change that changes nothing but
++ * SWP_FRAMECHANGED runs in the owner's thread and makes it drop its regions. */
++struct foreign_children
++{
++    HWND hwnd[16];
++    unsigned int count;
++};
++
++static BOOL CALLBACK collect_foreign_child( HWND child, LPARAM lp )
++{
++    struct foreign_children *children = (struct foreign_children *)lp;
++    DWORD pid;
++
++    if (!GetWindowThreadProcessId( child, &pid ) || pid == GetCurrentProcessId()) return TRUE;
++    children->hwnd[children->count++] = child;
++    return children->count < ARRAY_SIZE(children->hwnd);
++}
++
++/* redraw: the visibility changed.  What the other process painted in the
++ * meantime is wrong, so wait (briefly) until it has the new region and have
++ * the area painted again. */
++static void sync_foreign_children( HWND hwnd, BOOL redraw )
++{
++    struct foreign_children children = {0};
++    DWORD_PTR res;
++    unsigned int i;
++    HWND root;
++    RECT rect;
++
++    EnumChildWindows( hwnd, collect_foreign_child, (LPARAM)&children );
++    if (!children.count) return;
++
++    for (i = 0; i < children.count; i++)
++        NtUserSetWindowPos( children.hwnd[i], 0, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
++                            SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_ASYNCWINDOWPOS );
++    if (!redraw) return;
++
++    /* the request above is a sent message; this one is handled after it */
++    for (i = 0; i < children.count; i++)
++        SendMessageTimeoutW( children.hwnd[i], WM_NULL, 0, 0, SMTO_ABORTIFHUNG, 100, &res );
++
++    if (GetWindowLongW( hwnd, GWL_STYLE ) & WS_VISIBLE)
++        NtUserRedrawWindow( hwnd, NULL, 0, RDW_INVALIDATE | RDW_ALLCHILDREN );
++    else if ((root = NtUserGetAncestor( hwnd, GA_ROOT )) && root != hwnd && GetWindowRect( hwnd, &rect ))
++    {
++        MapWindowPoints( 0, root, (POINT *)&rect, 2 );
++        NtUserRedrawWindow( root, &rect, 0, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN );
++    }
++}
++
++
++/***********************************************************************
++ *           ShowWindow (USER32.@)
++ */
++BOOL WINAPI ShowWindow( HWND hwnd, INT cmd )
++{
++    BOOL visible = (GetWindowLongW( hwnd, GWL_STYLE ) & WS_VISIBLE) != 0;
++    BOOL ret = NtUserShowWindow( hwnd, cmd );
++
++    if (visible != ((GetWindowLongW( hwnd, GWL_STYLE ) & WS_VISIBLE) != 0))
++        sync_foreign_children( hwnd, TRUE );
++    return ret;
++}
++
++
++/***********************************************************************
++ *           SetWindowPos (USER32.@)
++ */
++BOOL WINAPI SetWindowPos( HWND hwnd, HWND after, INT x, INT y, INT cx, INT cy, UINT flags )
++{
++    BOOL visible, ret, check = (flags & (SWP_SHOWWINDOW | SWP_HIDEWINDOW)) || !(flags & SWP_NOSIZE);
++    RECT old = {0}, new = {0};
++
++    if (!check) return NtUserSetWindowPos( hwnd, after, x, y, cx, cy, flags );
++
++    visible = (GetWindowLongW( hwnd, GWL_STYLE ) & WS_VISIBLE) != 0;
++    GetWindowRect( hwnd, &old );
++    ret = NtUserSetWindowPos( hwnd, after, x, y, cx, cy, flags );
++    if (!ret || (flags & SWP_ASYNCWINDOWPOS)) return ret;
++
++    if (visible != ((GetWindowLongW( hwnd, GWL_STYLE ) & WS_VISIBLE) != 0))
++        sync_foreign_children( hwnd, TRUE );
++    else if (GetWindowRect( hwnd, &new ) && (new.right - new.left != old.right - old.left ||
++                                             new.bottom - new.top != old.bottom - old.top))
++        sync_foreign_children( hwnd, FALSE );
++    return ret;
++}
++
++
+ /***********************************************************************
+  *           EndDeferWindowPos (USER32.@)
+  */

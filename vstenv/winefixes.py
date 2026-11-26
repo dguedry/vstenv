@@ -40,7 +40,7 @@ FIXES = {"dcomp.dll": "DirectComposition (Steinberg's VSTGUI: HALion Sonic 7, Cu
          "d2d1.dll": "Direct2D's copy blend mode (JUCE 8 plugins clear cached images with it; Minimal Audio's readouts smeared when they changed)",
          "sensapi.dll": "\"is the network up?\" answers the way Windows does (KORG Software Pass said \"No Internet Connection\")",
          "ntdll.dll": "a plugin host can hide Wine from JUCE 8.0.13 plugins (Minimal Audio's sign-in panel and interface stayed empty)",
-         "user32.dll": "a plugin host can be made DPI-aware on its own (Jamstix 4 will not embed its editor in an unaware host)",
+         "user32.dll": "a plugin host can be made DPI-aware on its own (Jamstix 4 will not embed its editor in an unaware host), and an embedded browser stops drawing when its page is hidden (SINE Player's Store page stayed over the Library)",
          "advapi32.dll": "credential attributes (Steinberg's License Engine keeps its sign-in)",
          "ole32.dll": "drag-drop teardown survives a stale target (WebView2 apps crashed at startup)",
          "hidparse.sys": "HID controls with hundreds of usages reach Windows programs (Komplete Kontrol S-series MK1 keyboards)",
