@@ -474,3 +474,20 @@ patch compiles once per process (critical section, blobs shared by reference),
 giving 3.4 ms per icon. Left: a new D3D11 device per icon costs another ~32 ms
 (wined3d device/context creation), only if Cubase does that. Named `zz` to sort
 after `d2d1-zz-layer-opacity-mask` (same file).
+
+## dxgi-zz-shared-wined3d-<version>.patch
+
+`D3D11CreateDevice` makes a new DXGI factory, and every factory made its own
+wined3d object, which probes the GL adapter again (a throw-away GL context,
+capability tables, format probing). Cubase 14 creates a D3D11 device per
+context-menu icon. In a traced creation 30 of 32 ms were
+`wined3d_adapter_gl_create`; `D3D11CreateDevice` went from 29 ms to 8.5 ms with
+the patch (host runtime, Xvfb, so llvmpipe; the probing is driver work, the
+number on NVIDIA will differ). One wined3d object is now kept per process
+(created on first use, never released, one reference per factory) and replaced
+when the virtual screen rectangle changes, since the outputs are read at
+creation. The first device in a process still pays about 220 ms (driver load
+and GL context, about 140 ms of it the first GL context; software-GL
+specific in size). What is left per device (about 8 ms create, 8 ms release, 20 ms
+first draw, 12 ms first readback on a fresh device) is the GL context and
+wined3d's per-device GLSL program cache.
