@@ -491,3 +491,17 @@ and GL context, about 140 ms of it the first GL context; software-GL
 specific in size). What is left per device (about 8 ms create, 8 ms release, 20 ms
 first draw, 12 ms first readback on a fresh device) is the GL context and
 wined3d's per-device GLSL program cache.
+
+## winex11-zz-close-ends-menu-<version>.patch
+
+With a context menu open in Cubase 14 (right-click in the track area), clicking
+the window manager's close button showed "Do you want to save this project?"
+while the menu was still open, and the dialog could not be clicked: the menu
+kept the capture (Esc freed it). The driver turns `WM_DELETE_WINDOW` into a
+posted `WM_SYSCOMMAND`/`SC_CLOSE`; the menu's modal loop dispatches it and the
+dialog runs nested inside the loop. On Windows the click on the close button
+ends the menu first. The driver now calls `NtUserEndMenu` when the thread is in
+menu mode, before posting `SC_CLOSE`; its `WM_CANCELMODE` is queued first, so
+the menu ends before the close is handled. Only `winex11.so` is rebuilt. Named
+`zz` so it sorts after `winex11-xdnd-deferred-drop` (same file, later hunk is
+independent). Tested in Cubase 14 under Xwayland on KDE Plasma.
