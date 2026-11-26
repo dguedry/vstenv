@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.164" date="2026-11-26">
+      <description>
+        <p>Merge branch 'main' of https://github.com/dguedry/vstenv</p>
+      </description>
+    </release>
     <release version="0.1.163" date="2026-11-26">
       <description>
         <p>Merge pull request #33: ship WineASIO with the Wine fixes</p>
