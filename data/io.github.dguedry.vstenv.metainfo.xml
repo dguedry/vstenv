@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.162" date="2026-11-26">
+      <description>
+        <p>Merge branch 'main' of https://github.com/dguedry/vstenv</p>
+      </description>
+    </release>
     <release version="0.1.161" date="2026-11-26">
       <description>
         <p>Merge branch 'main' of https://github.com/dguedry/vstenv</p>
