@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.159" date="2026-11-26">
+      <description>
+        <p>SINE Player: the Store page no longer stays over the Library (#37)</p>
+      </description>
+    </release>
     <release version="0.1.158" date="2026-11-26">
       <description>
         <p>Merge branch 'pr27' into pr2627test</p>
