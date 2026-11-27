@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.168" date="2026-11-27">
+      <description>
+        <p>Steinberg: finishing a refused install now also works for an update over an installed version</p>
+      </description>
+    </release>
     <release version="0.1.167" date="2026-11-27">
       <description>
         <p>Merge branch 'main' of https://github.com/dguedry/vstenv</p>
