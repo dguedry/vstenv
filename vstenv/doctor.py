@@ -76,6 +76,11 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
         ns = ntsync.status(); ok, why = ntsync.summary(ns)
         c.append(Check("fast thread synchronization (ntsync)", ok, why,
                        fix="vstenv ntsync enable (asks for your password once), or Health → Speed up plugins" if ntsync.can_enable(ns) else ""))
+        if ns.get("usable"):
+            c.append(Check("open-file limit is high enough for ntsync", not ntsync.nofile_low(ns),
+                           f"{ns['nofile']} files per program; with ntsync, plugins like Kontakt can need more and crash when they run out" if ntsync.nofile_low(ns)
+                           else ("unlimited" if ns.get("nofile") is None else f"{ns['nofile']} files per program"),
+                           fix=ntsync.NOFILE_FIX if ntsync.nofile_low(ns) else ""))
     except Exception as e:
         c.append(Check("fast thread synchronization (ntsync)", True, f"not checked: {str(e)[:70]}"))
 

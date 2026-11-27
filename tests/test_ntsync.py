@@ -52,3 +52,17 @@ class NtsyncTest(unittest.TestCase):
 
 
 if __name__ == "__main__": unittest.main()
+
+
+class NofileTests(unittest.TestCase):
+    def _status(self, probe):
+        with mock.patch.object(ntsync.host, "sh", return_value=probe): return ntsync.status()
+
+    def test_a_low_hard_limit_is_flagged_only_while_ntsync_is_usable(self):
+        self.assertTrue(ntsync.nofile_low(self._status("device=1\nusable=1\nnofile=4096\n")))
+        self.assertFalse(ntsync.nofile_low(self._status("device=0\nusable=0\nnofile=4096\n")))
+
+    def test_a_high_or_unlimited_limit_is_fine(self):
+        self.assertFalse(ntsync.nofile_low(self._status("usable=1\nnofile=524288\n")))
+        s = self._status("usable=1\nnofile=unlimited\n")
+        self.assertIsNone(s["nofile"]); self.assertFalse(ntsync.nofile_low(s))

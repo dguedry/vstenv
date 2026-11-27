@@ -587,6 +587,31 @@ shipped `win32u.so`, drawn 3 of 3 with the stock one, drawn 4 of 4 with the
 patch; Softube Central unchanged. Not tested: SynthEdit, which the invalidation
 was written for in the fork it came from.
 
+## dwrite-text-source-single-chunk-<version>.patch
+
+SINE Player 1.4.5 crashed at start with a page fault at `dwrite+0x2b0f7`
+(issue #37): a read at address 0 in `fallback_font_get_supported_length()`,
+reached from `IDWriteFontFallback::MapCharacters`.
+
+Wine's reader (`text_source_get_u32_char()` in `dlls/dwrite/analyzer.c`) asks
+the app's `IDWriteTextAnalysisSource` for more text whenever one UTF-16 unit is
+left in the chunk it has, in case that unit is half of a surrogate pair. So for
+the last character of any text of two or more units it calls
+`GetTextAtPosition()` with a position other than 0, and then reads the answer
+without checking it. JUCE's source has its text at position 0 only and answers
+anything else with no text ("We don't expect this to be hit" in
+`juce_DirectWriteTypeface_windows.cpp`), so the read was of a null pointer.
+Whether an app hits it depends on the text it shows: a single character is
+fine, two are not.
+
+The patch asks for more only when the last unit of the chunk is a high
+surrogate and the range goes on, and ends the text when the source has none.
+Tested with a small program that calls `MapCharacters` with a source like
+JUCE's ("A", "AB", a letter with a variation selector, an emoji, "Hello"): the
+shipped DLL crashes on the second case at the address from the report, the
+patched one maps all of them and never asks at a position other than 0. Not
+tested: SINE Player 1.4.5 itself (1.4.3 is installed here).
+
 ## WineASIO (no patch: built from upstream)
 
 The tarball also carries WineASIO 1.3.0 (github.com/wineasio/wineasio), an ASIO

@@ -1,0 +1,32 @@
+--- a/dlls/dwrite/analyzer.c
++++ b/dlls/dwrite/analyzer.c
+@@ -436,12 +436,26 @@
+     const WCHAR *text;
+     UINT32 available;
+ 
+-    /* Make sure to have full pair of surrogates */
+-    text_source_read_more(context);
+-
+     available = context->chunk_length - context->cursor;
+     text = context->text + context->cursor;
+ 
++    /* Make sure to have full pair of surrogates. Only a high surrogate that ends the chunk
++     * needs more text, and only while the range goes on: asking again for every last
++     * character makes a source that has its text at position 0 alone (JUCE's) answer
++     * with no text at all. */
++    if (available == 1 && IS_HIGH_SURROGATE(*text) && context->length - context->consumed > 1)
++    {
++        text_source_read_more(context);
++        if (FAILED(context->status) || !context->text || !context->chunk_length)
++        {
++            context->ch = 0;
++            context->end = TRUE;
++            return;
++        }
++        available = context->chunk_length - context->cursor;
++        text = context->text + context->cursor;
++    }
++
+     if (available > 1 && IS_HIGH_SURROGATE(*text) && IS_LOW_SURROGATE(*(text + 1)))
+     {
+         context->cursor += 2;

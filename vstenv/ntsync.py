@@ -43,16 +43,36 @@ for p in $(pgrep -x wineserver 2>/dev/null); do
     ls -l /proc/$p/fd 2>/dev/null | grep -q ntsync && used=1
 done
 echo used=$used
+echo nofile=$(ulimit -Hn)
 """
+
+# With ntsync every event, mutex and semaphore a Windows program creates is an
+# open file in that program, not an entry in wineserver. Wine raises its own
+# limit to the hard limit at start, so the hard limit is the ceiling: on a
+# system where it is low, Kontakt and SINE Player ran out ("NtCreateFile Too
+# many open files, ulimit -n probably needs to be increased") and crashed (#37).
+NOFILE_WANTED = 65536
+NOFILE_FIX = ("raise the hard open-file limit, then log out and in: as root, put 'DefaultLimitNOFILE=1024:524288' under [Manager] in "
+              "/etc/systemd/system.conf.d/nofile.conf and /etc/systemd/user.conf.d/nofile.conf, and '* hard nofile 524288' in "
+              "/etc/security/limits.d/nofile.conf")
 
 
 def status() -> dict:
-    """{device, usable, module, boot, pkexec, used}: facts about the HOST."""
+    """{device, usable, module, boot, pkexec, used, nofile}: facts about the HOST.
+    nofile is the hard limit on open files (None: unlimited or unknown)."""
     out = {k: False for k in ("device", "usable", "module", "boot", "pkexec", "used")}
+    out["nofile"] = None
     for line in host.sh(_PROBE, timeout=20).splitlines():
         k, _, v = line.partition("=")
-        if k in out: out[k] = v.strip() == "1"
+        if k == "nofile": out[k] = int(v) if v.strip().isdigit() else None
+        elif k in out: out[k] = v.strip() == "1"
     return out
+
+
+def nofile_low(s: dict) -> bool:
+    """ntsync is usable and the open-file ceiling is one a big plugin can reach."""
+    n = s.get("nofile")
+    return bool(s.get("usable")) and n is not None and n < NOFILE_WANTED
 
 
 def summary(s: dict) -> tuple[bool, str]:
