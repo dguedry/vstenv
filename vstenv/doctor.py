@@ -1,7 +1,7 @@
 """Health checks: the environment's own, then every vendor module's."""
 import os, shutil
 from pathlib import Path
-from . import APP_ID, paths, wine, runtime, yabridge, prefixes, dxvk, host, menu, vendors, winefixes, dcomp, desktopfix, webview2, wedge, shellwedge, displaycache, runtimedir
+from . import APP_ID, paths, wine, runtime, yabridge, prefixes, dxvk, host, menu, vendors, winefixes, wineasio, dcomp, desktopfix, webview2, wedge, shellwedge, displaycache, runtimedir
 from .vendors import Check
 
 class _Checks(list):
@@ -44,6 +44,13 @@ def run(p: wine.Prefix | None = None, on_check=None) -> list[Check]:
                        (", ".join(exes) if exes else "none installed") if not missing else f"{', '.join(missing)}: DXVK has no composition swap chains, so their windows stay blank",
                        fix="vstenv setup"))
     except Exception as e: c.append(Check("DirectComposition programs run on Wine's own Direct3D", False, str(e)[:100], fix="vstenv setup"))
+    if wineasio.enabled(p):     # opt-in (vstenv wineasio enable): nothing to check while it is off
+        try: ok = winefixes.has(b, wineasio.DLL) and wineasio.registered(p)
+        except Exception: ok = False
+        c.append(Check("WineASIO registered (ASIO over JACK/PipeWire)", ok, (wineasio.KEY if ok else "its files or its registration are missing: ASIO hosts do not list it"), fix="vstenv wineasio enable"))
+        jack, _ = wineasio.pipewire_jack_dir()
+        c.append(Check("WineASIO reaches JACK", True, f"PipeWire's JACK library ({jack})" if jack else
+                       "the system's libjack.so.0: a JACK server must be running (with PipeWire, install pipewire-jack)"))
     hok, hdetail = host.available()
     c.append(Check("Wine runs on the host", hok, hdetail, fix="reinstall the current Flatpak build (it grants the org.freedesktop.Flatpak portal)"))
     if not hok: return c

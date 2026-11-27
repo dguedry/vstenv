@@ -39,6 +39,31 @@ class WineFixesTest(unittest.TestCase):
             dll.write_bytes(b"stock dcomp")                      # a re-extracted Wine put the stock file back
             self.assertFalse(winefixes.has(b, "dcomp.dll"), "the marker alone does not count")
             self.assertEqual(sorted(winefixes.remove(b)), sorted(winefixes.FIXES)); self.assertFalse((b.root / winefixes.MARKER_NAME).exists())
+    def test_missing_keys_are_reported_and_a_short_tarball_installs_what_it_has(self):
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d); b = _fake_build(tmp); tgz = _tarball(tmp)
+            with mock.patch.dict("os.environ", {"VSTENV_WINE_FIXES": str(tgz)}): winefixes.install(b)
+            self.assertTrue(winefixes.status(b)["installed"])
+            winefixes.dest(b, "x86_64-unix/win32u.so").write_bytes(b"stock again")   # re-extracted Wine
+            st = winefixes.status(b); self.assertFalse(st["installed"]); self.assertEqual(st["missing"], ["x86_64-unix/win32u.so"])
+            m = json.loads((b.root / winefixes.MARKER_NAME).read_text())             # an older marker without the newer keys
+            m["files"].pop("x86_64-unix/win32u.so")
+            (b.root / winefixes.MARKER_NAME).write_text(json.dumps(m))
+            self.assertEqual(winefixes.status(b)["missing"], ["x86_64-unix/win32u.so"])
+            with mock.patch.dict("os.environ", {"VSTENV_WINE_FIXES": str(tgz)}): winefixes.install(b)   # reinstalls what is missing
+            self.assertTrue(winefixes.status(b)["installed"])
+    def test_a_tarball_without_some_keys_still_installs_the_rest(self):
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d); b = _fake_build(tmp); tgz = _tarball(tmp)
+            with tarfile.open(tgz) as t: t.extractall(tmp / "x", filter="tar")
+            man = tmp / "x/wine-fixes/manifest.json"; m = json.loads(man.read_text())
+            m["files"].pop("x86_64-unix/win32u.so")
+            man.write_text(json.dumps(m))
+            old = tmp / "old.tar.gz"
+            with tarfile.open(old, "w:gz") as t: t.add(tmp / "x/wine-fixes", arcname="wine-fixes")
+            with mock.patch.dict("os.environ", {"VSTENV_WINE_FIXES": str(old)}): got = winefixes.install(b)
+            self.assertEqual(sorted(got), sorted(set(winefixes.FIXES) - {"x86_64-unix/win32u.so"}))
+            self.assertEqual(sorted(winefixes.status(b)["missing"]), ["x86_64-unix/win32u.so"])
     def test_install_refuses_a_tarball_for_another_wine(self):
         with tempfile.TemporaryDirectory() as d:
             tmp = Path(d); b = _fake_build(tmp); tgz = _tarball(tmp, version="10.0")
@@ -70,5 +95,26 @@ class WineFixesTest(unittest.TestCase):
                 with p3, p4: winefixes.install(b)
                 self.assertEqual((b.root / winefixes.PE_DIR / "dcomp.dll").read_bytes(), b"second"); self.assertEqual(winefixes.marker(b)["release"], "v0.2.1")
                 self.assertEqual((b.root / winefixes.PE_DIR / "dcomp.dll.orig").read_bytes(), b"stock dcomp.dll", "the stock file stays the original")
+    def test_remove_deletes_additions_that_have_no_original(self):
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d); b = _fake_build(tmp); tgz = _tarball(tmp)
+            winefixes.dest(b, "wineasio.dll").unlink()          # WineASIO is not in stock Wine: no .orig is made
+            with mock.patch.dict("os.environ", {"VSTENV_WINE_FIXES": str(tgz)}): winefixes.install(b)
+            self.assertFalse(winefixes.dest(b, "wineasio.dll").with_suffix(".dll.orig").exists())
+            winefixes.remove(b); self.assertFalse(winefixes.dest(b, "wineasio.dll").exists())
+class ForeignDllsTest(unittest.TestCase):
+    """A patched DLL in the build is a different size from the prefix's stock copy; not 'another Wine'."""
+    def test_patched_dll_is_not_foreign_but_others_still_are(self):
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d); b = _fake_build(tmp); p = wine.Prefix(tmp / "prefix", b)
+            for sysdir, pedir, dll in p.PROBE_DLLS:
+                for f, data in ((b.root / "lib/wine" / pedir / dll, b"ours"), (p.drive_c / "windows" / sysdir / dll, b"theirs!")):
+                    f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(data)
+            ntdll = winefixes.dest(b, "ntdll.dll"); ntdll.write_bytes(b"patched"); ntdll.with_suffix(".dll.orig").write_bytes(b"theirs!")
+            self.assertEqual(p.foreign_dlls(), ["syswow64/comctl32.dll", "system32/comctl32.dll", "syswow64/user32.dll"])
+            (p.drive_c / "windows/system32/ntdll.dll").write_bytes(b"another wine's")   # neither the patched nor the stock size
+            self.assertIn("system32/ntdll.dll", p.foreign_dlls())
+            (p.drive_c / "windows/system32/ntdll.dll").write_bytes(b"patched")          # refreshed prefix
+            self.assertNotIn("system32/ntdll.dll", p.foreign_dlls())
 
 if __name__ == "__main__": unittest.main()

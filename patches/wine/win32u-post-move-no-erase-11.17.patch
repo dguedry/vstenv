@@ -1,0 +1,35 @@
+win32u: do not erase a window when invalidating it after a move or resize.
+
+dcomp-swapchain-present adds, at the end of set_window_pos(), an invalidation
+of the whole window with RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN after
+every change of position or size. It only reached the runtime when win32u.so
+began to be rebuilt and shipped (v0.1.162).
+
+The invalidation asks for a repaint; the erase paints the class background
+over pixels that not every window draws again when asked. A WebView2 browser
+window that renders through OpenGL into its window surface presents only
+when the page changes: Minimal Hub turned black when its window was made
+smaller and stayed black until the next resize.
+
+Drop RDW_ERASE and keep the invalidation.
+
+Tested with Minimal Hub in a copy of the prefix: shrink the window, capture
+after 10 s. Black 6 runs of 6 with the shipped win32u.so, drawn 3 of 3 with
+the stock one, drawn 4 of 4 with this change; Softube Central unchanged.
+
+--- a/dlls/win32u/window.c
++++ b/dlls/win32u/window.c
+@@ -4254,7 +4254,12 @@
+          (get_window_long( winpos->hwnd, GWL_STYLE ) & WS_CHILD)))
+     {
+         TRACE( "hwnd %p: post-move invalidation (flags %08x)\n", winpos->hwnd, (int)winpos->flags );
+-        NtUserRedrawWindow( winpos->hwnd, NULL, 0, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN );
++        /* No RDW_ERASE: this asks for a repaint, and an erase on top of it paints the class
++         * background over pixels that not every window draws again when asked.  A WebView2
++         * browser window (Minimal Hub) draws through OpenGL into its window surface and
++         * presents only when the page changes: shrinking the window erased it to black and
++         * it stayed black until the next resize. */
++        NtUserRedrawWindow( winpos->hwnd, NULL, 0, RDW_INVALIDATE | RDW_ALLCHILDREN );
+     }
+ 
+     if (winpos->flags & SWP_HIDEWINDOW)

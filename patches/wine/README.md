@@ -7,6 +7,10 @@ the DLLs it lists, and attaches `wine-fixes-<version>.tar.gz` to every
 release; setup installs the DLLs into `lib/wine/x86_64-windows/` of the app's
 Wine, keeping the originals as `.orig`.
 
+To build them from this checkout and install them into your runtime in one
+command: `scripts/install-from-source.sh` (see `--help`; needs the MinGW
+compiler, flex, bison, and the X, OpenGL, Vulkan, FreeType and fontconfig headers).
+
 **Licence.** These patches modify Wine and are derivative works of it, so they
 and the DLLs built from them are under Wine's licence, LGPL-2.1-or-later, not the
 GPL that covers the rest of vstenv.
@@ -281,6 +285,40 @@ unaware one (it opens "Your DAW plugin interface is not High-DPI aware" in a for
 that is still hidden, and waits for OK). The variable is set for that plugin's
 host only (`plugin-host-env`). Rebuilds the 64-bit `user32` only.
 
+## user32-foreign-children-dce-<version>.patch
+
+SINE Player (JUCE 8 with a bundled WebView2) shows its Store and My Licenses
+pages in a browser window: `Chrome_WidgetWin_0` (SINE's process) >
+`Chrome_WidgetWin_1` (the browser process) > "Intermediate D3D Window" (the
+browser's GPU process). Going back to Library hides the first two, and the page
+stayed painted over the Library until SINE was restarted (issue #37).
+
+The GPU process presents through a cached window DC (`client_surface_present()`
+in win32u, `DCX_CACHE | DCX_USESTYLE`). A cached DC keeps its visible region
+until `invalidate_dce()` marks it, and that runs only in the process that showed,
+hid or resized a window ("cross-process invalidation is not supported yet" in
+win32u/dce.c). The hide happened in two other processes, so the GPU process kept
+its old region and painted the last page into the host's window. No browser flag
+changes this (software rendering, no partial swap, no DirectComposition were all
+tried).
+
+The patch gives `ShowWindow` and `SetWindowPos` real bodies in `user32` (they
+were forwards to win32u). When a call changes a window's visibility or size, the
+descendants that other processes own get
+`SetWindowPos(SWP_FRAMECHANGED | SWP_ASYNCWINDOWPOS | no move/size/z-order)`,
+which runs in the owner's thread and invalidates its DCEs. For a visibility
+change it then waits for those threads (a `WM_NULL` with a 100 ms timeout, queued
+behind the request) and invalidates the area, so whatever the other process drew
+in between is painted over. A window without descendants in another process
+costs one child enumeration and nothing else.
+
+Verified on SINE Player 1.4.3 (Library back after My Licenses and after Store,
+the page shown again on the next visit) and, for regressions, on Minimal Hub
+(Tauri + WebView2) and Softube Central (Electron). The real fix belongs in
+win32u's unix side (invalidate across processes); drop this when Wine has it.
+Rebuilds the 64-bit `user32` only: `EndDeferWindowPos`, `SetParent` and
+`ShowWindowAsync` still go straight to win32u.
+
 ## d2d1-primitive-blend-copy-<version>.patch
 
 `SetPrimitiveBlend(D2D1_PRIMITIVE_BLEND_COPY)` was stored and then ignored: every
@@ -465,3 +503,234 @@ child with its own device, target and virtual surface redrawn every 33 ms by
 another thread; headless KWin Xwayland :3): the strip row without the bar was
 (0,0,0) with the live dcomp.dll and (42,46,51), the image, with this patch;
 the bar stayed visible. In Cubase 14 (Xwayland, KDE Plasma) the splash's progress bar still does not show.
+
+## d2d1-zzz-multithread-protect-<version>.patch
+
+Cubase 14 hung when it opened a project with DXVK as `d3d11`. The hung process had one
+worker thread inside `d2d_device_context_draw` (`SwapDeviceContextState`) that had raised an
+access violation in DXVK's `d3d11.dll`, and Cubase's exception handler then blocked in `dbghelp`
+while holding d2d1's factory lock, so the 12 other image-generator threads queued behind it. The
+faulting instruction appends a command to DXVK's command-stream chunk (`mov 0x8(%rdx),%r8` with
+`rdx` = the context's current chunk = NULL): two threads were inside the same immediate context at
+once. Cubase's threads use a multi-threaded D2D factory, whose lock covers drawing only: bitmap
+`Map`, `Unmap` and copies, and the DirectComposition compositor thread, reach the context without it.
+Wine's own `d3d11` tolerates that, DXVK does not unless multithread protection is on. A device
+context of a multi-threaded factory now turns `ID3D11Multithread` protection on, and
+`d2d_device_context_draw` also holds the device lock, so the swap of the context state is atomic.
+Test: with this patch Cubase opens its Hub and project window and the hang signature (a thread in
+`dbghelp`, threads queued in `d2d_device_context_draw`) is gone, in three runs; without it the hang
+happened in every run.
+
+## d2d1-zz-layer-opacity-mask-<version>.patch
+
+Cubase 14's context-menu icons drew as solid near-black squares. It builds each
+icon with Direct2D: PushLayer with an opacity brush (the icon's alpha as a
+bitmap brush), a solid-colour FillRectangle, PopLayer. Wine's PushLayer and
+PopLayer are stubs, so the fill covered the whole 13x13 icon (colour
+0xff010200). The icon bitmaps were already wrong on arrival in the menu code;
+the black is not a D3D readback or `dxgi_surface_GetDC` problem (GetDC returns
+the real UI pixels). A debug print in `d2d_wic_render_target_present` gave 36 of
+36 uniform ff010200 icons before and 0 after the patch (alpha shapes instead).
+The device context now keeps the opacity brush of a layer (non-command-list
+targets only) until PopLayer, and `FillGeometry` (so `FillRectangle`) uses it
+when the caller passes no opacity brush. Geometric masks and other layer
+parameters are still ignored; layers are counted, so only the outermost
+layer's brush applies and an inner PopLayer leaves it. The brush is released in
+PopLayer, in EndDraw (a layer left open) and when the context is destroyed. An
+earlier version released it inside `SetTextRenderingParams` without clearing it,
+which crashed a test that set text rendering params inside a layer (checked:
+the old build crashes in that scenario, the new one passes it, together with a
+nested layer, a layer left open and a layer that is released with the context;
+the icon mask renders the same 88 transparent / 81 painted pixels). Named `zz` so it sorts after
+`d2d1-primitive-blend-copy` (same file). Not fixed here: the slow context menu
+(about 55 ms per item, spent creating a Direct2D device and WIC render target
+per icon).
+
+## d2d1-zz-shader-cache-<version>.patch
+
+Cubase 14 opens a context menu with ~20 icons in ~1 s because every 13x13 icon
+gets its own Direct2D device (about 55 ms each). `d2d_device_init` ran
+`D3DCompile` on the shape vertex shaders and the pixel shader for every device,
+and `CreateWicBitmapRenderTarget` makes a device too. A mingw micro-benchmark
+of the icon sequence (WIC 13x13 target or D2D device + context, draw,
+CopyFromBitmap/Map, GetDC, ReleaseDC; under the host runtime on a private Xvfb)
+measured 20.0 ms per icon steady state, 16 ms of it device creation. The
+patch compiles once per process (critical section, blobs shared by reference),
+giving 3.4 ms per icon. Left: a new D3D11 device per icon costs another ~32 ms
+(wined3d device/context creation), only if Cubase does that. Named `zz` to sort
+after `d2d1-zz-layer-opacity-mask` (same file).
+
+## dxgi-zz-shared-wined3d-<version>.patch
+
+`D3D11CreateDevice` makes a new DXGI factory, and every factory made its own
+wined3d object, which probes the GL adapter again (a throw-away GL context,
+capability tables, format probing). Cubase 14 creates a D3D11 device per
+context-menu icon. In a traced creation 30 of 32 ms were
+`wined3d_adapter_gl_create`; `D3D11CreateDevice` went from 29 ms to 8.5 ms with
+the patch (host runtime, Xvfb, so llvmpipe; the probing is driver work, the
+number on NVIDIA will differ). One wined3d object is now kept per process
+(created on first use, never released, one reference per factory) and replaced
+when the virtual screen rectangle changes, since the outputs are read at
+creation. The first device in a process still pays about 220 ms (driver load
+and GL context, about 140 ms of it the first GL context; software-GL
+specific in size). What is left per device (about 8 ms create, 8 ms release, 20 ms
+first draw, 12 ms first readback on a fresh device) is the GL context and
+wined3d's per-device GLSL program cache.
+
+## winex11-zz-close-ends-menu-<version>.patch
+
+With a context menu open in Cubase 14 (right-click in the track area), clicking
+the window manager's close button showed "Do you want to save this project?"
+while the menu was still open, and the dialog could not be clicked: the menu
+kept the capture (Esc freed it). The driver turns `WM_DELETE_WINDOW` into a
+posted `WM_SYSCOMMAND`/`SC_CLOSE`; the menu's modal loop dispatches it and the
+dialog runs nested inside the loop. On Windows the click on the close button
+ends the menu first. The driver now calls `NtUserEndMenu` when the thread is in
+menu mode, before posting `SC_CLOSE`; its `WM_CANCELMODE` is queued first, so
+the menu ends before the close is handled. Only `winex11.so` is rebuilt. Named
+`zz` so it sorts after `winex11-xdnd-deferred-drop` (same file, later hunk is
+independent). Tested in Cubase 14 under Xwayland on KDE Plasma.
+
+## winex11-zz-wm-restore-follows-<version>.patch
+
+Restoring the minimized Cubase 14 window from the taskbar took many clicks.
+A restore by the window manager arrives as an unexpected WM_STATE
+NormalState; the Win32 window only loses WS_MINIMIZE later, when the posted
+WM_WINE_WINDOW_STATE_CHANGED is handled. Any SetWindowPos in between makes
+`X11DRV_WindowPosChanged` derive IconicState from the still-minimized style
+and `XIconifyWindow` the window again. The patch sets `wm_restored` on such a
+restore and derives NormalState while the style still has WS_MINIMIZE. It
+also activates after the maximized restore (SC_MAXIMIZE branch, via the
+foreground out-parameter) and restores a disabled window directly with
+`ShowWindow(SW_RESTORE)`, since WM_SYSCOMMAND is ignored by disabled windows
+and the window stayed WS_MINIMIZE with X showing it Normal. Upstream master
+has no change here. Test (MinGW program, headless KWin): the disabled-while-
+minimized case reproduces and is fixed; the re-iconify race did not reproduce
+in a plain run, so that part is from reading the source. Tested in Cubase 14 under Xwayland on KDE Plasma.
+
+Fix to the above: the first build removed WS_MINIMIZE from the style it passed to `get_desired_wm_state`. The minimized window's rectangle is unmapped, so a SetWindowPos landing in the race window made the driver request WithdrawnState and the window vanished from the taskbar. It now takes IconicState from the unmodified style and turns that into NormalState, and drops the flag when X is no longer Normal.
+
+## winex11-xdnd-deferred-drop-<version>.patch
+
+Dragging a file from a file manager onto Cubase 14 opened its "Import Options"
+dialog, and then nothing in the desktop could be clicked: Cubase had to be
+killed. The dialog is shown from inside `IDropTarget::Drop`, and the X11 driver
+called the drop target from its X event handler. `X11DRV_ProcessEvents` does not
+process nested events (`current_event` is set, so `mask = 0`), so the dialog's
+own message loop got no pointer or keyboard input for as long as `Drop` ran.
+The `XdndDrop` handler now only posts a driver message
+(`WM_X11DRV_XDND_DROP`); the message loop runs the drop after the handler has
+returned. A copy or link drop is also finished early (`XdndFinished` with the
+effect accepted at the last `XdndPosition`; the data was imported when the drag
+entered), because a Wayland file manager behind XWayland holds its drag until it
+gets the answer. A move still waits for the drop's result, since the source
+deletes what it moved when it sees `XdndFinished`. Only `winex11.so` is rebuilt.
+Verified with an mp3 dragged from Dolphin onto a Cubase 14 audio track on
+wine-staging 11.17; a candidate for upstreaming to Wine.
+
+## win32u.so (rebuilt unix library, no patch of its own)
+
+`dcomp-swapchain-present-<version>.patch` changes `dlls/win32u/menu.c` so that a
+32-bit menu bitmap is drawn with `NtGdiAlphaBlend` (per-pixel alpha); a plain
+BitBlt turns the transparent, premultiplied pixels of Cubase's context-menu
+icons into black squares. But the menu, window and GDI code lives in the unix
+half of win32u, `win32u.so`; the PE `win32u.dll` is only syscall thunks. The
+build script rebuilt only the PE half, so the hunk never reached the runtime
+and every icon stayed a black square even with the Direct2D layer fix
+(`d2d1-zz-layer-opacity-mask`). `scripts/build-wine-fixes.sh` now also builds
+`win32u.so` (in the same X-enabled second configure as `winex11.so`). That
+configure no longer passes `--without-freetype --without-fontconfig`: without
+them the rebuilt `win32u.so` has no font support (it came out 2.3 MB against the
+stock 2.9 MB). The script checks for both
+SONAME defines. Tested in Cubase 14 under Xwayland on KDE Plasma.
+
+This switches on more than the menu hunk: every `dlls/win32u` unix-side change
+in `dcomp-swapchain-present` was dormant until now (cursoricon, font.c, dce.c
+with its cross-process `has_foreign_ancestor()` handling, window.c, OpenGL,
+input, sysparams, the SC_MAXIMIZE geometry), about 1,100 lines, and they now
+run in every program. Checked on Cinnamon (X11) with the rebuilt library
+against the stock one: notepad draws pixel-identical (fonts), menus, minimize
+and restore, a file drop; SINE Player's tabs and Store page, Minimal Hub and
+Softube Central; and in REAPER the editors of Squash, SINE Player, Serum 2 and
+Kontakt 8 at unchanged CPU (121, 60, 17 and 16 percent of a core). If something
+in window, cursor or font behaviour changes after this release, restoring
+`win32u.so.orig` is the first thing to try.
+
+## win32u-post-move-no-erase-<version>.patch
+
+`dcomp-swapchain-present` invalidates a whole window, with an erase, after
+every move or resize (`set_window_pos()` in `dlls/win32u/window.c`). That code
+is in the unix half of win32u, so it did nothing until `win32u.so` was shipped
+(v0.1.162, above). Once live, the erase painted the class background over
+windows that do not draw again when asked: Minimal Hub's WebView2 browser
+window renders through OpenGL into its window surface and presents only when
+the page changes, so shrinking the window left it black until the next resize.
+
+The patch drops `RDW_ERASE` and keeps the invalidation. Tested with Minimal Hub
+in a copy of the prefix (shrink, capture after 10 s): black 6 of 6 with the
+shipped `win32u.so`, drawn 3 of 3 with the stock one, drawn 4 of 4 with the
+patch; Softube Central unchanged. Not tested: SynthEdit, which the invalidation
+was written for in the fork it came from.
+
+## dcomp-zzz-direct-single-visual-<version>.patch
+
+Follow-up to the four Cubase 14 dcomp patches (`dcomp-swapchain-present-offscreen`
+and the three `dcomp-zz-*` after it), for what they cost programs that do not
+need them. As submitted, the series raised SINE Player (a JUCE 8 plugin in
+REAPER, editor open) from 60 % to 71-72 % of a core.
+
+- A visual tree with one drawing visual and no composed window above it is
+  drawn straight onto the window, as before the series. The off-screen frame
+  exists to hide a partly composed frame and to put a child target over its
+  parent's frame; such a tree has neither, and a JUCE 8 editor is exactly that.
+- wined3d sets the `__wine_dcomp_comp_alpha` property when the composition
+  buffer is created, not on every present (a server call per frame).
+- The composed-window property holds a target pointer; the ancestor walk stops
+  at the first window of another process, whose pointer would mean nothing here.
+- "Target has no root" is a TRACE (it printed a FIXME on every tick).
+
+Percent of one core in REAPER, stock / series as submitted / with this patch:
+SINE Player 60 / 71-72 / 60-61, Squash 121 / 124-126 / 119-122, Kontakt 8
+16 / 16 / 16. Not tested here: the off-screen path itself (several visuals,
+child targets), which is what Cubase uses; there is no Cubase on the test
+machine.
+
+## WineASIO (no patch: built from upstream)
+
+The tarball also carries WineASIO 1.3.0 (github.com/wineasio/wineasio), an ASIO
+driver over JACK, for low-latency audio in Cubase and other ASIO hosts. It is
+built from upstream source with the patched tree's own `winegcc`/`winebuild`
+(64-bit only) and installed as `x86_64-unix/wineasio.dll.so` (the only unix name
+Wine 11 loads; the AUR's `wineasio64.dll.so` is ignored) and the PE stub
+`wineasio.dll`. It is opt-in: `vstenv wineasio enable` (`vstenv/wineasio.py`)
+copies the stub into the prefix's system32 as `wineasio64.dll` and runs
+`regsvr32 /s` through the app's Wine runner, which creates
+`HKLM\Software\ASIO\WineASIO`; setup and `vstenv wine-fixes install` only keep
+an existing registration's copy current. Opt-in because every ASIO program in
+the prefix then lists it, and Cubase already has Steinberg's built-in ASIO
+driver over Wine's normal audio (it opened here at 2 in / 2 out, 480 samples,
+48 kHz).
+
+Wine runs on the host, so the driver dlopens the host's `libjack.so.0`. On
+Debian, Ubuntu and Mint that is JACK2's library even with PipeWire as the sound
+server (PipeWire's sits in `/usr/lib/x86_64-linux-gnu/pipewire-0.3/jack`, which
+only `pw-jack` adds), and WineASIO's `init` fails with "Unable to open a JACK
+client". While the driver is registered, `Prefix.wine_env` puts PipeWire's JACK
+directory first on Wine's `LD_LIBRARY_PATH` when PipeWire's socket exists and
+no `jackd` runs. Measured with a small ASIO client on Linux Mint (PipeWire
+1.0.5): system libjack, init fails; PipeWire's, 16 in / 16 out, 1024 samples,
+48 kHz. In Cubase: Studio > Studio Setup > Audio System > ASIO Driver =
+WineASIO.
+
+The driver's Control Panel button runs a host program named `wineasio-settings`
+(`execvp`, so from PATH). Upstream's is a PyQt tool under the GPL that edits
+`~/.wine` unless `WINEPREFIX` says otherwise and calls whatever `regedit` is on
+PATH; it is not shipped. Instead `vstenv wineasio enable` writes a two-line
+launcher of that name into `~/.local/share/vstenv/wineasio-bin`, which is put
+first on Wine's PATH while the driver is registered, and it opens vstenv's own
+settings window (`vstenv/wineasio_gui.py`, also `vstenv wineasio settings`) for
+this prefix. The window and `vstenv wineasio set` write the six REG_DWORD values
+the driver reads from `HKCU\Software\Wine\WineASIO` when a program opens it.
+Checked with the ASIO client: after `inputs 4`, `fixed-buffer 0`, `buffer 256`
+the driver reports 4 inputs and a 16 to 8192 range with 256 preferred, and
+`ControlPanel()` runs the launcher.

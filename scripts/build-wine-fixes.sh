@@ -11,7 +11,8 @@
 # stale target, for WebView2 apps), and hidparse.sys (HID descriptors with
 # hundreds of usages, for Komplete Kontrol S-series MK1 keyboards), and iphlpapi.dll
 # with nsiproxy.so (listing the network adapters is cheap, and only lists the ones
-# that exist, for KORG's TRITON). This applies every
+# that exist, for KORG's TRITON), and WineASIO (ASIO drivers over JACK/PipeWire,
+# for low-latency audio in Cubase; built from its upstream source). This applies every
 # patches/wine/*-<version>.patch to the Wine sources (on top of the full
 # wine-staging set, since the pinned build is a staging build), builds just
 # those DLLs with the MinGW cross compiler, and produces
@@ -36,9 +37,12 @@ MODULES=(d2d1.dll sensapi.dll dcomp.dll advapi32.dll dxgi.dll ole32.dll wined3d.
 # nsiproxy.so is the network driver's unix half: its interface table must drop
 # interfaces that have gone, and read the statistics once per listing (KORG's
 # TRITON lists the adapters a few thousand times as it starts).
-UNIX_MODULES=(winex11.so nsiproxy.so)
+# win32u.so is the unix half of win32u: the menu, window and GDI code that the patches change
+# (menu icons are drawn there, see patches/wine/README.md). It must be built with FreeType
+# and fontconfig, or the rebuilt library has no fonts.
+UNIX_MODULES=(winex11.so nsiproxy.so win32u.so)
 # Where each is built: a graphics driver in dlls/<name>.drv, a kernel driver's unix half in dlls/<name>.sys.
-unix_module_path() { case "$1" in nsiproxy.so) echo "dlls/nsiproxy.sys/$1";; *) echo "dlls/${1%.so}.drv/$1";; esac; }
+unix_module_path() { case "$1" in nsiproxy.so) echo "dlls/nsiproxy.sys/$1";; win32u.so) echo "dlls/win32u/$1";; *) echo "dlls/${1%.so}.drv/$1";; esac; }
 # WINE_FIXES_WORK=<dir> keeps the patched tree (unstripped DLL for symbols).
 if [ -n "${WINE_FIXES_WORK:-}" ]; then WORK="$WINE_FIXES_WORK"; mkdir -p "$WORK"; else WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT; fi
 cd "$WORK"
@@ -79,7 +83,7 @@ done
 # out; reconfigure the same (already patched) tree with them and build only
 # that library. Its import stubs for ntdll.so/win32u.so are made on the way.
 echo "== configure again, with X/OpenGL/Vulkan, for the unix libraries"
-./configure --enable-win64 --disable-tests --without-freetype --without-fontconfig --without-alsa --without-pulse \
+./configure --enable-win64 --disable-tests --without-alsa --without-pulse \
     --without-gstreamer --without-wayland --without-dbus --without-usb --without-udev \
     --without-gnutls --without-krb5 --without-sane --without-gphoto --without-cups --without-netapi \
     --without-opencl --without-pcap --without-pcsclite --without-capi --without-v4l2 --without-oss --without-ffmpeg \
@@ -87,7 +91,8 @@ echo "== configure again, with X/OpenGL/Vulkan, for the unix libraries"
 # Every optional part the pinned winex11.so has; a missing -dev package would
 # silently drop one (XInput2 is the mouse, Xcursor the pointer themes).
 for FEATURE in SONAME_LIBXCURSOR SONAME_LIBXI SONAME_LIBXRANDR SONAME_LIBXRENDER SONAME_LIBXFIXES SONAME_LIBXINERAMA \
-               SONAME_LIBXCOMPOSITE SONAME_LIBXXF86VM SONAME_LIBVULKAN SONAME_LIBGL HAVE_X11_EXTENSIONS_XINPUT2_H; do
+               SONAME_LIBXCOMPOSITE SONAME_LIBXXF86VM SONAME_LIBVULKAN SONAME_LIBGL HAVE_X11_EXTENSIONS_XINPUT2_H \
+               SONAME_LIBFREETYPE SONAME_LIBFONTCONFIG; do
     grep -q "^#define $FEATURE" include/config.h || { echo "winex11: $FEATURE not detected; install its -dev package" >&2; exit 1; }
 done
 mkdir -p "$PKG/x86_64-unix"
@@ -96,6 +101,34 @@ for U in "${UNIX_MODULES[@]}"; do
     make -j"$(nproc)" "$(unix_module_path "$U")" >/dev/null
     strip --strip-unneeded -o "$PKG/x86_64-unix/$U" "$SRC/$(unix_module_path "$U")" 2>/dev/null || cp "$SRC/$(unix_module_path "$U")" "$PKG/x86_64-unix/$U"
 done
+# WineASIO (ASIO over JACK/PipeWire): a Winelib library, so it is built with the patched
+# tree's own winegcc/winebuild against the unix-side import libraries. Wine loads its
+# unix half only under the name wineasio.dll.so (the AUR's wineasio64.dll.so is ignored);
+# the PE half is a fake DLL that names it. It dlopens libjack at run time, so no JACK
+# headers are needed here. 64-bit only.
+WINEASIO_VERSION=1.3.0
+echo "== build WineASIO $WINEASIO_VERSION"
+WINEASIO_SHA256=91267e22f2684b27a1d656021c52e1ff05f7cc9241086ae526bff551410b9325   # v1.3.0 archive; bump with WINEASIO_VERSION
+curl -fsSL -o wineasio.tar.gz "https://github.com/wineasio/wineasio/archive/refs/tags/v$WINEASIO_VERSION.tar.gz"
+echo "$WINEASIO_SHA256  wineasio.tar.gz" | sha256sum -c - >/dev/null || { echo "wineasio.tar.gz does not match its pinned sha256 $WINEASIO_SHA256" >&2; exit 1; }
+tar -xzf wineasio.tar.gz -C "$WORK"
+ASIO="$WORK/wineasio-$WINEASIO_VERSION"
+make -k -j"$(nproc)" $(for i in include/*.idl; do echo "${i%.idl}.h"; done) >/dev/null 2>&1 || true   # the headers that have a rule; -k goes on past those that have none
+for H in unknwn wtypes objidl oaidl objbase; do   # what WineASIO's sources include; a failed generation must stop here, not at its compile
+    [ -f "include/$H.h" ] || { echo "wine headers: include/$H.h was not generated" >&2; exit 1; }
+done
+make -j"$(nproc)" libs/winecrt0/libwinecrt0.a libs/uuid/libuuid.a dlls/odbc32/libodbc32.a dlls/ole32/libole32.a \
+    dlls/winmm/libwinmm.a dlls/advapi32/libadvapi32.a dlls/kernel32/libkernel32.a dlls/ntdll/libntdll.a >/dev/null
+mkdir -p "$ASIO/build"
+for C in asio jackbridge main regsvr; do
+    gcc -c -I"$ASIO" -I"$SRC/include" -m64 -D_REENTRANT -fPIC -O2 -DNDEBUG -fvisibility=hidden -fno-strict-aliasing \
+        -o "$ASIO/build/$C.o" "$ASIO/$C.c"
+done
+LIBDIRS=(); for D in libs/winecrt0 libs/uuid dlls/odbc32 dlls/ole32 dlls/winmm dlls/advapi32 dlls/kernel32 dlls/ntdll; do LIBDIRS+=("-L$SRC/$D"); done
+"$SRC/tools/winegcc/winegcc" --wine-objdir "$SRC" "$ASIO"/build/*.o -shared -m64 "$ASIO/wineasio.dll.spec" "${LIBDIRS[@]}" \
+    -lodbc32 -lole32 -luuid -lwinmm -ladvapi32 -lkernel32 -lntdll "$SRC/libs/winecrt0/libwinecrt0.a" -o "$ASIO/build/wineasio.dll.so"
+"$SRC/tools/winebuild/winebuild" -m64 --dll --fake-module -E "$ASIO/wineasio.dll.spec" "$ASIO"/build/*.o -o "$PKG/wineasio.dll"
+strip --strip-unneeded -o "$PKG/x86_64-unix/wineasio.dll.so" "$ASIO/build/wineasio.dll.so"
 # powershell.exe in place of Wine's stub (tools/psshim): it answers "is this program
 # running?" honestly and exits 0 for anything else, as the stub did. Built for both
 # bitnesses and tagged "Wine builtin DLL" at 0x40, as Wine's own builds are, or Wine

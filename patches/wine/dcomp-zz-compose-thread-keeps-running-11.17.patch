@@ -13,7 +13,7 @@ minimized: the first tick after the restore redraws every visual, and the
 window's surface was not worth keeping up meanwhile. Skipping windows that
 no longer exist also stops the thread drawing on a destroyed hwnd.
 
-Layers on dcomp-swapchain-present-offscreen. Untested in Cubase; built only.
+Layers on dcomp-swapchain-present-offscreen.
 
 --- a/dlls/dcomp/device.c
 +++ b/dlls/dcomp/device.c

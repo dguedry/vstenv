@@ -25,6 +25,10 @@ class DisplayCacheTest(unittest.TestCase):
     def test_real_monitors_only_is_fine(self):
         self.assertFalse(displaycache.stale_virtual_monitor(self._prefix(REAL)))
 
+    def test_lone_default_monitor_is_fine(self):
+        # Xwayland without EDID: the one real monitor is called Default_Monitor
+        self.assertFalse(displaycache.stale_virtual_monitor(self._prefix(STALE)))
+
     def test_missing_registry_is_not_a_finding(self):
         self.assertFalse(displaycache.stale_virtual_monitor(self._prefix(None)))
 

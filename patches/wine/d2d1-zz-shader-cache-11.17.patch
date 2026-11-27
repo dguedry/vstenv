@@ -1,0 +1,93 @@
+d2d1: compile the shape shaders once per process, not once per device
+
+Every ID2D1Device (and so every CreateWicBitmapRenderTarget, which makes one)
+ran D3DCompile on the 8 or so shape vertex shaders and the pixel shader in
+d2d_device_init. Cubase 14 builds each 13x13 context-menu icon with its own D2D
+device, so ~20 icons cost ~1 s. Measured with a mingw micro-benchmark that does
+the same sequence (WIC 13x13 render target or D2D device + context, draw,
+CopyFromBitmap/Map, GetDC, ReleaseDC), steady state per icon: 20.0 ms before,
+3.4 ms after; D2D device creation alone was 16 ms of the 20.
+
+Compile into process-wide blobs under a critical section on first use and
+give each device its own reference. The blobs are never modified.
+
+--- a/dlls/d2d1/device.c	2026-11-25 10:59:40.533884975 +0200
++++ b/dlls/d2d1/device.c	2026-11-25 11:36:38.626377476 +0200
+@@ -4839,11 +4839,48 @@
+     return CONTAINING_RECORD(iface, struct d2d_device, ID2D1Device6_iface);
+ }
+ 
++static CRITICAL_SECTION shader_cache_cs = {NULL, -1, 0, 0, 0, 0};
++static ID3D10Blob *shader_cache_vs[D2D_SHAPE_TYPE_COUNT];
++static ID3D10Blob *shader_cache_ps;
++
++/* Compiling the shaders takes ~16 ms and every device would do it again; the blobs are
++ * read-only, so compile once per process (never released, like the d2d1.dll itself). */
++static HRESULT d2d_device_compile_shaders(struct d2d_device *device)
++{
++    HRESULT hr = S_OK;
++    ID3D10Blob *compiled;
++
++    EnterCriticalSection(&shader_cache_cs);
++    for (unsigned int i = 0; i < ARRAY_SIZE(shape_info) && SUCCEEDED(hr); ++i)
++    {
++        const struct shape_info *si = &shape_info[i];
++
++        if (!shader_cache_vs[i] && FAILED(hr = D3DCompile(si->vs_code, si->vs_code_size, si->name, NULL, NULL,
++                "main", "vs_4_0", 0, 0, &shader_cache_vs[i], NULL)))
++            WARN("Failed to compile shader for shape type %#x, hr %#lx.\n", si->shape_type, hr);
++    }
++    if (SUCCEEDED(hr) && !shader_cache_ps && FAILED(hr = D3DCompile(shape_ps_code, sizeof(shape_ps_code) - 1,
++            "ps", NULL, NULL, "main", "ps_4_0", 0, 0, &shader_cache_ps, NULL)))
++        WARN("Failed to compile the pixel shader, hr %#lx.\n", hr);
++    if (SUCCEEDED(hr))
++    {
++        for (unsigned int i = 0; i < ARRAY_SIZE(shape_info); ++i)
++        {
++            compiled = device->precompiled_shape_vs[i] = shader_cache_vs[i];
++            ID3D10Blob_AddRef(compiled);
++        }
++        device->precompiled_shape_ps = shader_cache_ps;
++        ID3D10Blob_AddRef(shader_cache_ps);
++    }
++    LeaveCriticalSection(&shader_cache_cs);
++
++    return hr;
++}
++
+ HRESULT d2d_device_init(struct d2d_device *device, ID2D1Factory1 *factory, IDXGIDevice *dxgi_device,
+     bool allow_get_dxgi_device)
+ {
+     HRESULT hr;
+-    ID3D10Blob *compiled;
+ 
+     device->ID2D1Device6_iface.lpVtbl = &d2d_device_vtbl;
+     device->refcount = 1;
+@@ -4853,26 +4890,8 @@
+     IDXGIDevice_AddRef(device->dxgi_device);
+     device->allow_get_dxgi_device = allow_get_dxgi_device;
+ 
+-    for (unsigned int i = 0; i < ARRAY_SIZE(shape_info); ++i)
+-    {
+-        const struct shape_info *si = &shape_info[i];
+-
+-        if (FAILED(hr = D3DCompile(si->vs_code, si->vs_code_size, si->name, NULL, NULL,
+-                "main", "vs_4_0", 0, 0, &compiled, NULL)))
+-        {
+-            WARN("Failed to compile shader for shape type %#x, hr %#lx.\n", si->shape_type, hr);
+-            return hr;
+-        }
+-        device->precompiled_shape_vs[i] = compiled;
+-    }
+-
+-    if (FAILED(hr = D3DCompile(shape_ps_code, sizeof(shape_ps_code) - 1, "ps", NULL, NULL,
+-            "main", "ps_4_0", 0, 0, &compiled, NULL)))
+-    {
+-        WARN("Failed to compile the pixel shader, hr %#lx.\n", hr);
++    if (FAILED(hr = d2d_device_compile_shaders(device)))
+         return hr;
+-    }
+-    device->precompiled_shape_ps = compiled;
+ 
+     return S_OK;
+ }

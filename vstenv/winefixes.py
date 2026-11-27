@@ -40,7 +40,7 @@ FIXES = {"dcomp.dll": "DirectComposition (Steinberg's VSTGUI: HALion Sonic 7, Cu
          "d2d1.dll": "Direct2D's copy blend mode (JUCE 8 plugins clear cached images with it; Minimal Audio's readouts smeared when they changed)",
          "sensapi.dll": "\"is the network up?\" answers the way Windows does (KORG Software Pass said \"No Internet Connection\")",
          "ntdll.dll": "a plugin host can hide Wine from JUCE 8.0.13 plugins (Minimal Audio's sign-in panel and interface stayed empty)",
-         "user32.dll": "a plugin host can be made DPI-aware on its own (Jamstix 4 will not embed its editor in an unaware host)",
+         "user32.dll": "a plugin host can be made DPI-aware on its own (Jamstix 4 will not embed its editor in an unaware host), and an embedded browser stops drawing when its page is hidden (SINE Player's Store page stayed over the Library)",
          "advapi32.dll": "credential attributes (Steinberg's License Engine keeps its sign-in)",
          "ole32.dll": "drag-drop teardown survives a stale target (WebView2 apps crashed at startup)",
          "hidparse.sys": "HID controls with hundreds of usages reach Windows programs (Komplete Kontrol S-series MK1 keyboards)",
@@ -48,8 +48,11 @@ FIXES = {"dcomp.dll": "DirectComposition (Steinberg's VSTGUI: HALion Sonic 7, Cu
          "x86_64-unix/nsiproxy.so": "the adapter list holds only interfaces that exist (it grew with every container or VPN interface since Wine started)",
          "powershell.exe": "answers \"is this program running?\" honestly (electron-builder installers: Softube Central)",
          "i386-windows/powershell.exe": "the same, for 32-bit installers",
+         "wineasio.dll": "WineASIO's PE half: an ASIO driver over JACK/PipeWire for low-latency audio (Cubase); off until `vstenv wineasio enable`",
+         "x86_64-unix/wineasio.dll.so": "WineASIO's unix half, under the name Wine loads it by",
          "nirescan.exe": "NI controllers plugged in after Wine started are seen (Komplete Kontrol keyboards, Maschine; from ni-wine)",
-         "x86_64-unix/winex11.so": "a cursor set from another process shows as an arrow, not nothing (WebView2 windows: Minimal Hub)"}
+         "x86_64-unix/winex11.so": "a cursor set from another process shows as an arrow, not nothing (WebView2 windows: Minimal Hub); a dropped file's dialog takes clicks, one taskbar click restores a minimized window, and closing a window ends its open menu first (Cubase 14)",
+         "x86_64-unix/win32u.so": "menu icons keep their alpha (32-bit menu bitmaps are alpha-blended); built with FreeType and fontconfig"}
 
 def dest(build: wine.WineBuild, name: str) -> Path:
     """Where a packaged file goes in the Wine build: a bare name is a 64-bit PE
@@ -159,12 +162,13 @@ def install(build: wine.WineBuild, reporter=None, force=False) -> dict[str, str]
     return installed(build)
 
 def remove(build: wine.WineBuild, reporter=None) -> list[str]:
-    """Put the stock DLLs back from their .orig copies."""
+    """Put the stock DLLs back from their .orig copies; a fix with no stock original is an addition (WineASIO) and is deleted."""
     r = null_reporter(reporter); r.step("Restoring stock Wine DLLs")
     back = []
     for name in list((marker(build) or {}).get("files") or {}):
         dst = dest(build, name); orig = dst.with_suffix(dst.suffix + ".orig")
         if orig.exists(): orig.replace(dst); back.append(name)
+        elif dst.exists(): dst.unlink(); back.append(name)
     (build.root / MARKER_NAME).unlink(missing_ok=True)
     r.ok(", ".join(back) if back else "nothing to restore")
     return back

@@ -1,0 +1,243 @@
+dcomp: draw a tree with one visual straight onto the window; process check; quieter
+
+Follow-up to the four Cubase 14 patches before it (off-screen composition,
+compose thread, alpha blend, recompose on restore), for what they cost
+programs that do not need them.
+
+1. The off-screen frame keeps a partly composed frame off the screen and puts
+   a child target over its parent's frame. A tree with one drawing visual and
+   no composed window above it has neither, and paid a window-sized copy more
+   every tick for it. A JUCE 8 plugin editor is exactly that (one swapchain
+   visual). Such a tree is drawn straight onto the window, as before the
+   series. The count follows shared visuals; the look for a composed ancestor
+   is skipped when the process has a single composed window.
+
+2. wined3d set or removed the __wine_dcomp_comp_alpha window property on every
+   present. A property is a server call; an editor that presents as fast as it
+   can paid for it on every frame. It is now set when the composition buffer
+   is created.
+
+3. The composed-window property holds the target pointer. An ancestor owned by
+   another process would hand over that process's pointer: the walk stops at
+   the first window of another process.
+
+4. "Target has no root" printed a FIXME every tick now that the thread keeps
+   running; it is a TRACE.
+
+Measured in REAPER with the editor open and parameters moving, percent of one
+core (stock / series as submitted / with this patch):
+  SINE Player  60 / 71-72 / 60-61
+  Squash       121 / 124-126 / 119-122
+  Kontakt 8    16 / 16 / 16
+The off-screen path itself (several visuals, child targets) is unchanged and
+was not exercised here: no Cubase on the test machine.
+
+--- a/dlls/dcomp/dcomp_private.h
++++ b/dlls/dcomp/dcomp_private.h
+@@ -152,6 +152,7 @@
+     return CONTAINING_RECORD(iface, struct composition_visual, IDCompositionVisualUnknown_iface);
+ }
+ 
++extern LONG dcomp_window_targets;
+ void dcomp_lock(void);
+ void dcomp_unlock(void);
+ HRESULT create_surface(struct composition_surface_factory *factory, UINT width, UINT height,
+--- a/dlls/dcomp/device.c
++++ b/dlls/dcomp/device.c
+@@ -840,40 +840,71 @@
+ }
+ 
+ 
+-/* One composite tick of a target, through the off-screen frame.  The window's
+- * current content is copied in first so that what no visual draws (and what
+- * the application paints on its own) is kept.  Falls back to drawing onto the
+- * window directly when the window has no size or the frame cannot be made. */
+ /* A window whose target is a child of another composed window: DWM puts the child's visuals over
+  * the parent's, here the parent never paints under its children (it clips them) and the child's
+  * transparent parts would show what the window held there, which is black.  The frame of the nearest
+  * composed ancestor, at the child's place, is the base then.  Cubase 14's splash: the progress bar
+  * and text are a child window with a target of its own over the lower edge of the image. */
+-static BOOL copy_ancestor_frame(const struct composition_target *target, HDC dst, int w, int h)
++static struct composition_target *composed_ancestor(const struct composition_target *target, POINT *pt)
+ {
+     HWND ancestor = target->hwnd;
+ 
++    /* this window is the only composed one of the process: nothing to look for */
++    if (dcomp_window_targets < 2) return NULL;
++
+     while ((ancestor = GetAncestor(ancestor, GA_PARENT)) && ancestor != GetDesktopWindow())
+     {
+         struct composition_target *parent;
+-        POINT pt = {0, 0};
+-        HBITMAP old;
+-        HDC src;
++        DWORD pid = 0;
+ 
++        /* the property holds a pointer, which means something in the process that set it only */
++        if (!GetWindowThreadProcessId(ancestor, &pid) || pid != GetCurrentProcessId()) return NULL;
+         if (!(parent = GetPropW(ancestor, L"wine_window_non_topmost_composed")))
+             parent = GetPropW(ancestor, L"wine_window_topmost_composed");
+         if (!parent || parent == target || !parent->back_bitmap) continue;
+-        if (!(src = CreateCompatibleDC(dst))) return FALSE;
+-        MapWindowPoints(target->hwnd, ancestor, &pt, 1);
+-        old = SelectObject(src, parent->back_bitmap);
+-        BitBlt(dst, 0, 0, w, h, src, pt.x, pt.y, SRCCOPY);
+-        SelectObject(src, old);
+-        DeleteDC(src);
+-        return TRUE;
++        pt->x = pt->y = 0;
++        MapWindowPoints(target->hwnd, ancestor, pt, 1);
++        return parent;
++    }
++    return NULL;
++}
++
++static BOOL copy_ancestor_frame(const struct composition_target *parent, POINT pt, HDC dst, int w, int h)
++{
++    HBITMAP old;
++    HDC src;
++
++    if (!(src = CreateCompatibleDC(dst))) return FALSE;
++    old = SelectObject(src, parent->back_bitmap);
++    BitBlt(dst, 0, 0, w, h, src, pt.x, pt.y, SRCCOPY);
++    SelectObject(src, old);
++    DeleteDC(src);
++    return TRUE;
++}
++
++/* How many visuals of a tree draw something, counted up to limit. */
++static unsigned int count_drawing_visuals(struct composition_visual *visual, unsigned int limit)
++{
++    struct composition_visual *child;
++    unsigned int count = visual->content ? 1 : 0;
++
++    if (visual->shared_visual_handle)
++    {
++        struct composition_visual *root = shared_visual_target_get_root(visual->shared_visual_handle);
++        if (root) count += count_drawing_visuals(root, limit);
++    }
++    LIST_FOR_EACH_ENTRY(child, &visual->child_visuals, struct composition_visual, entry)
++    {
++        if (count >= limit) break;
++        count += count_drawing_visuals(child, limit - count);
+     }
+-    return FALSE;
++    return count;
+ }
+ 
++/* One composite tick of a target, through the off-screen frame.  The window's
++ * current content is copied in first so that what no visual draws (and what
++ * the application paints on its own) is kept.  Falls back to drawing onto the
++ * window directly when the window has no size or the frame cannot be made. */
+ static HRESULT composite_target_tick(struct composition_target *target, struct composition_visual *visual)
+ {
+     DWORD style = DCX_USESTYLE | DCX_CACHE | (target->topmost ? 0 : DCX_CLIPCHILDREN);
+@@ -881,9 +912,27 @@
+     HDC window_dc;
+     RECT client;
+     HRESULT hr;
++    struct composition_target *parent;
+     BOOL first_frame = FALSE;
++    POINT parent_pt;
+     int w, h;
+ 
++    /* The off-screen frame is there to keep a frame that is only partly composed off the
++     * screen, and to put a child target over its parent's frame.  A tree with one drawing
++     * visual and no composed window above it (a JUCE 8 plugin editor: one swapchain) has
++     * neither, and a window-sized copy more every tick is all the frame would add: about a
++     * tenth of a core for one editor.  It is drawn straight onto the window, as before. */
++    parent = target->topmost ? NULL : composed_ancestor(target, &parent_pt);
++    if (!parent && count_drawing_visuals(visual, 2) < 2)
++    {
++        if (target->back_bitmap)
++        {
++            DeleteObject(target->back_bitmap);
++            target->back_bitmap = NULL;
++        }
++        return do_composite(target, visual, 0.0f, 0.0f);
++    }
++
+     GetClientRect(target->hwnd, &client);
+     w = client.right - client.left;
+     h = client.bottom - client.top;
+@@ -937,7 +986,7 @@
+     /* The window is read once, for what the program painted onto it itself.  X drops a
+      * window's content when it is unmapped, and a minimize and restore can be over between two
+      * ticks, so later ticks start from the last frame instead of from the window. */
+-    if (!target->topmost && copy_ancestor_frame(target, back_dc, w, h))
++    if (parent && copy_ancestor_frame(parent, parent_pt, back_dc, w, h))
+         ;
+     else if (first_frame)
+         BitBlt(back_dc, 0, 0, w, h, window_dc, 0, 0, SRCCOPY);
+@@ -987,7 +1036,8 @@
+ 
+             if (!target->root)
+             {
+-                FIXME("Target %p has no root.\n", &target->IDCompositionTarget_iface);
++                /* every tick, now that the thread keeps running */
++                TRACE("Target %p has no root.\n", &target->IDCompositionTarget_iface);
+                 continue;
+             }
+ 
+--- a/dlls/dcomp/target.c
++++ b/dlls/dcomp/target.c
+@@ -30,6 +30,9 @@
+ static const WCHAR *wine_window_topmost_composed = L"wine_window_topmost_composed";
+ static const WCHAR *wine_window_non_topmost_composed = L"wine_window_non_topmost_composed";
+ 
++/* windows of this process with a target, for the compositor to know a window stands alone */
++LONG dcomp_window_targets = 0;
++
+ static HRESULT STDMETHODCALLTYPE target_QueryInterface(IDCompositionTarget *iface, REFIID iid, void **out)
+ {
+     TRACE("iface %p, iid %s, out %p!\n", iface, debugstr_guid(iid), out);
+@@ -70,7 +73,11 @@
+         prop = target->topmost ? wine_window_topmost_composed : wine_window_non_topmost_composed;
+ 
+         dcomp_lock();
+-        RemovePropW(target->hwnd, prop);
++        if (target->hwnd)
++        {
++            RemovePropW(target->hwnd, prop);
++            InterlockedDecrement(&dcomp_window_targets);
++        }
+         list_remove(&target->entry);
+         dcomp_unlock();
+         if (target->back_bitmap)
+@@ -190,6 +197,7 @@
+     prop = target->topmost ? wine_window_topmost_composed : wine_window_non_topmost_composed;
+     /* the target itself, for a child window's target to find the frame under it (read under dcomp_lock) */
+     SetPropW(target->hwnd, prop, target);
++    InterlockedIncrement(&dcomp_window_targets);
+     return S_OK;
+ }
+ 
+--- a/dlls/wined3d/swapchain.c
++++ b/dlls/wined3d/swapchain.c
+@@ -1203,6 +1203,14 @@
+             swapchain->comp_height = dst_h;
+             swapchain->last_blit_window = swapchain->win_handle;
+ 
++            /* The compositor alpha-blends this buffer when the app made it with premultiplied
++             * alpha.  Said once per buffer: a property is a server call, and a program that
++             * presents as fast as it can (a JUCE 8 editor) paid for it on every frame. */
++            if (swapchain->state.desc.flags & WINED3D_SWAPCHAIN_PREMULTIPLIED_ALPHA)
++                SetPropW(swapchain->win_handle, L"__wine_dcomp_comp_alpha", (HANDLE)1);
++            else
++                RemovePropW(swapchain->win_handle, L"__wine_dcomp_comp_alpha");
++
+             /* Allocate/resize per-visual surface buffer BEFORE copying into it.
+              * Must happen before the memcpy below to avoid buffer overflow when
+              * the new comp buffer is larger than the old surface_bits allocation. */
+@@ -1501,11 +1509,6 @@
+             if (!SetPropW(swapchain->win_handle, L"__wine_dcomp_comp_size", (HANDLE)dims))
+                 WARN("Failed to set __wine_dcomp_comp_size property.\n");
+         }
+-        /* The compositor alpha-blends this buffer when the app made it with premultiplied alpha. */
+-        if (swapchain->state.desc.flags & WINED3D_SWAPCHAIN_PREMULTIPLIED_ALPHA)
+-            SetPropW(swapchain->win_handle, L"__wine_dcomp_comp_alpha", (HANDLE)1);
+-        else
+-            RemovePropW(swapchain->win_handle, L"__wine_dcomp_comp_alpha");
+         /* Expose surface_bits so root can composite per-visual layers. */
+         if (!SetPropW(swapchain->win_handle, L"__wine_dcomp_comp_bits",
+                 (HANDLE)(swapchain->surface_bits ? swapchain->surface_bits : swapchain->comp_bits)))

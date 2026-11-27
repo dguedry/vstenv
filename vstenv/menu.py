@@ -40,7 +40,11 @@ def launcher() -> str:
     broke every menu entry this way). Prefer the installed Flatpak -- it shares
     the same prefix -- and only fall back to a cwd-independent python command."""
     if host.in_flatpak(): return f"flatpak run --command={APP_NAME} {APP_ID}"
-    if host.which(APP_NAME): return APP_NAME
+    from . import shim
+    found = host.which(APP_NAME)
+    # Our own ~/.local/bin shim is a terminal convenience: the desktop session's PATH
+    # may not have ~/.local/bin, and an entry whose Exec is not on PATH is dropped.
+    if found and not shim.ours(Path(found)): return APP_NAME
     if host.which("flatpak"):
         try:
             import subprocess

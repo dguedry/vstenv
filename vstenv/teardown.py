@@ -50,7 +50,7 @@ def unbridge(p, reporter=None) -> int:
 def remove_environment(p, reporter=None, downloads: bool = False) -> None:
     """Remove everything setup made (see the module docstring). `p` may be None
     when there is no usable prefix; the files still go."""
-    from . import menu, filemanager, urlschemes, desktopfix
+    from . import menu, filemanager, urlschemes, desktopfix, shim
     r = null_reporter(reporter)
     if p is not None:
         r.step("Stopping Wine in the prefix")
@@ -61,7 +61,7 @@ def remove_environment(p, reporter=None, downloads: bool = False) -> None:
         try:
             for _v, s in urlschemes.all_schemes(p): urlschemes.unregister(s, r)
         except Exception as e: r.step("Removing URL handlers"); r.fail(str(e)[:100])
-    for step in (menu.remove_all, filemanager.remove, desktopfix.reset):
+    for step in (menu.remove_all, filemanager.remove, desktopfix.reset, shim.remove):
         try: step(r)
         except Exception as e: r.step(getattr(step, "__name__", "cleanup")); r.fail(str(e)[:100])
     targets = [paths.DATA, paths.CONFIG] + ([paths.CACHE] if downloads else [])

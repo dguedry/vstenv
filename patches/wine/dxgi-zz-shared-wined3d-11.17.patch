@@ -1,0 +1,58 @@
+dxgi: share one wined3d object per process between factories
+
+D3D11CreateDevice() (and every CreateDXGIFactory) made a new wined3d object,
+which probes the GL adapter again: a throw-away GL context, the capability
+tables, format and depth-bias probing. Cubase 14 makes a D3D11 device per
+context-menu icon. Measured under the host runtime on Xvfb (llvmpipe): a
+D3D11CreateDevice after the first took 29 ms and spent 30 ms of a 32 ms
+traced creation in wined3d_adapter_gl_create; with the object shared it takes
+8.5 ms. In the Direct2D icon benchmark with a new D3D11 device per icon this
+is 46.8 ms (66.3 ms before the d2d1 shader cache) -> 33.8 ms per icon.
+
+Keep one wined3d object, created on first use and never released, and give
+each factory its own reference. The outputs are read when it is created, so a
+new object is made when the virtual screen rectangle changes.
+
+--- a/dlls/dxgi/factory.c	2026-11-25 10:04:44.098476958 +0200
++++ b/dlls/dxgi/factory.c	2026-11-25 11:46:26.813956483 +0200
+@@ -1442,6 +1442,31 @@
+     return factory;
+ }
+ 
++/* Creating a wined3d object probes the GL adapter (a throw-away GL context and the
++ * capability tables, ~30 ms with llvmpipe) and D3D11CreateDevice() makes a new factory
++ * each call, so share one per process. The outputs are read when it is created, so a new
++ * one is made when the virtual screen changes (monitors added, removed or resized). */
++static struct wined3d *shared_wined3d;
++static RECT shared_wined3d_screen;
++
++static struct wined3d *dxgi_get_shared_wined3d(void)
++{
++    RECT screen;
++
++    SetRect(&screen, GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN),
++            GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN));
++    if (shared_wined3d && !EqualRect(&screen, &shared_wined3d_screen))
++    {
++        wined3d_decref(shared_wined3d);
++        shared_wined3d = NULL;
++    }
++    if (!shared_wined3d && (shared_wined3d = wined3d_create(0)))
++        shared_wined3d_screen = screen;
++    if (shared_wined3d)
++        wined3d_incref(shared_wined3d);
++    return shared_wined3d;
++}
++
+ static HRESULT dxgi_factory_init(struct dxgi_factory *factory, BOOL extended)
+ {
+     factory->IWineDXGIFactory_iface.lpVtbl = &dxgi_factory_vtbl;
+@@ -1449,7 +1474,7 @@
+     wined3d_private_store_init(&factory->private_store);
+ 
+     wined3d_mutex_lock();
+-    factory->wined3d = wined3d_create(0);
++    factory->wined3d = dxgi_get_shared_wined3d();
+     wined3d_mutex_unlock();
+     if (!factory->wined3d)
+     {

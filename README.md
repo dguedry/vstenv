@@ -254,6 +254,17 @@ it on. If yours is off, the app asks once whether to turn it on, which needs you
 password. You can also do it later from **Health → Speed up plugins**. Once it's
 on, close your DAW and open it again so Wine starts using the driver.
 
+### Programs that only use ASIO (Cubase)
+
+Some Windows programs only talk to sound cards through ASIO. They still make
+sound here: Cubase, for example, installs its own "Steinberg built-in ASIO
+Driver", which plays through your normal Linux audio. If you record or play live
+and need less delay or more channels, turn on **Health → Audio → WineASIO
+driver** and pick WineASIO as the ASIO driver in the program. Its settings are
+under **WineASIO settings** on the same page, and behind the driver's Control
+Panel button in the program. It needs PipeWire (with the `pipewire-jack` package)
+or JACK.
+
 ### Drag and drop
 
 You can drag samples and loops from your Linux file manager onto a Windows plugin,

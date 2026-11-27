@@ -211,8 +211,12 @@ class Prefix:
         # nothing; its dummy-composition-swapchain option makes them render and
         # take input. Harmless for everything else (it only changes the call that
         # otherwise fails), and a user's own DXVK_CONFIG always wins.
+        # The context lock makes every call on the immediate context take the
+        # device lock, as Windows' d3d11 does: Cubase draws on one device from
+        # many threads (Direct2D, DirectComposition, its own), and DXVK's context
+        # without it corrupts its state and hangs the program.
         if "DXVK_CONFIG" not in os.environ:
-            e["DXVK_CONFIG"] = "dxgi.enableDummyCompositionSwapchain = True"
+            e["DXVK_CONFIG"] = "dxgi.enableDummyCompositionSwapchain = True; d3d11.enableContextLock = True"
         # Startup notification. A new Wine window carries no _NET_WM_USER_TIME, and
         # the window manager focuses such a window on sight -- over whatever the
         # user is doing (focus-new-windows=strict does not change that). Wine reads
@@ -222,6 +226,11 @@ class Prefix:
         # the GUI sets one stamped with the click (see gui.startup_id); from a
         # terminal there is none and the old behaviour stays.
         if (sid := os.environ.get("DESKTOP_STARTUP_ID")): e["DESKTOP_STARTUP_ID"] = sid
+        # WineASIO (opt-in) loads the host's libjack.so.0; where that is JACK2's while
+        # PipeWire is the sound server, it needs PipeWire's instead; its Control Panel
+        # button runs our settings launcher from PATH (see wineasio.py).
+        from . import wineasio
+        if wineasio.enabled(self): e.update(wineasio.launch_env())
         if extra: e.update(extra)
         return e
 
@@ -466,11 +475,15 @@ done"""
                   ("syswow64", "i386-windows", "user32.dll"), ("system32", "x86_64-windows", "ntdll.dll"))
 
     def foreign_dlls(self) -> list[str]:
-        """Prefix builtin DLLs that differ in size from this wine build's copies."""
+        """Prefix builtin DLLs whose size matches neither this wine build's copy nor its
+        `.orig` (the stock file `vstenv wine-fixes` replaced: the prefix keeps that one
+        until a prefix update, so it is legitimately a different size from the patched copy)."""
         bad = []
         for sysdir, pedir, dll in self.PROBE_DLLS:
             ours = self.build.root / "lib/wine" / pedir / dll; mine = self.drive_c / "windows" / sysdir / dll
-            if ours.exists() and mine.exists() and ours.stat().st_size != mine.stat().st_size: bad.append(f"{sysdir}/{dll}")
+            if not (ours.exists() and mine.exists()): continue
+            orig = ours.with_name(dll + ".orig")
+            if mine.stat().st_size not in {ours.stat().st_size, *([orig.stat().st_size] if orig.exists() else [])}: bad.append(f"{sysdir}/{dll}")
         return bad
 
     def refresh_builtins(self, reporter=None) -> bool:

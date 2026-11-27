@@ -1,0 +1,35 @@
+winex11: end a tracking menu when the window manager asks to close.
+
+Right-clicking in Cubase opens a TrackPopupMenu; clicking the title bar's
+close button then sends WM_DELETE_WINDOW, which the driver turns into a
+posted WM_SYSCOMMAND/SC_CLOSE. The menu's modal loop dispatches it, Cubase
+opens "Save this project?" nested inside the loop, and the menu keeps its
+capture, so the dialog's buttons cannot be clicked until Esc. On Windows the
+click on the close button is outside the menu and ends it before the close
+is handled. Call NtUserEndMenu when the thread is in menu mode: it posts
+WM_CANCELMODE, which is queued ahead of the SC_CLOSE posted right after, so
+the menu is gone when the close is handled.
+
+--- a/dlls/winex11.drv/event.c
++++ b/dlls/winex11.drv/event.c
+@@ -559,6 +559,7 @@
+         if (NtUserIsWindowEnabled( hwnd ))
+         {
+             HMENU hSysMenu;
++            GUITHREADINFO info;
+ 
+             if (NtUserGetClassLongW( hwnd, GCL_STYLE ) & CS_NOCLOSE) return;
+             hSysMenu = NtUserGetSystemMenu( hwnd, FALSE );
+@@ -591,6 +592,12 @@
+                 }
+             }
+ 
++            /* On Windows the click on the close button ends a tracking menu
++             * first; the cancel is queued ahead of the close below. */
++            info.cbSize = sizeof(info);
++            if (NtUserGetGUIThreadInfo( GetCurrentThreadId(), &info ) && (info.flags & GUI_INMENUMODE))
++                NtUserEndMenu();
++
+             NtUserPostMessage( hwnd, WM_SYSCOMMAND, SC_CLOSE, 0 );
+         }
+     }

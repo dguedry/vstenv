@@ -83,6 +83,36 @@ def cmd_ntsync(a):
     s = ntsync.status(); ok, why = ntsync.summary(s); print(why)
     if ntsync.can_enable(s): print(f"Turn it on: {APP_NAME} ntsync enable (asks for your password once)")
 
+def cmd_wineasio(a):
+    """WineASIO: an ASIO driver over JACK/PipeWire, off until asked for."""
+    from . import wineasio, winefixes
+    p = _prefix()
+    if a.action == "status":
+        have = winefixes.has(p.build, wineasio.DLL) and winefixes.has(p.build, "x86_64-unix/wineasio.dll.so")
+        on = wineasio.registered(p) if p.exists else False
+        print("WineASIO: " + ("on (ASIO programs list it as WineASIO)" if on else "off" if have else "not in this Wine build (vstenv wine-fixes install)"))
+        d, _ = wineasio.pipewire_jack_dir()
+        print("JACK library: " + (f"PipeWire's ({d})" if d else "the system's libjack.so.0 (a JACK server must be running, or install pipewire-jack)"))
+        if p.exists:
+            vals = wineasio.settings(p)
+            for name, (_, default, _, _, what) in wineasio.SETTINGS.items():
+                print(f"  {name:<17} {vals[name]:<5} {what}" + ("" if vals[name] == default else f" (default {default})"))
+            print(f"Change one: {APP_NAME} wineasio set <name> <value>   or the window: {APP_NAME} wineasio settings")
+        if have and not on: print(f"Turn it on: {APP_NAME} wineasio enable")
+        return
+    if a.action == "set":
+        if not a.name or a.value is None: sys.exit(f"usage: {APP_NAME} wineasio set <{'|'.join(wineasio.SETTINGS)}> <value>")
+        try: v = wineasio.set_setting(p, a.name, a.value)
+        except (ValueError, RuntimeError) as e: sys.exit(str(e))
+        print(f"{a.name} = {v} (used the next time a program opens the driver)"); return
+    if a.action == "settings":
+        from . import wineasio_gui
+        sys.exit(wineasio_gui.run(p))
+    r = ConsoleReporter()
+    if a.action == "enable": wineasio.register(p, r)
+    else: wineasio.unregister(p, r)
+    _fail_if(r)
+
 def cmd_wedge(a):
     """The DirectComposition wedge: every dcomp GUI hangs until Wine restarts."""
     from . import wedge
@@ -380,8 +410,11 @@ def cmd_wine_fixes(a):
         if st["missing"]: print(f"missing: {', '.join(st['missing'])} -- vstenv wine-fixes install")
         return
     r = ConsoleReporter()
-    if a.action == "remove": winefixes.remove(b, r)
-    else: winefixes.install(b, r, force=a.force)
+    from . import wineasio
+    if a.action == "remove":
+        winefixes.remove(b, r); wineasio.unregister(wine.Prefix(paths.PREFIX, b), r)
+    elif wineasio.DLL in winefixes.install(b, r, force=a.force):
+        wineasio.refresh(wine.Prefix(paths.PREFIX, b), r)    # new files: an existing registration gets them
     _fail_if(r)
 
 def cmd_dxvk(a):
@@ -484,6 +517,10 @@ def main(argv=None):
     s.set_defaults(f=cmd_webview2)
     s = sp.add_parser("wine-fixes", help="patched Wine DLLs this app ships (DirectComposition for Steinberg): install | status | remove")
     s.add_argument("action", nargs="?", default="install", choices=["install", "status", "remove"]); s.add_argument("--force", action="store_true"); s.set_defaults(f=cmd_wine_fixes)
+    s = sp.add_parser("wineasio", help="an ASIO driver over JACK/PipeWire for ASIO-only programs that need low latency (Cubase): status | enable | disable | set <name> <value> | settings (a window)")
+    s.add_argument("action", nargs="?", default="status", choices=["status", "enable", "disable", "set", "settings"])
+    s.add_argument("name", nargs="?", help="for set: inputs, outputs, buffer, fixed-buffer, connect-hardware, autostart-jack"); s.add_argument("value", nargs="?")
+    s.set_defaults(f=cmd_wineasio)
     s = sp.add_parser("dxvk", help="Direct3D on Vulkan for plugin GUIs that Wine draws wrong")
     s.add_argument("action", nargs="?", default="install", choices=["install", "remove", "status"]); s.add_argument("--force", action="store_true"); s.set_defaults(f=cmd_dxvk)
     sp.add_parser("prefixes", help="which vstenv prefixes exist, who owns a vendor daemon, what yabridge points at").set_defaults(f=cmd_prefixes)
