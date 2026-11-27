@@ -11,8 +11,8 @@ installer you downloaded. It sets up and repairs the Windows compatibility layer
 have to deal with it yourself.
 
 It works with Native Instruments, IK Multimedia, Steinberg, KORG, Arturia,
-iZotope, Softube, Audio Modeling, Minimal Audio, Orchestral Tools, FabFilter,
-Soundtoys, Valhalla, Xfer and more. See [What works](#what-works).
+iZotope, Softube, Audio Modeling, Minimal Audio, Orchestral Tools, Spitfire
+Audio, Roland, FabFilter, Soundtoys, Valhalla, Xfer and more. See [What works](#what-works).
 
 VST Environment is an independent, unofficial project. It isn't associated
 with, endorsed by or supported by any of the companies whose software it
@@ -214,6 +214,9 @@ on Windows:
 | Minimal Audio | Minimal Hub | |
 | Mercurial Tones | Mercurial Tones Hub | The Hub is slow to respond when maximized; drag its edges to make it bigger instead |
 | Orchestral Tools | SINE Player | Sign-in fields don't show your typing (see above) |
+| Spitfire Audio | Spitfire Audio app | |
+| Roland | Roland Cloud Manager | |
+| Rayzoon | Jamstix 4 Manager | |
 
 **Vendors with plain installers.** Download the Windows installer and install
 it from the **Install** tab: FabFilter, Soundtoys, Valhalla DSP and Xfer Records
@@ -221,14 +224,6 @@ work as they are, and so do most plugins that install this way. Plugins
 protected by iLok work too.
 
 **Standalone programs.** Gig Performer 5 works as a program of its own.
-
-**Partly working:**
-
-| Vendor | What works and what doesn't yet |
-|---|---|
-| Spitfire Audio | Its app opens and browses; signing in and installing libraries not yet confirmed |
-| Rayzoon (Jamstix 4) | The editor opens in a DAW; playback not yet confirmed |
-| Roland | Roland Cloud Manager installs and opens; signing in not yet confirmed |
 
 Tested mostly on Linux Mint 22.3 and Ubuntu 24.04. A vendor you use isn't
 listed? It may well work: try it, and please
