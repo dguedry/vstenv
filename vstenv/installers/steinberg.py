@@ -113,6 +113,20 @@ def _already_newer(p: Prefix, msi: Path) -> str | None:
     except Exception: return None
     return None
 
+def _minor_update(p: Prefix, msi: Path) -> bool:
+    """True when this MSI has the product code of an installed program at another
+    version: a minor update. A plain /i of one is refused (MediaBay 1.4.10 over
+    1.3.100: exit 102 with an empty log); Windows Installer wants it reinstalled
+    from the new package."""
+    try:
+        from ..msi import Msi
+        from .. import programs
+        props = {r["Property"]: r["Value"] for r in Msi(msi).rows("Property")}
+        code, ver = props.get("ProductCode", "").lower(), props.get("ProductVersion", "")
+        if not code: return False
+        return any(code in (x.uninstall or "").lower() and _vtuple(x.version) != _vtuple(ver) for x in programs.installed(p, fresh=True))
+    except Exception: return False
+
 def install(p: Prefix, pkg: Path, reporter=None) -> dict:
     """Extract a package and install its MSIs silently. Returns a summary dict."""
     r = null_reporter(reporter); paths.ensure_dirs()
@@ -129,7 +143,8 @@ def install(p: Prefix, pkg: Path, reporter=None) -> dict:
             have = _already_newer(p, msi)
             if have: r.skip(f"{have} is already installed"); done.append(name); continue
             log = p.drive_c / f"vstenv-steinberg-{Path(name).stem}.log"; log.unlink(missing_ok=True)
-            cp = p.run(["msiexec", "/i", str(msi), "/qn", "/l*v", p.to_win(log)], timeout=3600, cwd=str(msi.parent))
+            extra = ["REINSTALL=ALL", "REINSTALLMODE=vomus"] if _minor_update(p, msi) else []
+            cp = p.run(["msiexec", "/i", str(msi), "/qn", "/l*v", p.to_win(log), *extra], timeout=3600, cwd=str(msi.parent))
             if cp.returncode in (0, 3010, 1638):          # ok, ok-needs-reboot, same-or-newer already installed
                 r.ok("installed" if cp.returncode != 1638 else "already installed"); done.append(name); log.unlink(missing_ok=True)
             else:
