@@ -571,6 +571,22 @@ Kontakt 8 at unchanged CPU (121, 60, 17 and 16 percent of a core). If something
 in window, cursor or font behaviour changes after this release, restoring
 `win32u.so.orig` is the first thing to try.
 
+## win32u-post-move-no-erase-<version>.patch
+
+`dcomp-swapchain-present` invalidates a whole window, with an erase, after
+every move or resize (`set_window_pos()` in `dlls/win32u/window.c`). That code
+is in the unix half of win32u, so it did nothing until `win32u.so` was shipped
+(v0.1.162, above). Once live, the erase painted the class background over
+windows that do not draw again when asked: Minimal Hub's WebView2 browser
+window renders through OpenGL into its window surface and presents only when
+the page changes, so shrinking the window left it black until the next resize.
+
+The patch drops `RDW_ERASE` and keeps the invalidation. Tested with Minimal Hub
+in a copy of the prefix (shrink, capture after 10 s): black 6 of 6 with the
+shipped `win32u.so`, drawn 3 of 3 with the stock one, drawn 4 of 4 with the
+patch; Softube Central unchanged. Not tested: SynthEdit, which the invalidation
+was written for in the fork it came from.
+
 ## WineASIO (no patch: built from upstream)
 
 The tarball also carries WineASIO 1.3.0 (github.com/wineasio/wineasio), an ASIO
