@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.169" date="2026-11-27">
+      <description>
+        <p>SINE Player 1.4.5 no longer crashes at start, and Health checks the open-file limit ntsync needs (#37)</p>
+      </description>
+    </release>
     <release version="0.1.168" date="2026-11-27">
       <description>
         <p>Steinberg: finishing a refused install now also works for an update over an installed version</p>
