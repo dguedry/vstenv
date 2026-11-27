@@ -147,7 +147,7 @@ class Steinberg(Vendor):
     name = "Steinberg"
     publisher = re.compile(r"steinberg", re.I)
     manager_name = MANAGER
-    download_page = "https://o.steinberg.net/en/support/downloads/steinberg_download_assistant.html"
+    download_page = "https://www.steinberg.net/go/"
     installer_hint = "the Steinberg Download Assistant installer for Windows (.exe)"
 
     def _manager(self, p: Prefix):
