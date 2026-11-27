@@ -10,9 +10,9 @@ installer you downloaded. It sets up and repairs the Windows compatibility layer
 (Wine) for you, along with the many fixes plugins need under it, so you never
 have to deal with it yourself.
 
-It works with Native Instruments (Native Access, Kontakt and its libraries), IK
-Multimedia, Steinberg, KORG, Arturia, iZotope, Softube, Audio Modeling, FabFilter,
-Soundtoys, Valhalla, Xfer Serum 2 and more. See [What works](#what-works).
+It works with Native Instruments, IK Multimedia, Steinberg, KORG, Arturia,
+iZotope, Softube, Audio Modeling, Minimal Audio, Orchestral Tools, FabFilter,
+Soundtoys, Valhalla, Xfer and more. See [What works](#what-works).
 
 VST Environment is an independent, unofficial project. It isn't associated
 with, endorsed by or supported by any of the companies whose software it
@@ -193,27 +193,46 @@ Known problems and what to do:
 
 ## What works
 
-| Vendor and product | Status |
-|---|---|
-| Native Instruments: Native Access, Kontakt 8, libraries, Komplete Kontrol | Works. Sign in, install, and play in a DAW |
-| IK Multimedia: IK Product Manager, SampleTank, Hammond B-3X | Works. Plugin windows need a graphics driver with Vulkan, which most have |
-| Steinberg: Download Assistant, HALion Sonic 7 | Works. Sign-in, installs, libraries, playing in a DAW |
-| Arturia: Software Center, Analog Lab V | Works |
-| iZotope: Product Portal, Ozone 9 | Works |
-| Softube: Softube Central, Heartbeat | Works |
-| Audio Modeling: Software Center, SWAM | Works. The Center reports its installs as failed; the app finishes them and tells you |
-| FabFilter, Soundtoys (with iLok), Valhalla, Xfer Serum 2 | Work as they are |
-| Gig Performer 5 | Works, as a standalone program |
-| Minimal Audio: Minimal Hub, Squash | Works |
-| Mercurial Tones: Mercurial Tones Hub, Janggo | Works. Install, sign in, and play in StageRig. The Hub is slow to respond when maximized; drag its edges to make it bigger instead |
-| KORG: KORG Software Pass, TRITON | Works. Sign in, install, and play in StageRig |
-| Orchestral Tools: SINE Player | Works. Sign-in fields don't show your typing (see above) |
-| Spitfire Audio app | Partly: it opens and browses; signing in and installing libraries not yet confirmed |
-| Rayzoon: Jamstix 4 | Partly: the editor opens in a DAW; playback not yet confirmed |
-| Roland Cloud Manager | Partly: it installs and opens; signing in not yet confirmed |
+Support goes by vendor, not by plugin: once a vendor's store app and one of its
+products work here, its other products almost always do too, because they share
+the same installer, licensing and plugin technology. So this list names vendors,
+not every plugin.
 
-Tested mostly on Linux Mint 22.3 and Ubuntu 24.04. Something you use isn't
-listed? Try it, and please report how it went.
+**Vendors with a store app.** Sign in, install and play in a DAW, as you would
+on Windows:
+
+| Vendor | Store app | Notes |
+|---|---|---|
+| Native Instruments | Native Access | Kontakt and its libraries, Komplete Kontrol, synths and effects |
+| IK Multimedia | IK Product Manager | Plugin windows need a graphics driver with Vulkan, which most have |
+| Steinberg | Steinberg Download Assistant | Instruments and their sound libraries. Cubase isn't confirmed yet |
+| Arturia | Arturia Software Center | |
+| iZotope | Product Portal | |
+| Softube | Softube Central | |
+| KORG | KORG Software Pass | |
+| Audio Modeling | Software Center | The Center reports its installs as failed; the app finishes them and tells you |
+| Minimal Audio | Minimal Hub | |
+| Mercurial Tones | Mercurial Tones Hub | The Hub is slow to respond when maximized; drag its edges to make it bigger instead |
+| Orchestral Tools | SINE Player | Sign-in fields don't show your typing (see above) |
+
+**Vendors with plain installers.** Download the Windows installer and install
+it from the **Install** tab: FabFilter, Soundtoys, Valhalla DSP and Xfer Records
+work as they are, and so do most plugins that install this way. Plugins
+protected by iLok work too.
+
+**Standalone programs.** Gig Performer 5 works as a program of its own.
+
+**Partly working:**
+
+| Vendor | What works and what doesn't yet |
+|---|---|
+| Spitfire Audio | Its app opens and browses; signing in and installing libraries not yet confirmed |
+| Rayzoon (Jamstix 4) | The editor opens in a DAW; playback not yet confirmed |
+| Roland | Roland Cloud Manager installs and opens; signing in not yet confirmed |
+
+Tested mostly on Linux Mint 22.3 and Ubuntu 24.04. A vendor you use isn't
+listed? It may well work: try it, and please
+[report how it went](https://github.com/dguedry/vstenv/issues), either way.
 
 ## Removing things and starting over
 
