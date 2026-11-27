@@ -205,7 +205,7 @@ on Windows:
 |---|---|---|
 | Native Instruments | Native Access | Kontakt and its libraries, Komplete Kontrol, synths and effects |
 | IK Multimedia | IK Product Manager | Plugin windows need a graphics driver with Vulkan, which most have |
-| Steinberg | Steinberg Download Assistant | Instruments and their sound libraries. Cubase isn't confirmed yet |
+| Steinberg | Steinberg Download Assistant | Cubase 14, instruments and their sound libraries. Cubase uses ASIO: see [Programs that only use ASIO](#programs-that-only-use-asio-cubase) |
 | Arturia | Arturia Software Center | |
 | iZotope | Product Portal | |
 | Softube | Softube Central | |
