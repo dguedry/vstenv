@@ -212,7 +212,7 @@ on Windows:
 | KORG | KORG Software Pass | |
 | Audio Modeling | Software Center | The Center reports its installs as failed; the app finishes them and tells you |
 | Minimal Audio | Minimal Hub | |
-| Mercurial Tones | Mercurial Tones Hub | The Hub is slow to respond when maximized; drag its edges to make it bigger instead |
+| Mercurial Tones | Mercurial Tones Hub | |
 | Orchestral Tools | SINE Player | Sign-in fields don't show your typing (see above) |
 | Spitfire Audio | Spitfire Audio app | |
 | Roland | Roland Cloud Manager | |
