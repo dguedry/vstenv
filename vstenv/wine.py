@@ -217,6 +217,13 @@ class Prefix:
         # without it corrupts its state and hangs the program.
         if "DXVK_CONFIG" not in os.environ:
             e["DXVK_CONFIG"] = "dxgi.enableDummyCompositionSwapchain = True; d3d11.enableContextLock = True"
+        # DXVK ends each of its waits in a busy loop when ntdll tells it how
+        # coarse sleeping is; JUCE waits for the next screen refresh that way
+        # all the time a window is open: 40% of a core per program or plugin
+        # host. The patched ntdll hides that one function from DXVK when asked
+        # (patches/wine: ntdll-zz-hide-timer-resolution). Set it to 0 to opt out.
+        if "WINE_HIDE_TIMER_RESOLUTION" not in os.environ:
+            e["WINE_HIDE_TIMER_RESOLUTION"] = "1"
         # Startup notification. A new Wine window carries no _NET_WM_USER_TIME, and
         # the window manager focuses such a window on sight -- over whatever the
         # user is doing (focus-new-windows=strict does not change that). Wine reads

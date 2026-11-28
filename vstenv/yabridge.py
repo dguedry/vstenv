@@ -436,6 +436,7 @@ LAUNCHER_QUIET_MARK = "# vstenv: no per-frame fixme chatter from the host (set W
 _OUR_QUIET = f'''{LAUNCHER_QUIET_MARK}
 if [ -z "${{WINEDEBUG+x}}" ]; then WINEDEBUG=fixme-all; export WINEDEBUG; fi
 if [ -z "${{DXVK_CONFIG+x}}" ]; then DXVK_CONFIG="dxgi.enableDummyCompositionSwapchain = True; d3d11.enableContextLock = True"; export DXVK_CONFIG; fi
+if [ -z "${{WINE_HIDE_TIMER_RESOLUTION+x}}" ]; then WINE_HIDE_TIMER_RESOLUTION=1; export WINE_HIDE_TIMER_RESOLUTION; fi
 '''
 
 def write_plugin_overrides(entries: list[tuple[str, str]]) -> Path:

@@ -38,7 +38,7 @@ class HostRunnerTest(unittest.TestCase):
         p = Prefix(Path("/p"), WineBuild(Path("/w")))
         e = p.wine_env({"WINEDEBUG": "+seh"})
         # DXVK_CONFIG is included (with a default) unless the user set their own
-        self.assertEqual(set(e) - {"DXVK_CONFIG"}, {"WINEPREFIX", "WINEFSYNC", "WINEDEBUG", "WINEDLLOVERRIDES", "WINEARCH"})
+        self.assertEqual(set(e) - {"DXVK_CONFIG", "WINE_HIDE_TIMER_RESOLUTION"}, {"WINEPREFIX", "WINEFSYNC", "WINEDEBUG", "WINEDLLOVERRIDES", "WINEARCH"})
         self.assertEqual(e["WINEDEBUG"], "+seh"); self.assertEqual(e["WINEPREFIX"], "/p")
         self.assertNotIn("PATH", e)                        # the host session keeps its own PATH
 

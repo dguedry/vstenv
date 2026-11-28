@@ -1,0 +1,46 @@
+--- a/dlls/ntdll/loader.c
++++ b/dlls/ntdll/loader.c
+@@ -2179,6 +2179,32 @@
+     return cached;
+ }
+ 
++/* DXVK asks GetProcAddress( ntdll, "NtQueryTimerResolution" ) and, when the call
++ * works, takes the answer (1 ms) as how far a sleep can overshoot: every wait
++ * of its own then ends in a busy loop of 4 ms plus a sixth of the wait.  Its
++ * IDXGIOutput::WaitForVBlank is such a wait, and JUCE calls it in a loop from a
++ * thread of its own for as long as a plugin has a window: 40% of a core, per
++ * plugin host, with nothing on screen changing.  Wine sleeps through select()
++ * and does not overshoot like that, and without the function DXVK sleeps the
++ * whole wait (what it did while Wine's version was a stub that failed).
++ * WINE_HIDE_TIMER_RESOLUTION=1 hides that one export from a process. */
++static BOOL hide_timer_resolution_export(void)
++{
++    static int cached = -1;
++
++    if (cached == -1)
++    {
++        WCHAR buf[8];
++        SIZE_T len = 0;
++
++        buf[0] = 0;
++        cached = !RtlQueryEnvironmentVariable( NULL, L"WINE_HIDE_TIMER_RESOLUTION", 26,
++                                               buf, ARRAY_SIZE(buf) - 1, &len )
++                 && buf[0] && buf[0] != '0';
++    }
++    return cached;
++}
++
+ /******************************************************************
+  *		LdrGetProcedureAddress  (NTDLL.@)
+  */
+@@ -2194,6 +2220,10 @@
+         && !memcmp( name->Buffer, "wine_get_version", 16 )
+         && hide_wine_version_export())
+         return STATUS_PROCEDURE_NOT_FOUND;
++    if (name && name->Buffer && name->Length == 22
++        && !memcmp( name->Buffer, "NtQueryTimerResolution", 22 )
++        && hide_timer_resolution_export())
++        return STATUS_PROCEDURE_NOT_FOUND;
+ 
+     RtlEnterCriticalSection( &loader_section );
+ 
