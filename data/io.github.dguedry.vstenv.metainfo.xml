@@ -61,6 +61,11 @@
     <control>keyboard</control>
   </supports>
   <releases>
+    <release version="0.1.171" date="2026-11-28">
+      <description>
+        <p>Direct2D makes its shaders once per device, not for every drawing context</p>
+      </description>
+    </release>
     <release version="0.1.170" date="2026-11-28">
       <description>
         <p>Plugins on DXVK no longer spin the CPU while waiting for the next screen refresh</p>
