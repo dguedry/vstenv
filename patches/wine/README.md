@@ -508,6 +508,26 @@ giving 3.4 ms per icon. Left: a new D3D11 device per icon costs another ~32 ms
 (wined3d device/context creation), only if Cubase does that. Named `zz` to sort
 after `d2d1-zz-layer-opacity-mask` (same file).
 
+## d2d1-zzzz-device-d3d-objects-<version>.patch
+
+Squash (Minimal Audio, JUCE 8) used 120% of a core in REAPER and still drew
+only 13 frames a second. Sampling the two busy threads showed wined3d parsing
+shader bytecode and the GL driver compiling it, every frame.
+`d2d_device_context_init()` creates five vertex shaders with their input
+layouts, the pixel shader, the quad's index and vertex buffers and a rasteriser
+state for every device context, and Squash makes about 190 contexts a second
+on one Direct2D device (JUCE draws cached images through contexts of their
+own). `d2d1-zz-shader-cache` had removed the compile; the D3D objects were
+still new each time.
+
+The patch makes those objects once per Direct2D device; each context takes a
+reference. Squash: 13-14 frames a second before, 20 after, at the same CPU (it
+stays CPU-bound: what is left is its "Get started" panel's dotted bar, drawn as
+dozens of ellipses per frame, each a geometry with new vertex buffers). SINE
+Player, Janggo and Squash draw the same as before. Not tested: Cubase, HALion
+Sonic, and a program that uses one Direct2D device from several threads at
+once (the objects are made under a lock; the contexts only read them).
+
 ## dxgi-zz-shared-wined3d-<version>.patch
 
 `D3D11CreateDevice` makes a new DXGI factory, and every factory made its own

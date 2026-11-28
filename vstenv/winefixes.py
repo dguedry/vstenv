@@ -37,7 +37,7 @@ FIXES = {"dcomp.dll": "DirectComposition (Steinberg's VSTGUI: HALion Sonic 7, Cu
          "dxgi.dll": "DXGI composition swapchains that present into the host window (JUCE 8 apps like the Spitfire app), and follow the app's resizes (TONEX drew pixelated after a resize)",
          "wined3d.dll": "keep-back-buffers swapchains and the composition GL present path (composition swapchains)",
          "win32u.dll": "window and OpenGL plumbing for composition swapchains",
-         "d2d1.dll": "Direct2D's copy blend mode (JUCE 8 plugins clear cached images with it; Minimal Audio's readouts smeared when they changed)",
+         "d2d1.dll": "Direct2D's copy blend mode (JUCE 8 plugins clear cached images with it; Minimal Audio's readouts smeared when they changed), and the shaders every drawing context needs are made once per device (Squash made them 190 times a second)",
          "dwrite.dll": "font fallback reads an app's text once, as Windows does (SINE Player 1.4.5 crashed at start: JUCE has its text at position 0 only)",
          "sensapi.dll": "\"is the network up?\" answers the way Windows does (KORG Software Pass said \"No Internet Connection\")",
          "ntdll.dll": "a plugin host can hide Wine from JUCE 8.0.13 plugins (Minimal Audio's sign-in panel and interface stayed empty), and DXVK no longer spins the CPU while it waits for the next screen refresh (SINE Player, Hammond B-3X: 40% of a core per open plugin)",
